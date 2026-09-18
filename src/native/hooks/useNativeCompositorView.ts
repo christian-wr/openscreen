@@ -120,11 +120,32 @@ export function useNativeCompositorView(
 		 *  is destructive (clears the bitmap), so we only do it on genuine
 		 *  rect changes — handled together with the setRect push below. */
 		const syncCanvasSize = (rect: CompositorViewRect) => {
+			let cleared = false;
 			if (canvas.width !== rect.width) {
 				canvas.width = rect.width;
+				cleared = true;
 			}
 			if (canvas.height !== rect.height) {
 				canvas.height = rect.height;
+				cleared = true;
+			}
+			if (cleared) {
+				// Those assignments wiped the bitmap, and NOTHING else puts pixels back:
+				// the `setRect` push below only records the size native-side (`set_rect`
+				// in crates/compositor/src/live.rs writes `shared.preview_size` and
+				// returns — it composes nothing and publishes no new generation). So the
+				// pull loop keeps asking for "anything newer than `lastGen`", keeps being
+				// told there is nothing, and the cleared canvas stays black until some
+				// unrelated event happens to compose a frame. While the preview is paused
+				// that is never — measured on a live editor, 123 s passed between paints
+				// while idle, and a one-device-pixel layout change in that window left the
+				// preview black for all of it.
+				//
+				// Forgetting what we last painted makes the next `readFrame` hand the
+				// current frame over again. It arrives at the OLD dimensions and the frame
+				// path resizes once more before drawing, which costs one extra repaint and
+				// is strictly better than a black preview.
+				lastGen = 0;
 			}
 		};
 
