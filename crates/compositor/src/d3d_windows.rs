@@ -157,6 +157,14 @@ impl Gpu {
     /// lui qui est actionnable (« pas de décodeur vidéo sur cet adaptateur »), pas
     /// « WARP indisponible », qui ne dit rien à personne.
     pub fn create_auto(debug: bool) -> Result<Gpu> {
+        // Diagnostic : force le rasteriseur logiciel meme quand le GPU repond. Sans ce
+        // levier, impossible de distinguer un bug de composition d'un bug de pilote --
+        // `create_auto` prend toujours le materiel en premier, donc le chemin CPU n'est
+        // jamais exerce sur une machine qui a un GPU fonctionnel.
+        if std::env::var("OPENSCREEN_FORCE_CPU_BACKEND").is_ok() {
+            eprintln!("[d3d] OPENSCREEN_FORCE_CPU_BACKEND : backend CPU (WARP) force");
+            return Gpu::create_backend(Backend::Cpu, debug);
+        }
         let hw_err = match Gpu::create_backend(Backend::Hardware, debug) {
             Ok(gpu) => return Ok(gpu),
             Err(err) => err,
