@@ -933,10 +933,18 @@ export function LaunchWindow() {
 
 	const handleSelectCameraQuality = useCallback(
 		(quality: WebcamQualityId) => {
+			// The same guard the other controls carry. The gear is disabled mid-take,
+			// but a settings panel already open stays mounted, so this stays
+			// clickable. `webcamQuality` is a dependency of the webcam acquisition
+			// effect: changing it re-runs that effect's cleanup, which stops every
+			// track of the live stream -- the very stream the browser, macOS and
+			// Linux paths are recording. The camera would end partway through the
+			// take, silently.
+			if (controlsLocked) return;
 			setWebcamQuality(quality);
 			persistRecordingPrefs({ camQuality: quality });
 		},
-		[persistRecordingPrefs, setWebcamQuality],
+		[controlsLocked, persistRecordingPrefs, setWebcamQuality],
 	);
 
 	const toggleDeviceSettings = useCallback(() => {
