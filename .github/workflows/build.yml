@@ -42,14 +42,54 @@ concurrency:
 
 jobs:
   build-windows:
-    name: Windows installer
+    name: Windows ${{ matrix.arch }} installer
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: ./.github/actions/setup
+
+      - name: Ensure MSVC ARM64 build tools
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -property installationPath
+          $hasArm64 = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 `
+            -property installationPath
+          if (-not $hasArm64) {
+            Write-Host "Installing MSVC ARM64 build tools component..."
+            $installer = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe"
+            & $installer modify --installPath "$installPath" `
+              --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 `
+              --quiet --norestart --wait
+          } else {
+            Write-Host "MSVC ARM64 build tools already present."
+          }
+
+      - name: Ensure win32-arm64 sharp binary
+        # sharp (transitive via @xenova/transformers) only fetches a host-arch
+        # prebuilt at install time, so on the x64 runner the packaged arm64 app
+        # would otherwise ship an x64 sharp.node. Best-effort fetch of the
+        # win32-arm64 prebuilt; non-fatal so it never blocks the build. Verify
+        # the first arm64 release loads sharp if auto-captions use it.
+        if: matrix.arch == 'arm64'
+        continue-on-error: true
+        shell: bash
+        run: npm_config_platform=win32 npm_config_arch=arm64 npm rebuild sharp
+
+      - name: Cache caption assets
+        uses: actions/cache@v4
+        with:
+          path: caption-assets
+          key: caption-assets-${{ runner.os }}-${{ hashFiles('scripts/fetch-caption-model.mjs') }}
 
       # STT is the bundled whisper-stt-server (whisper.cpp with native DTW token
       # timestamps); no VAD model is fetched here. The binary is built by
@@ -60,15 +100,27 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # win32-x64 for BOTH arches, deliberately: build-whisper-stt.yml produces no
+        # arm64 helper (scripts/build-whisper-stt.sh has no win32-arm64 acceleration
+        # case at all), so an arch-parameterised tag would simply fail the arm64 job.
+        # `candidateBinaryPaths` falls back to the win32-x64 directory on Windows on
+        # ARM, where the x64 helper runs under emulation — verified on a Snapdragon X
+        # Elite, Vulkan on the Adreno included. Point this at win32-arm64 the moment a
+        # native helper exists; the resolver already prefers it.
         run: bash scripts/stage-whisper-stt.sh win32-x64
 
-      - name: Build Windows app
+      - name: Build Windows app (x64)
+        if: matrix.arch == 'x64'
         run: npm run build:win -- --publish never
+
+      - name: Build Windows app (arm64)
+        if: matrix.arch == 'arm64'
+        run: npm run build:win:arm64 -- --publish never
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
-          name: openscreen-windows
+          name: openscreen-windows-${{ matrix.arch }}
           # latest.yml is the update feed electron-updater reads; the .blockmap is what lets it
           # download a delta instead of the full ~243 MB installer. Both were already produced
           # by every build and thrown away here, because this glob only matched the .exe.
@@ -876,7 +928,8 @@ jobs:
       - name: Download Windows installer
         uses: actions/download-artifact@v8
         with:
-          name: openscreen-windows
+          pattern: openscreen-windows-*
+          merge-multiple: true
           path: artifacts/windows
 
       - name: Download macOS arm64 DMG
