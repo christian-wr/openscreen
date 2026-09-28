@@ -21,6 +21,15 @@ import { requestCameraAccess } from "@/lib/requestCameraAccess";
 import { loadUserPreferences, saveUserPreferences } from "@/lib/userPreferences";
 import { canRecordMicrophone } from "@/utils/platformUtils";
 import { createRecorderHandle, type RecorderHandle } from "./recorderHandle";
+import {
+	DEFAULT_WEBCAM_QUALITY,
+	WEBCAM_TARGET_FRAME_RATE,
+	type WebcamQualityId,
+	webcamBitrateForStream,
+	webcamPresetFor,
+	webcamQualityFrom,
+	webcamVideoConstraints,
+} from "./webcamCaptureTarget";
 import { webcamDeviceIdentityFrom } from "./webcamDeviceIdentity";
 
 const TARGET_FRAME_RATE = 60;
@@ -77,8 +86,6 @@ function effectiveBrowserCursorMode(
 const AUDIO_BITRATE_VOICE = 128_000;
 const AUDIO_BITRATE_SYSTEM = 192_000;
 
-const WEBCAM_TARGET_FRAME_RATE = 30;
-
 type UseScreenRecorderReturn = {
 	recording: boolean;
 	paused: boolean;
@@ -99,6 +106,8 @@ type UseScreenRecorderReturn = {
 	setMicrophoneDeviceName: (deviceName: string | undefined) => void;
 	webcamDeviceId: string | undefined;
 	setWebcamDeviceId: (deviceId: string | undefined) => void;
+	webcamQuality: WebcamQualityId;
+	setWebcamQuality: (quality: WebcamQualityId) => void;
 	webcamDeviceName: string | undefined;
 	setWebcamDeviceName: (deviceName: string | undefined) => void;
 	systemAudioEnabled: boolean;
@@ -251,6 +260,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const [microphoneDeviceId, setMicrophoneDeviceId] = useState<string | undefined>(undefined);
 	const [microphoneDeviceName, setMicrophoneDeviceName] = useState<string | undefined>(undefined);
 	const [webcamDeviceId, setWebcamDeviceId] = useState<string | undefined>(undefined);
+	const [webcamQuality, setWebcamQuality] = useState<WebcamQualityId>(DEFAULT_WEBCAM_QUALITY);
 	const [webcamDeviceName, setWebcamDeviceName] = useState<string | undefined>(undefined);
 	const [systemAudioEnabled, setSystemAudioEnabled] = useState(false);
 	const [webcamEnabled, setWebcamEnabledState] = useState(false);
@@ -275,6 +285,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			camEnabled: boolean;
 			camDeviceId?: string | null;
 			camDeviceName?: string | null;
+			camQuality?: WebcamQualityId | null;
 			systemAudioEnabled: boolean;
 			cursorCaptureMode: CursorCaptureMode;
 		}) => {
@@ -292,6 +303,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				setWebcamDeviceId(prefs.camDeviceId ?? undefined);
 				setWebcamDeviceName(prefs.camDeviceName ?? undefined);
 			}
+			setWebcamQuality(webcamQualityFrom(prefs.camQuality));
 			setSystemAudioEnabled(prefs.systemAudioEnabled);
 			setCursorCaptureMode(prefs.cursorCaptureMode);
 			setRecordingPrefsLoaded(true);
@@ -358,6 +370,19 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			segmentStartedAt.current === null ? 0 : Date.now() - segmentStartedAt.current;
 		return accumulatedDurationMs.current + segmentDuration;
 	}, []);
+
+	/**
+	 * Recorder options for a webcam sidecar.
+	 *
+	 * The bitrate comes from the camera's own frame, never from the screen
+	 * recording. Repeated inline at each call site, that rule held in two of the
+	 * three and left the browser pipeline encoding a 2160p camera at the
+	 * monitor's rate, capped well below what the frame needs.
+	 */
+	const webcamRecorderOptions = (stream: MediaStream | null): MediaRecorderOptions => ({
+		mimeType: selectMimeType(),
+		videoBitsPerSecond: webcamBitrateForStream(stream),
+	});
 
 	const selectMimeType = () => {
 		// H.264 first: hardware-accelerated, so sharp real-time output. AV1/VP9 are
@@ -473,14 +498,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			try {
 				const stream = await navigator.mediaDevices.getUserMedia({
 					audio: false,
-					video: webcamDeviceId
-						? {
-								deviceId: { exact: webcamDeviceId },
-								frameRate: { ideal: WEBCAM_TARGET_FRAME_RATE, max: WEBCAM_TARGET_FRAME_RATE },
-							}
-						: {
-								frameRate: { ideal: WEBCAM_TARGET_FRAME_RATE, max: WEBCAM_TARGET_FRAME_RATE },
-							},
+					video: webcamVideoConstraints(webcamDeviceId, webcamQuality),
 				});
 
 				if (cancelled || thisAcquireId !== webcamAcquireId.current) {
@@ -538,7 +556,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				webcamStream.current = null;
 			}
 		};
-	}, [webcamEnabled, webcamDeviceId, webcamDeviceName, t]);
+	}, [webcamEnabled, webcamDeviceId, webcamDeviceName, webcamQuality, t]);
 
 	const finalizeRecording = useCallback(
 		(
@@ -1233,8 +1251,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					enabled: webcamEnabled,
 					deviceId: webcamIdentity.deviceId,
 					deviceName: webcamIdentity.deviceName,
-					width: 0,
-					height: 0,
+					width: webcamPresetFor(webcamQuality).width,
+					height: webcamPresetFor(webcamQuality).height,
 					fps: WEBCAM_TARGET_FRAME_RATE,
 				},
 				cursor: {
@@ -1349,10 +1367,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					// recordingId we send here, so this name is the one finalize rebuilds.
 					nativeWebcamRecorder = createRecorderHandle(
 						webcamStream.current,
-						{
-							mimeType: selectMimeType(),
-							videoBitsPerSecond: BITRATE_BASE,
-						},
+						webcamRecorderOptions(webcamStream.current),
 						`${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`,
 					);
 				} else {
@@ -1396,8 +1411,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					// Same pairing rule as the Windows path; here the stream is still
 					// open, so the identity can be read at the point of use.
 					...readWebcamDeviceIdentity(),
-					width: 0,
-					height: 0,
+					width: webcamPresetFor(webcamQuality).width,
+					height: webcamPresetFor(webcamQuality).height,
 					fps: WEBCAM_TARGET_FRAME_RATE,
 				},
 				cursor: {
@@ -1548,10 +1563,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					// take is never flattened into one ArrayBuffer at finalize (#253).
 					nativeWebcamRecorder = createRecorderHandle(
 						webcamStream.current,
-						{
-							mimeType: selectMimeType(),
-							videoBitsPerSecond: BITRATE_BASE,
-						},
+						webcamRecorderOptions(webcamStream.current),
 						`${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`,
 					);
 				} else {
@@ -2014,7 +2026,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			if (webcamStream.current) {
 				webcamRecorder.current = createRecorderHandle(
 					webcamStream.current,
-					{ mimeType, videoBitsPerSecond: Math.min(videoBitsPerSecond, BITRATE_BASE) },
+					webcamRecorderOptions(webcamStream.current),
 					`${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`,
 				);
 			}
@@ -2396,6 +2408,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		setMicrophoneDeviceName,
 		webcamDeviceId,
 		setWebcamDeviceId,
+		webcamQuality,
+		setWebcamQuality,
 		webcamDeviceName,
 		setWebcamDeviceName,
 		systemAudioEnabled,
