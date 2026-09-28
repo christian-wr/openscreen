@@ -105,3 +105,13 @@ if (!fs.existsSync(audioUtilsTestPath)) {
 // Pack) instead of failing this packaging command.
 await run(audioUtilsTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${audioUtilsTestPath}`);
+
+const webcamFormatTestPath = path.join(BUILD_DIR, "webcam_format_test.exe");
+if (!fs.existsSync(webcamFormatTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamFormatTestPath} was not found.`);
+}
+// Guards the capture resolution the camera is driven at. Left unpinned, both
+// backends fall back to the device default -- 640x480 on hardware that offers
+// far more -- and the overlay upscales it.
+await run(webcamFormatTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamFormatTestPath}`);

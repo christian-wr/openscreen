@@ -393,6 +393,42 @@ void reportCaptureAdapters(ID3D11Device* device, HMONITOR targetMonitor) {
     }
 }
 
+/**
+ * The NV12 twin of `hasVisibleBgraContent`: luma is the Y plane, one byte per
+ * pixel, so no colour conversion is needed to judge whether a frame has any
+ * picture in it. The Y plane is the first two thirds of an NV12 buffer.
+ */
+bool hasVisibleNv12Content(const std::vector<BYTE>& frame) {
+    if (frame.size() < 6) {
+        return false;
+    }
+
+    const size_t lumaCount = frame.size() * 2 / 3;
+    const size_t step = std::max<size_t>(1, lumaCount / 4096);
+    uint64_t lumaTotal = 0;
+    BYTE maxLuma = 0;
+    size_t sampled = 0;
+    for (size_t offset = 0; offset < lumaCount; offset += step) {
+        const BYTE luma = frame[offset];
+        lumaTotal += luma;
+        maxLuma = std::max(maxLuma, luma);
+        sampled += 1;
+    }
+
+    // The same thresholds the BGRA probe uses. NV12 from a camera is
+    // studio-range, so a black frame sits at 16 rather than 0 -- which the
+    // maxLuma > 24 test already tolerates.
+    const uint64_t averageLuma = sampled > 0 ? lumaTotal / sampled : 0;
+    return maxLuma > 24 || averageLuma > 4;
+}
+
+bool hasVisibleBgraContent(const std::vector<BYTE>& frame);
+
+/** Dispatches to the probe matching the frame's layout. */
+bool hasVisibleWebcamContent(const std::vector<BYTE>& frame, bool isNv12) {
+    return isNv12 ? hasVisibleNv12Content(frame) : hasVisibleBgraContent(frame);
+}
+
 bool hasVisibleBgraContent(const std::vector<BYTE>& frame) {
     if (frame.size() < 4) {
         return false;
@@ -777,7 +813,10 @@ int wmain(int argc, wchar_t* argv[]) {
 
     WebcamCapture webcamCapture;
     bool webcamActive = false;
-    bool writeSeparateWebcam = false;
+    // Decided before initialize(), not after: it selects the capture pixel
+    // format, and only a camera going to its own file can use NV12 -- an inline
+    // picture-in-picture composite needs the frame as BGRA.
+    bool writeSeparateWebcam = config.webcamEnabled && !config.webcamOutputPath.empty();
     if (config.webcamEnabled) {
         if (!webcamCapture.initialize(
                 utf8ToWide(config.webcamDeviceId),
@@ -785,7 +824,8 @@ int wmain(int argc, wchar_t* argv[]) {
                 utf8ToWide(config.webcamDirectShowClsid),
                 config.webcamWidth,
                 config.webcamHeight,
-                config.webcamFps > 0 ? config.webcamFps : config.fps)) {
+                config.webcamFps > 0 ? config.webcamFps : config.fps,
+                writeSeparateWebcam)) {
             // Non-fatal: a screen+audio recording the user can still use is far
             // better than losing the whole recording because one camera device
             // didn't match. Report it so the renderer can inform the user (and,
@@ -797,13 +837,14 @@ int wmain(int argc, wchar_t* argv[]) {
                          "\"Failed to initialize native webcam capture\"}"
                       << std::endl;
             config.webcamEnabled = false;
+            writeSeparateWebcam = false;
         } else {
             std::cout << "{\"event\":\"webcam-format\",\"schemaVersion\":2,\"width\":" << webcamCapture.width()
                       << ",\"height\":" << webcamCapture.height()
                       << ",\"fps\":" << webcamCapture.fps()
                       << ",\"deviceName\":\"" << jsonEscape(wideToUtf8(webcamCapture.selectedDeviceName()))
                       << "\"}" << std::endl;
-            writeSeparateWebcam = !config.webcamOutputPath.empty();
+            // writeSeparateWebcam was decided above, before the pixel format.
         }
     }
 
@@ -980,8 +1021,18 @@ int wmain(int argc, wchar_t* argv[]) {
         MFEncoderOptions webcamEncoderOptions = encoderOptions;
         webcamEncoderOptions.injectDefaultSinkWriterFailureOnce = false;
         webcamEncoderOptions.useDxgiInput = false;
+        webcamEncoderOptions.cpuInputIsNv12 = webcamCapture.deliversNv12();
+        // The two-step ladder this replaces topped out at 8 Mbit/s for anything
+        // 720p or larger. That was sized for a camera nobody had configured
+        // above 640x480; now that the capture runs at the camera's real
+        // resolution, 8 Mbit/s starves a 1440p or 2160p frame badly enough to
+        // undo the extra pixels. The tiers mirror the screen ladder above.
         const int webcamPixels = std::max(1, webcamCapture.width()) * std::max(1, webcamCapture.height());
-        const int webcamBitrate = webcamPixels >= 1280 * 720 ? 8'000'000 : 4'000'000;
+        const int webcamBitrate = webcamPixels >= 3840 * 2160   ? 40'000'000
+                                  : webcamPixels >= 2560 * 1440 ? 24'000'000
+                                  : webcamPixels >= 1920 * 1080 ? 16'000'000
+                                  : webcamPixels >= 1280 * 720  ? 8'000'000
+                                                                : 4'000'000;
         if (!webcamEncoder.initialize(
                 utf8ToWide(config.webcamOutputPath),
                 webcamCapture.width(),
@@ -1175,7 +1226,7 @@ int wmain(int argc, wchar_t* argv[]) {
                     WebcamFrameSnapshot candidateWebcamFrame;
                     if (webcamCapture.copyLatestFrame(candidateWebcamFrame) &&
                         candidateWebcamFrame.sequence != latestWebcamSequence &&
-                        hasVisibleBgraContent(candidateWebcamFrame.data)) {
+                        hasVisibleWebcamContent(candidateWebcamFrame.data, webcamCapture.deliversNv12())) {
                         latestWebcamFrame = std::move(candidateWebcamFrame.data);
                         latestWebcamWidth = candidateWebcamFrame.width;
                         latestWebcamHeight = candidateWebcamFrame.height;
@@ -1230,7 +1281,15 @@ int wmain(int argc, wchar_t* argv[]) {
                         // Capture the sample here, but submit it to the sink
                         // writer OUTSIDE this block below (issue #115) so a
                         // slow WriteSample can't hold up the next frame pull.
-                        hasWebcamSample = webcamEncoder.captureBgraSample(webcamFrame, webcamTimestampHns, webcamSample);
+                        hasWebcamSample =
+                            webcamCapture.deliversNv12()
+                                ? webcamEncoder.captureNv12Sample(
+                                      Nv12FrameView{
+                                          webcamFrame.data, webcamFrame.width, webcamFrame.height},
+                                      webcamTimestampHns,
+                                      webcamSample)
+                                : webcamEncoder.captureBgraSample(
+                                      webcamFrame, webcamTimestampHns, webcamSample);
                         if (!hasWebcamSample) {
                             encodeFailed = true;
                             control.requestStop();
@@ -1461,7 +1520,7 @@ int wmain(int argc, wchar_t* argv[]) {
         while (std::chrono::steady_clock::now() < webcamDeadline && !hasVisibleWebcamFrame) {
             WebcamFrameSnapshot candidateWebcamFrame;
             if (webcamCapture.copyLatestFrame(candidateWebcamFrame) &&
-                hasVisibleBgraContent(candidateWebcamFrame.data)) {
+                hasVisibleWebcamContent(candidateWebcamFrame.data, webcamCapture.deliversNv12())) {
                 latestWebcamFrame = std::move(candidateWebcamFrame.data);
                 latestWebcamWidth = candidateWebcamFrame.width;
                 latestWebcamHeight = candidateWebcamFrame.height;

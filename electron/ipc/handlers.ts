@@ -17,6 +17,7 @@ import {
 	shell,
 	systemPreferences,
 } from "electron";
+import { DEFAULT_WEBCAM_QUALITY, type WebcamQualityId } from "../../src/hooks/webcamCaptureTarget";
 import {
 	type AxcutDocument,
 	isAxcutDocumentFile,
@@ -649,6 +650,8 @@ export interface RecordingPrefs {
 	camDeviceId: string | null;
 	/** Camera label paired with the preferred id for restart-safe resolution. */
 	camDeviceName: string | null;
+	/** Capture resolution for the camera. See WEBCAM_QUALITY_PRESETS. */
+	camQuality: WebcamQualityId;
 	systemAudioEnabled: boolean;
 	cursorCaptureMode: CursorCaptureMode;
 	hideDesktopIcons: boolean;
@@ -662,6 +665,7 @@ const defaultRecordingPrefs: RecordingPrefs = {
 	camEnabled: false,
 	camDeviceId: null,
 	camDeviceName: null,
+	camQuality: DEFAULT_WEBCAM_QUALITY,
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
 	hideDesktopIcons: false,

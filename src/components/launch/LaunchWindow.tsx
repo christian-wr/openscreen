@@ -13,6 +13,7 @@ import {
 } from "../../hooks/useMicrophoneDevices";
 import { usePortalOwnsSource } from "../../hooks/usePortalOwnsSource";
 import { useScreenRecorder } from "../../hooks/useScreenRecorder";
+import type { WebcamQualityId } from "../../hooks/webcamCaptureTarget";
 import { requestCameraAccess } from "../../lib/requestCameraAccess";
 import {
 	HudCameraButton,
@@ -111,6 +112,8 @@ export function LaunchWindow() {
 		setWebcamEnabled,
 		webcamDeviceId,
 		setWebcamDeviceId,
+		webcamQuality,
+		setWebcamQuality,
 		webcamDeviceName,
 		setWebcamDeviceName,
 		cursorCaptureMode,
@@ -862,6 +865,7 @@ export function LaunchWindow() {
 			camEnabled?: boolean;
 			camDeviceId?: string;
 			camDeviceName?: string;
+			camQuality?: WebcamQualityId;
 			micEnabled?: boolean;
 			micDeviceId?: string;
 			micDeviceName?: string;
@@ -925,6 +929,14 @@ export function LaunchWindow() {
 			persistRecordingPrefs({ camDeviceId: device.deviceId, camDeviceName: device.label });
 		},
 		[persistRecordingPrefs, setSelectedCameraId, setWebcamDeviceId, setWebcamDeviceName],
+	);
+
+	const handleSelectCameraQuality = useCallback(
+		(quality: WebcamQualityId) => {
+			setWebcamQuality(quality);
+			persistRecordingPrefs({ camQuality: quality });
+		},
+		[persistRecordingPrefs, setWebcamQuality],
 	);
 
 	const toggleDeviceSettings = useCallback(() => {
@@ -1068,6 +1080,12 @@ export function LaunchWindow() {
 			about: t("deviceSettings.about"),
 			checkForUpdates: tCommon("actions.checkForUpdates"),
 			checkingForUpdates: t("deviceSettings.checkingForUpdates"),
+			cameraQuality: t("webcam.quality"),
+			cameraQualityOptions: {
+				"1080p": t("webcam.quality1080p"),
+				"1440p": t("webcam.quality1440p"),
+				"2160p": t("webcam.quality2160p"),
+			},
 		}),
 		[t, tCommon],
 	);
@@ -1282,6 +1300,8 @@ export function LaunchWindow() {
 								// main process refuses the check then — an offered button would be dead.
 								canCheckForUpdates={(appInfo?.canCheckForUpdates ?? false) && !recording}
 								checkingForUpdates={isCheckingForUpdates}
+								cameraQuality={webcamQuality}
+								onSelectCameraQuality={handleSelectCameraQuality}
 								onSelectMic={handleSelectMicDevice}
 								onSelectCamera={handleSelectCameraDevice}
 								onCheckForUpdates={handleCheckForUpdates}
