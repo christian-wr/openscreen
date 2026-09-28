@@ -371,6 +371,19 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		return accumulatedDurationMs.current + segmentDuration;
 	}, []);
 
+	/**
+	 * Recorder options for a webcam sidecar.
+	 *
+	 * The bitrate comes from the camera's own frame, never from the screen
+	 * recording. Repeated inline at each call site, that rule held in two of the
+	 * three and left the browser pipeline encoding a 2160p camera at the
+	 * monitor's rate, capped well below what the frame needs.
+	 */
+	const webcamRecorderOptions = (stream: MediaStream | null): MediaRecorderOptions => ({
+		mimeType: selectMimeType(),
+		videoBitsPerSecond: webcamBitrateForStream(stream),
+	});
+
 	const selectMimeType = () => {
 		// H.264 first: hardware-accelerated, so sharp real-time output. AV1/VP9 are
 		// better for distribution but too CPU-heavy for live 60 fps capture (software
@@ -1354,13 +1367,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					// recordingId we send here, so this name is the one finalize rebuilds.
 					nativeWebcamRecorder = createRecorderHandle(
 						webcamStream.current,
-						{
-							mimeType: selectMimeType(),
-							// Sized from the track, not from BITRATE_BASE: that was the
-							// screen's rate and it starves a 1440p or 2160p camera frame
-							// badly enough to undo the resolution we just asked for.
-							videoBitsPerSecond: webcamBitrateForStream(webcamStream.current),
-						},
+						webcamRecorderOptions(webcamStream.current),
 						`${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`,
 					);
 				} else {
@@ -1556,13 +1563,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					// take is never flattened into one ArrayBuffer at finalize (#253).
 					nativeWebcamRecorder = createRecorderHandle(
 						webcamStream.current,
-						{
-							mimeType: selectMimeType(),
-							// Sized from the track, not from BITRATE_BASE: that was the
-							// screen's rate and it starves a 1440p or 2160p camera frame
-							// badly enough to undo the resolution we just asked for.
-							videoBitsPerSecond: webcamBitrateForStream(webcamStream.current),
-						},
+						webcamRecorderOptions(webcamStream.current),
 						`${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`,
 					);
 				} else {
@@ -2025,7 +2026,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			if (webcamStream.current) {
 				webcamRecorder.current = createRecorderHandle(
 					webcamStream.current,
-					{ mimeType, videoBitsPerSecond: Math.min(videoBitsPerSecond, BITRATE_BASE) },
+					webcamRecorderOptions(webcamStream.current),
 					`${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`,
 				);
 			}
