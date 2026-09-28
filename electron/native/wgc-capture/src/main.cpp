@@ -6,6 +6,7 @@
 #include "wasapi_device_watcher.h"
 #include "wasapi_loopback_capture.h"
 #include "wasapi_render_keepalive.h"
+#include "frame_visibility.h"
 #include "webcam_capture.h"
 #include "wgc_session.h"
 
@@ -393,66 +394,6 @@ void reportCaptureAdapters(ID3D11Device* device, HMONITOR targetMonitor) {
     }
 }
 
-/**
- * The NV12 twin of `hasVisibleBgraContent`: luma is the Y plane, one byte per
- * pixel, so no colour conversion is needed to judge whether a frame has any
- * picture in it. The Y plane is the first two thirds of an NV12 buffer.
- */
-bool hasVisibleNv12Content(const std::vector<BYTE>& frame) {
-    if (frame.size() < 6) {
-        return false;
-    }
-
-    const size_t lumaCount = frame.size() * 2 / 3;
-    const size_t step = std::max<size_t>(1, lumaCount / 4096);
-    uint64_t lumaTotal = 0;
-    BYTE maxLuma = 0;
-    size_t sampled = 0;
-    for (size_t offset = 0; offset < lumaCount; offset += step) {
-        const BYTE luma = frame[offset];
-        lumaTotal += luma;
-        maxLuma = std::max(maxLuma, luma);
-        sampled += 1;
-    }
-
-    // The same thresholds the BGRA probe uses. NV12 from a camera is
-    // studio-range, so a black frame sits at 16 rather than 0 -- which the
-    // maxLuma > 24 test already tolerates.
-    const uint64_t averageLuma = sampled > 0 ? lumaTotal / sampled : 0;
-    return maxLuma > 24 || averageLuma > 4;
-}
-
-bool hasVisibleBgraContent(const std::vector<BYTE>& frame);
-
-/** Dispatches to the probe matching the frame's layout. */
-bool hasVisibleWebcamContent(const std::vector<BYTE>& frame, bool isNv12) {
-    return isNv12 ? hasVisibleNv12Content(frame) : hasVisibleBgraContent(frame);
-}
-
-bool hasVisibleBgraContent(const std::vector<BYTE>& frame) {
-    if (frame.size() < 4) {
-        return false;
-    }
-
-    uint64_t lumaTotal = 0;
-    BYTE maxLuma = 0;
-    const size_t pixelCount = frame.size() / 4;
-    const size_t step = std::max<size_t>(1, pixelCount / 4096);
-    size_t sampledPixels = 0;
-    for (size_t pixel = 0; pixel < pixelCount; pixel += step) {
-        const size_t offset = pixel * 4;
-        const BYTE b = frame[offset + 0];
-        const BYTE g = frame[offset + 1];
-        const BYTE r = frame[offset + 2];
-        const BYTE luma = static_cast<BYTE>((static_cast<uint16_t>(r) * 54 + static_cast<uint16_t>(g) * 183 + static_cast<uint16_t>(b) * 19) >> 8);
-        lumaTotal += luma;
-        maxLuma = std::max(maxLuma, luma);
-        sampledPixels += 1;
-    }
-
-    const uint64_t averageLuma = sampledPixels > 0 ? lumaTotal / sampledPixels : 0;
-    return maxLuma > 24 || averageLuma > 4;
-}
 
 bool findBool(const std::string& json, const std::string& key, bool fallback) {
     auto pos = json.find("\"" + key + "\"");

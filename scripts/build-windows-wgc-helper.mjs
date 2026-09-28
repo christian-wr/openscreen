@@ -115,3 +115,13 @@ if (!fs.existsSync(webcamFormatTestPath)) {
 // far more -- and the overlay upscales it.
 await run(webcamFormatTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${webcamFormatTestPath}`);
+
+const frameVisibilityTestPath = path.join(BUILD_DIR, "frame_visibility_test.exe");
+if (!fs.existsSync(frameVisibilityTestPath)) {
+	throw new Error(`WGC helper build completed but ${frameVisibilityTestPath} was not found.`);
+}
+// Guards the warm-up probe that decides whether the camera has produced a
+// picture yet. Studio-range black is 16, not 0, so an unnormalised average
+// reads every black frame as content.
+await run(frameVisibilityTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${frameVisibilityTestPath}`);
