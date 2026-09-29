@@ -258,59 +258,6 @@ bool WebcamCapture::selectDevice(const std::wstring& deviceId, const std::wstrin
 namespace {
 
 /**
- * Copies an NV12 sample into `destination`, tightly packed.
- *
- * Media Foundation may pad every row out to a stride wider than the frame.
- * `ConvertToContiguousBuffer` joins multiple buffers but leaves that padding
- * in place, and the flat `Lock()` view cannot express it -- taking the first
- * width*height*3/2 bytes of a padded buffer folds the padding into the picture
- * and shears it. `IMF2DBuffer` reports the real pitch, so each row is copied on
- * its own.
- *
- * Returns false when the buffer offers no usable 2D view, leaving the caller on
- * its flat copy, which is what every tightly packed driver needs anyway.
- */
-bool copyNv12Tightly(IMFMediaBuffer* buffer, int width, int height, std::vector<BYTE>& destination) {
-    if (width <= 0 || height <= 0) {
-        return false;
-    }
-
-    Microsoft::WRL::ComPtr<IMF2DBuffer> twoD;
-    if (FAILED(buffer->QueryInterface(IID_PPV_ARGS(&twoD)))) {
-        return false;
-    }
-
-    BYTE* scanline0 = nullptr;
-    LONG pitch = 0;
-    if (FAILED(twoD->Lock2D(&scanline0, &pitch)) || !scanline0) {
-        return false;
-    }
-    // A negative pitch means bottom-up, which NV12 never is here. Rather than
-    // guess at a layout we have never seen, hand the frame back to the flat path.
-    if (pitch < width) {
-        twoD->Unlock2D();
-        return false;
-    }
-
-    const size_t rowBytes = static_cast<size_t>(width);
-    destination.resize(rowBytes * static_cast<size_t>(height) * 3 / 2);
-    BYTE* out = destination.data();
-    for (int row = 0; row < height; ++row) {
-        std::memcpy(out, scanline0 + static_cast<ptrdiff_t>(pitch) * row, rowBytes);
-        out += rowBytes;
-    }
-    // The interleaved UV plane follows the Y plane at the same pitch, half as tall.
-    const BYTE* uvPlane = scanline0 + static_cast<ptrdiff_t>(pitch) * height;
-    for (int row = 0; row < height / 2; ++row) {
-        std::memcpy(out, uvPlane + static_cast<ptrdiff_t>(pitch) * row, rowBytes);
-        out += rowBytes;
-    }
-
-    twoD->Unlock2D();
-    return true;
-}
-
-/**
  * Is this subtype something the source reader must DECODE before it can convert?
  *
  * Listed positively -- an unknown subtype counts as compressed -- because the
@@ -601,38 +548,20 @@ void WebcamCapture::captureLoop() {
             continue;
         }
 
+        // `Lock()` below is enough; row padding cannot reach `latestFrame_`.
+        //
+        // A 2-D media buffer may well pad each row out to a stride wider than
+        // the frame, but that padding is never what `Lock()` hands back:
+        // "The Lock method returns a buffer that is guaranteed to be
+        // contiguous. If the underlying buffer is not contiguous, the method
+        // copies the data into a new buffer" (IMF2DBuffer, Remarks). Reading
+        // the native pitch through IMF2DBuffer::Lock2D would only be worth it
+        // as a measured optimisation -- it saves that copy -- and mixing the
+        // two interfaces on one buffer is advised against in the same page.
         Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
         if (FAILED(sample->ConvertToContiguousBuffer(&buffer)) || !buffer) {
             bufferFailures_ += 1;
             continue;
-        }
-
-        // Padded rows are only possible to detect through the 2D view, and only
-        // NV12 is driven through it -- RGB32 keeps the flat copy it has always had.
-        if (deliversNv12_) {
-            const auto storeStartedAt = std::chrono::steady_clock::now();
-            bool copied = false;
-            {
-                std::scoped_lock lock(frameMutex_);
-                copied = copyNv12Tightly(buffer.Get(), width_, height_, latestFrame_);
-                if (copied) {
-                    latestFrameSequence_ += 1;
-                }
-            }
-            if (copied) {
-                if (framesDelivered_ == 0) {
-                    const auto waitedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              std::chrono::steady_clock::now() - loopStartedAt)
-                                              .count();
-                    std::cerr << "INFO: First webcam frame after " << waitedMs << "ms" << std::endl;
-                }
-                framesDelivered_ += 1;
-                storeUs_ += static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::steady_clock::now() - storeStartedAt)
-                        .count());
-                continue;
-            }
         }
 
         BYTE* data = nullptr;
