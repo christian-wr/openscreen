@@ -3,7 +3,13 @@ import "@testing-library/jest-dom";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AxcutClip } from "@/lib/ai-edition/schema";
-import { type VideoSource, VirtualPreview } from "./VirtualPreview";
+import {
+	PRIMARY_AUDIO_PLAYING_LEASH_SEC,
+	SUPPLEMENTAL_AUDIO_PLAYING_LEASH_SEC,
+	shouldResyncAudio,
+	type VideoSource,
+	VirtualPreview,
+} from "./VirtualPreview";
 
 // The root cause of issue #395, in a test.
 //
@@ -146,5 +152,52 @@ describe("VirtualPreview keeps one demuxer seek in flight (issue #395 root cause
 		scrubTo(7);
 
 		expect(video.writes).toEqual([3, 7]);
+	});
+});
+
+describe("the primary audio element free-runs instead of being re-seeked every frame", () => {
+	// Measured in the shipped editor on a Snapdragon X Elite, during ordinary playback:
+	// 157 `seeking` events in 20 s with a single `seeked`, and 87 `currentTime` writes in
+	// 15 s — about six a second. Each write stepped forward by ~0.1 s, which is exactly the
+	// time that had passed: the audio was being sent to where it already was heading.
+	//
+	// The 25 ms leash assumed the rAF tick runs tight against the <video>'s own clock. It
+	// does not when the renderer main thread is loaded (measured ~44 % blocked during
+	// playback): ticks land 100+ ms apart, the audio element has free-run past 25 ms by
+	// then, and gets yanked back. The yank stalls it, so it falls behind again — the storm
+	// sustains itself, which is why the drift sat at a steady ~100 ms instead of decaying.
+	it("leaves a playing element alone at the drift the storm was measured at", () => {
+		expect(shouldResyncAudio(0.1, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+		expect(shouldResyncAudio(-0.1, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+	});
+
+	it("still corrects a real desync", () => {
+		expect(shouldResyncAudio(0.4, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+		expect(shouldResyncAudio(-0.4, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+	});
+
+	// A parked element is not free-running, so nothing sustains its position: it has to be
+	// placed exactly, and placing it costs nothing because it is not playing.
+	it("keeps the tight leash when the element is not free-running", () => {
+		expect(shouldResyncAudio(0.05, false, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+		expect(shouldResyncAudio(0.01, false, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+	});
+
+	// The same discipline the video path learned in issue #395: a write onto an element
+	// that is already seeking restarts the seek instead of finishing it, so the element
+	// never arrives. Measured after the leash change alone, residual writes still landed
+	// on an element mid-seek.
+	it("never stacks a write onto an element that is already seeking", () => {
+		expect(shouldResyncAudio(5, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC, true)).toBe(false);
+		expect(shouldResyncAudio(5, false, PRIMARY_AUDIO_PLAYING_LEASH_SEC, true)).toBe(false);
+		expect(shouldResyncAudio(5, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC, false)).toBe(true);
+	});
+
+	// Lip sync is the constraint the primary track has and an imported one does not, so it
+	// gets the shorter leash of the two. Audio behind picture is tolerated to about 125 ms
+	// before it reads as out of sync, which is the ceiling this has to stay under.
+	it("gives the primary track a shorter leash than an imported one", () => {
+		expect(PRIMARY_AUDIO_PLAYING_LEASH_SEC).toBeLessThan(SUPPLEMENTAL_AUDIO_PLAYING_LEASH_SEC);
+		expect(PRIMARY_AUDIO_PLAYING_LEASH_SEC).toBeLessThan(0.125);
 	});
 });

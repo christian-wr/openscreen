@@ -74,6 +74,61 @@ export interface VideoSource {
  * already over: an empty extraction has to read as ended, or the rAF loop below spends the
  * whole timeline seeking and calling `play()` on an element that has nothing to play.
  */
+/** Drift tolerated before an audio element that is NOT free-running gets placed
+ *  exactly. Nothing sustains a parked element's position, and placing it costs
+ *  nothing because it is not playing. */
+const AUDIO_PARKED_LEASH_SEC = 0.025;
+
+/** Drift tolerated on the primary audio track while it plays.
+ *
+ *  This used to be `AUDIO_PARKED_LEASH_SEC` on the grounds that the primary track syncs
+ *  to the `<video>`'s own authoritative clock and so could be held that tight. Measured
+ *  in the shipped editor on a Snapdragon X Elite, during ordinary playback, it could not:
+ *  157 `seeking` events in 20 s against a single `seeked`, and 87 `currentTime` writes in
+ *  15 s — six a second, each stepping forward by ~0.1 s, which is exactly the time that had
+ *  passed. The element was being sent to where it was already heading, and every write
+ *  flushed its pipeline: the stutter.
+ *
+ *  The tight leash assumed the rAF tick runs close behind the video clock. It does not when
+ *  the renderer main thread is loaded (measured ~44 % blocked during playback): ticks land
+ *  100+ ms apart, the element has free-run past 25 ms by then, and gets yanked back. The
+ *  yank stalls it, so it falls behind again — which is why the drift sat at a steady ~100 ms
+ *  instead of decaying. A playing element already runs at the right rate from the right
+ *  offset, so left alone it stays in sync on its own.
+ *
+ *  The ceiling is lip sync, not the storm: audio behind picture reads as out of sync at
+ *  roughly 125 ms, and audio ahead of it is noticed sooner still. This sits under both while
+ *  clearing the ~100 ms the storm was sustaining. */
+export const PRIMARY_AUDIO_PLAYING_LEASH_SEC = 0.12;
+
+/** Same, for an imported track (issue #350). It syncs to `virtualTimeSec`, which is DERIVED
+ *  from the video clock each frame and so is noisier still — and it carries BGM or voiceover
+ *  rather than lip sync, so it can afford a wider leash than the primary track. */
+export const SUPPLEMENTAL_AUDIO_PLAYING_LEASH_SEC = 0.3;
+
+/** Whether an audio element's drift warrants a `currentTime` write.
+ *
+ *  `freeRunning` means the element is playing and is supposed to be: it holds its own
+ *  position, so only a real discontinuity — a scrub, a trim jump, a first play — is worth
+ *  the cost of a seek. See issue #395 and `VirtualPreview.seekStorm.test.tsx` for what
+ *  happens when writes are issued per frame instead.
+ *
+ *  `seeking` is the other half of that lesson: a write onto an element that is still
+ *  seeking restarts the seek rather than finishing it, so the element never arrives and
+ *  the drift that triggered the write never closes. The video path has had this guard
+ *  since #395; the audio path had not. */
+export function shouldResyncAudio(
+	driftSec: number,
+	freeRunning: boolean,
+	playingLeashSec: number,
+	seeking = false,
+): boolean {
+	if (seeking) {
+		return false;
+	}
+	return Math.abs(driftSec) > (freeRunning ? playingLeashSec : AUDIO_PARKED_LEASH_SEC);
+}
+
 export function resolveAudioTrackPlayback(
 	videoTimeSec: number,
 	durationSec = Number.POSITIVE_INFINITY,
@@ -763,7 +818,14 @@ export function VirtualPreview({
 				if (!audio) continue;
 				const target = resolveAudioTrackPlayback(v.currentTime, audio.duration);
 				if (audio.playbackRate !== v.playbackRate) audio.playbackRate = v.playbackRate;
-				if (Math.abs(audio.currentTime - target.targetTimeSec) > 0.025) {
+				if (
+					shouldResyncAudio(
+						audio.currentTime - target.targetTimeSec,
+						!audio.paused && target.shouldPlay,
+						PRIMARY_AUDIO_PLAYING_LEASH_SEC,
+						audio.seeking,
+					)
+				) {
 					try {
 						audio.currentTime = target.targetTimeSec;
 					} catch {
@@ -899,17 +961,20 @@ export function VirtualPreview({
 				} else {
 					el.volume = Math.min(1, audioGainScalar(trackGainDb) * globalGain * fade);
 				}
-				// Only re-seek on a real discontinuity (a scrub, a trim jump, a first
-				// play), NOT on the sub-frame drift of normal playback. The primary audio
-				// can afford a 25 ms leash because it syncs to the <video>'s own
-				// authoritative clock; an imported track syncs to `virtualTimeSec`, which is
-				// DERIVED from that clock each frame and so is slightly noisy — at a 25 ms
-				// leash it re-seeks most frames, and each seek briefly stalls the element:
-				// the jitter. A started element already plays at the right rate from the
-				// right offset, so it free-runs in sync; this wide leash just catches the
-				// jumps. BGM/voiceover tolerates it; frame-tight sync is the video's job.
-				const leashSec = !el.paused && trackTarget.shouldPlay ? 0.3 : 0.025;
-				if (Math.abs(el.currentTime - trackTarget.targetTimeSec) > leashSec) {
+				// Only re-seek on a real discontinuity (a scrub, a trim jump, a first play),
+				// NOT on the sub-frame drift of normal playback: at a tight leash this
+				// re-seeks most frames, and each seek briefly stalls the element — the
+				// jitter. A started element already plays at the right rate from the right
+				// offset, so it free-runs in sync; the wide leash just catches the jumps.
+				// BGM/voiceover tolerates it; frame-tight sync is the video's job.
+				if (
+					shouldResyncAudio(
+						el.currentTime - trackTarget.targetTimeSec,
+						!el.paused && trackTarget.shouldPlay,
+						SUPPLEMENTAL_AUDIO_PLAYING_LEASH_SEC,
+						el.seeking,
+					)
+				) {
 					try {
 						el.currentTime = trackTarget.targetTimeSec;
 					} catch {
