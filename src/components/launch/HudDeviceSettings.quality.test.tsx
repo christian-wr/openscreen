@@ -39,8 +39,9 @@ function renderPanel(overrides: Partial<Parameters<typeof HudDeviceSettings>[0]>
 	const onSelectCameraQuality = vi.fn();
 	render(
 		<HudDeviceSettings
+			showMicrophone
 			micDevices={[]}
-			cameraDevices={[{ deviceId: "cam-1", label: "Logitech BRIO" }]}
+			cameraDevices={[{ deviceId: "cam-1", label: "Logitech BRIO", groupId: "group-1" }]}
 			activeMicId={undefined}
 			activeCameraId="cam-1"
 			cameraLoading={false}
