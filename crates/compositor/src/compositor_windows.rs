@@ -149,12 +149,10 @@ pub struct Compositor {
     timeline_t_override: RefCell<Option<f32>>,
     /// Temps programme (secondes de sortie) — cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
-    // cache des SRV décodeur par (texture array, slice) : le pool réutilise ~32 textures,
-    // donc après warmup plus aucune création de SRV par frame (overhead CPU supprimé).
-    /// Copie privée d'une surface décodeur, avec ses deux vues de plan (Y, UV).
-    /// Clé : le pointeur de la texture décodeur. Vidé par `clear_srv_cache` quand un
-    /// décodeur est remplacé — sans quoi une nouvelle texture allouée à la MÊME adresse
-    /// réutiliserait une copie dimensionnée pour l'ancienne.
+    /// A private copy of a decoder surface, with its two plane views (Y, UV).
+    /// Keyed by the decoder texture's pointer. `clear_srv_cache` drops these when a
+    /// decoder is replaced — otherwise a new texture landing on the SAME address would
+    /// inherit a copy sized for the old one.
     srv_cache: RefCell<HashMap<usize, (ID3D11Texture2D, ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
     live_params: RefCell<LiveParams>,
     /// Scène pilotée par l'app (contrat) : quand présente, remplace le layout fixture de
@@ -809,34 +807,35 @@ impl Compositor {
         *self.scene.borrow_mut() = s;
     }
 
-    /// Les SRV Y (R8) et UV (R8G8) de la frame décodeur — sur une COPIE privée, jamais
-    /// sur la surface du décodeur elle-même.
+    /// The Y (R8) and UV (R8G8) views of the decoder frame — over a private COPY, never
+    /// over the decoder surface itself.
     ///
-    /// Deux règles de la documentation D3D11 interdisent le chemin direct. La première
-    /// est formelle, sur `D3D11_BIND_DECODER` : « you cannot use texture arrays that are
-    /// created with this flag in calls to ID3D11Device::CreateShaderResourceView ». Le
-    /// pool ffmpeg EST un tableau (`initial_pool_size` = 32, cf. `get_hw_format`). La
-    /// seconde explique ce qu'on observait : entre le moteur vidéo et le pipeline 3D,
-    /// « there is no automatic hazard tracking » — la surface reste la frame de référence
-    /// du décodeur, qui peut donc la réécrire PENDANT que le shader l'échantillonne. Le
-    /// `ID3D11VideoContext` de ffmpeg est d'ailleurs le MÊME objet que notre immediate
-    /// context (il en sort par QueryInterface), et `SetMultithreadProtected(TRUE)` ne rend
-    /// atomique qu'un appel isolé, pas une séquence.
+    /// Two documented D3D11 rules rule out the direct path. The first is explicit, on
+    /// `D3D11_BIND_DECODER`: "you cannot use texture arrays that are created with this
+    /// flag in calls to ID3D11Device::CreateShaderResourceView". The ffmpeg pool IS such
+    /// an array (`initial_pool_size` = 32, see `get_hw_format`). The second explains what
+    /// we were seeing: between the video engine and the 3D pipeline "there is no automatic
+    /// hazard tracking" — the surface stays the decoder's reference frame, so it may be
+    /// rewritten WHILE the shader samples it. ffmpeg's `ID3D11VideoContext` is in fact the
+    /// SAME object as our immediate context (it comes out of a QueryInterface on it), and
+    /// `SetMultithreadProtected(TRUE)` only makes an individual call atomic, never a
+    /// sequence.
     ///
-    /// Mesuré sur Snapdragon X Elite (Adreno X1-85), même build, même enregistrement, le
-    /// chemin choisi par variable d'environnement : 768 frames noires sur 792 en
-    /// échantillonnant le décodeur, 2 sur 545 via la copie. Le noir était OPAQUE et total,
-    /// donc pas « une image en retard » mais aucune image du tout.
+    /// Measured on a Snapdragon X Elite (Adreno X1-85), same build, same recording, the
+    /// path picked by an environment variable: 768 black frames out of 792 when sampling
+    /// the decoder surface, 2 out of 545 through the copy. The black was OPAQUE and total,
+    /// so not "one frame late" but no frame at all.
     ///
-    /// `CopySubresourceRegion` est émis sur l'immediate context, donc ordonné vis-à-vis
-    /// des draws qui suivent ; la texture cible est `ArraySize = 1` et ne porte que
-    /// `BIND_SHADER_RESOURCE`, ce qui la sort de l'interdiction ci-dessus. Le coût est une
-    /// copie GPU→GPU par frame et par source, sans retour en mémoire système.
+    /// `CopySubresourceRegion` is issued on the immediate context, so it IS ordered against
+    /// the draws that follow; the destination texture is `ArraySize = 1` and carries only
+    /// `BIND_SHADER_RESOURCE`, which also takes it out of the restriction above. The cost
+    /// is one GPU→GPU copy per frame and per source, with nothing going back to system
+    /// memory.
     ///
-    /// Ce qui a longtemps masqué la cause : l'export de la MÊME scène n'a jamais produit
-    /// une frame noire (28 342 frames vérifiées), parce qu'il draine le GPU à chaque frame
-    /// via l'encodeur. Tout ce qui ralentissait la boucle live — un readback de plus, un
-    /// verrou, une pause — réduisait le noir en proportion sans jamais le supprimer.
+    /// What hid the cause for so long: exporting the SAME scene never produced a black
+    /// frame (28 342 verified), because the export drains the GPU every frame through the
+    /// encoder. Everything that slowed the live loop — one more readback, a lock, a pause —
+    /// cut the black proportionally without ever removing it.
     pub unsafe fn nv12_srvs(
         &self,
         frame: *const AVFrame,
@@ -844,12 +843,12 @@ impl Compositor {
         let tex_ptr = (*frame).data[0] as *mut c_void;
         let slice = (*frame).data[1] as u32;
         let src = ID3D11Texture2D::from_raw_borrowed(&tex_ptr)
-            .ok_or_else(|| anyhow::anyhow!("frame sans texture D3D11"))?
+            .ok_or_else(|| anyhow::anyhow!("frame has no D3D11 texture"))?
             .clone();
 
-        // Cache hit : le pool réutilise les mêmes textures -> une seule allocation par
-        // décodeur après warmup. La COPIE, elle, a lieu à CHAQUE frame : c'est elle qui
-        // fige le contenu de la tranche avant que le décodeur ne la reprenne.
+        // Cache hit: the pool reuses the same textures, so this allocates once per decoder
+        // after warmup. The COPY itself happens on EVERY frame — that is what freezes the
+        // slice's contents before the decoder takes it back.
         let key = tex_ptr as usize;
         let cached = self.srv_cache.borrow().get(&key).cloned();
         let (dst, y, uv) = match cached {
