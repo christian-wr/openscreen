@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D::{
-    D3D11_SRV_DIMENSION_TEXTURE2DARRAY, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+    D3D11_SRV_DIMENSION_TEXTURE2D, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
@@ -149,9 +149,11 @@ pub struct Compositor {
     timeline_t_override: RefCell<Option<f32>>,
     /// Temps programme (secondes de sortie) — cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
-    // cache des SRV décodeur par (texture array, slice) : le pool réutilise ~32 textures,
-    // donc après warmup plus aucune création de SRV par frame (overhead CPU supprimé).
-    srv_cache: RefCell<HashMap<(usize, u32), (ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
+    /// A private copy of a decoder surface, with its two plane views (Y, UV).
+    /// Keyed by the decoder texture's pointer. `clear_srv_cache` drops these when a
+    /// decoder is replaced — otherwise a new texture landing on the SAME address would
+    /// inherit a copy sized for the old one.
+    srv_cache: RefCell<HashMap<usize, (ID3D11Texture2D, ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
     live_params: RefCell<LiveParams>,
     /// Scène pilotée par l'app (contrat) : quand présente, remplace le layout fixture de
     /// `timeline()`. Voir `scene.rs` / `SceneDescription` (TS).
@@ -805,41 +807,91 @@ impl Compositor {
         *self.scene.borrow_mut() = s;
     }
 
-    /// Crée les SRV Y (R8) et UV (R8G8) sur la tranche d'array de la frame décodeur.
+    /// The Y (R8) and UV (R8G8) views of the decoder frame — over a private COPY, never
+    /// over the decoder surface itself.
+    ///
+    /// Two documented D3D11 rules rule out the direct path. The first is explicit, on
+    /// `D3D11_BIND_DECODER`: "you cannot use texture arrays that are created with this
+    /// flag in calls to ID3D11Device::CreateShaderResourceView". The ffmpeg pool IS such
+    /// an array (`initial_pool_size` = 32, see `get_hw_format`). The second explains what
+    /// we were seeing: between the video engine and the 3D pipeline "there is no automatic
+    /// hazard tracking" — the surface stays the decoder's reference frame, so it may be
+    /// rewritten WHILE the shader samples it. ffmpeg's `ID3D11VideoContext` is in fact the
+    /// SAME object as our immediate context (it comes out of a QueryInterface on it), and
+    /// `SetMultithreadProtected(TRUE)` only makes an individual call atomic, never a
+    /// sequence.
+    ///
+    /// Measured on a Snapdragon X Elite (Adreno X1-85), same build, same recording, the
+    /// path picked by an environment variable: 768 black frames out of 792 when sampling
+    /// the decoder surface, 2 out of 545 through the copy. The black was OPAQUE and total,
+    /// so not "one frame late" but no frame at all.
+    ///
+    /// `CopySubresourceRegion` is issued on the immediate context, so it IS ordered against
+    /// the draws that follow; the destination texture is `ArraySize = 1` and carries only
+    /// `BIND_SHADER_RESOURCE`, which also takes it out of the restriction above. The cost
+    /// is one GPU→GPU copy per frame and per source, with nothing going back to system
+    /// memory.
+    ///
+    /// What hid the cause for so long: exporting the SAME scene never produced a black
+    /// frame (28 342 verified), because the export drains the GPU every frame through the
+    /// encoder. Everything that slowed the live loop — one more readback, a lock, a pause —
+    /// cut the black proportionally without ever removing it.
     pub unsafe fn nv12_srvs(
         &self,
         frame: *const AVFrame,
     ) -> Result<(ID3D11ShaderResourceView, ID3D11ShaderResourceView)> {
         let tex_ptr = (*frame).data[0] as *mut c_void;
         let slice = (*frame).data[1] as u32;
-        // cache hit : le pool réutilise les mêmes textures -> zéro création après warmup
-        let key = (tex_ptr as usize, slice);
-        if let Some((y, uv)) = self.srv_cache.borrow().get(&key) {
-            return Ok((y.clone(), uv.clone()));
-        }
-        let tex = ID3D11Texture2D::from_raw_borrowed(&tex_ptr)
-            .ok_or_else(|| anyhow::anyhow!("frame sans texture D3D11"))?
+        let src = ID3D11Texture2D::from_raw_borrowed(&tex_ptr)
+            .ok_or_else(|| anyhow::anyhow!("frame has no D3D11 texture"))?
             .clone();
 
-        let mk = |fmt: DXGI_FORMAT| -> Result<ID3D11ShaderResourceView> {
-            let mut d = D3D11_SHADER_RESOURCE_VIEW_DESC {
-                Format: fmt,
-                ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
-                ..Default::default()
-            };
-            d.Anonymous.Texture2DArray = D3D11_TEX2D_ARRAY_SRV {
-                MostDetailedMip: 0,
-                MipLevels: 1,
-                FirstArraySlice: slice,
-                ArraySize: 1,
-            };
-            let mut srv: Option<ID3D11ShaderResourceView> = None;
-            self.dev.CreateShaderResourceView(&tex, Some(&d), Some(&mut srv))?;
-            Ok(srv.unwrap())
+        // Cache hit: the pool reuses the same textures, so this allocates once per decoder
+        // after warmup. The COPY itself happens on EVERY frame — that is what freezes the
+        // slice's contents before the decoder takes it back.
+        let key = tex_ptr as usize;
+        let cached = self.srv_cache.borrow().get(&key).cloned();
+        let (dst, y, uv) = match cached {
+            Some(v) => v,
+            None => {
+                let mut sd = D3D11_TEXTURE2D_DESC::default();
+                src.GetDesc(&mut sd);
+                let dd = D3D11_TEXTURE2D_DESC {
+                    Width: sd.Width,
+                    Height: sd.Height,
+                    MipLevels: 1,
+                    ArraySize: 1,
+                    Format: sd.Format,
+                    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                    Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+                    CPUAccessFlags: 0,
+                    MiscFlags: 0,
+                };
+                let mut dst: Option<ID3D11Texture2D> = None;
+                self.dev.CreateTexture2D(&dd, None, Some(&mut dst))?;
+                let dst = dst.unwrap();
+                let mk = |fmt: DXGI_FORMAT| -> Result<ID3D11ShaderResourceView> {
+                    let mut d = D3D11_SHADER_RESOURCE_VIEW_DESC {
+                        Format: fmt,
+                        ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2D,
+                        ..Default::default()
+                    };
+                    d.Anonymous.Texture2D = D3D11_TEX2D_SRV { MostDetailedMip: 0, MipLevels: 1 };
+                    let mut srv: Option<ID3D11ShaderResourceView> = None;
+                    self.dev.CreateShaderResourceView(&dst, Some(&d), Some(&mut srv))?;
+                    Ok(srv.unwrap())
+                };
+                let y = mk(DXGI_FORMAT_R8_UNORM)?;
+                let uv = mk(DXGI_FORMAT_R8G8_UNORM)?;
+                self.srv_cache
+                    .borrow_mut()
+                    .insert(key, (dst.clone(), y.clone(), uv.clone()));
+                (dst, y, uv)
+            }
         };
-        let y = mk(DXGI_FORMAT_R8_UNORM)?;
-        let uv = mk(DXGI_FORMAT_R8G8_UNORM)?;
-        self.srv_cache.borrow_mut().insert(key, (y.clone(), uv.clone()));
+
+        self.ctx.CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, slice, None);
         Ok((y, uv))
     }
 
