@@ -394,9 +394,28 @@ bool DirectShowWebcamCapture::resolveConnectedFormat(
             sourceStride_ = ((width_ * bitsPerPixel + 31) / 32) * 4;
         }
         sourceTopDown_ = pixelFormat_ != PixelFormat::Bgra || videoInfo->bmiHeader.biHeight < 0;
+        // The rate the graph settled on, not the one that was asked for.
+        //
+        // `chooseWebcamFormat` deliberately settles for less than the target
+        // when a camera offers nothing faster, and a driver may pick its own
+        // nearest rate after SetFormat regardless. `fps()` feeds three things
+        // that all have to agree with the frames actually arriving: the
+        // `webcam-format` event, the webcam encoder's nominal rate, and the
+        // constant-rate write interval in main.cpp. Left at the requested
+        // value, a 24 fps camera asked for 30 is encoded and paced as 30.
+        if (videoInfo->AvgTimePerFrame > 0) {
+            const int negotiated = static_cast<int>(
+                (10'000'000LL + videoInfo->AvgTimePerFrame / 2) / videoInfo->AvgTimePerFrame);
+            if (negotiated > 0 && negotiated != fps_) {
+                std::cerr << "INFO: DirectShow webcam negotiated " << negotiated << " fps (asked for "
+                          << fps_ << ")" << std::endl;
+                fps_ = std::clamp(negotiated, 1, 60);
+            }
+        }
     }
     std::cerr << "INFO: DirectShow webcam connected subtype " << guidToString(connectedType.subtype)
-              << " " << width_ << "x" << height_ << " stride=" << sourceStride_ << std::endl;
+              << " " << width_ << "x" << height_ << "@" << fps_ << " stride=" << sourceStride_
+              << std::endl;
     freeMediaType(connectedType);
     if (width_ <= 0 || height_ <= 0) {
         width_ = requestedWidth > 0 ? requestedWidth : 1280;
