@@ -1609,6 +1609,7 @@ function inspectNativeMacCaptureOutput() {
 function attachNativeMacCaptureOutputDrain(
 	proc: ChildProcessWithoutNullStreams,
 	onTakeEnded: () => void,
+	onSystemAudioUnavailable: () => void,
 ) {
 	let lineBuffer = "";
 	// Hooked here rather than on `nativeMacCaptureEvents`, which the start wait
@@ -1616,6 +1617,7 @@ function attachNativeMacCaptureOutputDrain(
 	const watchLiveTake = createNativeMacMidCaptureErrorWatch(
 		() => nativeMacCaptureProcess === proc && !nativeMacStopInFlight,
 		onTakeEnded,
+		onSystemAudioUnavailable,
 	);
 	const drain = (chunk: Buffer) => {
 		const text = chunk.toString();
@@ -2291,12 +2293,11 @@ export function registerIpcHandlers(
 				return access;
 			}
 
-			// The helper that answered has just raised macOS' own Accessibility prompt on
-			// its way up, so the window must offer System Settings, not a second prompt. It
-			// explains what the grant is for and tracks it live, where a message box could
-			// only say "go to System Settings" in English.
+			// Accessibility improves cursor shape hints but is not required to record.
+			// Remember that the helper raised the system prompt so a later visit to the
+			// permissions window can direct the user to Settings, but don't reopen that
+			// window from every Record press.
 			getMacPermissions().noteRequested("accessibility");
-			showPermissionsWindow();
 		}
 
 		return access;
@@ -3112,12 +3113,21 @@ export function registerIpcHandlers(
 			// When the take ends without the user — the helper reported an error or
 			// exited — this drives the renderer's own stop, the same one the tray's Stop
 			// Recording sends: it clears the HUD and surfaces the result.
-			attachNativeMacCaptureOutputDrain(proc, () => {
-				const hudWindow = getMainWindow();
-				if (hudWindow && !hudWindow.isDestroyed()) {
-					hudWindow.webContents.send("stop-recording-from-tray");
-				}
-			});
+			attachNativeMacCaptureOutputDrain(
+				proc,
+				() => {
+					const hudWindow = getMainWindow();
+					if (hudWindow && !hudWindow.isDestroyed()) {
+						hudWindow.webContents.send("stop-recording-from-tray");
+					}
+				},
+				() => {
+					const hudWindow = getMainWindow();
+					if (hudWindow && !hudWindow.isDestroyed()) {
+						hudWindow.webContents.send("native-mac-system-audio-unavailable");
+					}
+				},
+			);
 
 			await waitForNativeMacCaptureStart(proc);
 			const captureStartedAtMs = Date.now();
