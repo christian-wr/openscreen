@@ -150,9 +150,9 @@ pub struct Compositor {
     /// Temps programme (secondes de sortie) — cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
     /// A private copy of a decoder surface, with its two plane views (Y, UV).
-    /// Keyed by the decoder texture's pointer. `clear_srv_cache` drops these when a
-    /// decoder is replaced — otherwise a new texture landing on the SAME address would
-    /// inherit a copy sized for the old one.
+    /// Keyed by the decoder texture's pointer, which pins nothing: `nv12_srvs` re-checks
+    /// the copy's size and format on every hit, so a new texture landing on an old address
+    /// is never handed a copy sized for the old one. `clear_srv_cache` frees stale entries.
     srv_cache: RefCell<HashMap<usize, (ID3D11Texture2D, ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
     live_params: RefCell<LiveParams>,
     /// Scène pilotée par l'app (contrat) : quand présente, remplace le layout fixture de
@@ -849,13 +849,23 @@ impl Compositor {
         // Cache hit: the pool reuses the same textures, so this allocates once per decoder
         // after warmup. The COPY itself happens on EVERY frame — that is what freezes the
         // slice's contents before the decoder takes it back.
+        //
+        // The key is a bare address and pins nothing. A decoder replaced without
+        // `clear_srv_cache` (a mid-stream resolution change, `CpuFrames::ensure_tex`) can
+        // hand a NEW texture the address of an old one, and a copy into a smaller destination
+        // is dropped without an error: the picture freezes. So a hit only counts while the
+        // destination still has the source's size and format.
+        let mut sd = D3D11_TEXTURE2D_DESC::default();
+        src.GetDesc(&mut sd);
         let key = tex_ptr as usize;
-        let cached = self.srv_cache.borrow().get(&key).cloned();
+        let cached = self.srv_cache.borrow().get(&key).cloned().filter(|(dst, ..)| {
+            let mut dd = D3D11_TEXTURE2D_DESC::default();
+            dst.GetDesc(&mut dd);
+            (dd.Width, dd.Height, dd.Format) == (sd.Width, sd.Height, sd.Format)
+        });
         let (dst, y, uv) = match cached {
             Some(v) => v,
             None => {
-                let mut sd = D3D11_TEXTURE2D_DESC::default();
-                src.GetDesc(&mut sd);
                 let dd = D3D11_TEXTURE2D_DESC {
                     Width: sd.Width,
                     Height: sd.Height,
@@ -3299,6 +3309,62 @@ mod tests {
             "sans éviction le total ({} Mo) doit dépasser le budget, sinon le test ne prouve rien",
             cumule / 1048576
         );
+    }
+
+    /// Un NV12 sans données, à la taille voulue : tout ce que `nv12_srvs` lit d'une frame.
+    fn nv12_frame(gpu: &crate::d3d::Gpu, w: u32, h: u32) -> (Box<AVFrame>, ID3D11Texture2D) {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: w,
+            Height: h,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        unsafe {
+            let mut tex: Option<ID3D11Texture2D> = None;
+            gpu.device.CreateTexture2D(&desc, None, Some(&mut tex)).expect("texture NV12");
+            let tex = tex.expect("texture NV12");
+            let mut frame: Box<AVFrame> = Box::new(std::mem::zeroed());
+            frame.data[0] = tex.as_raw() as *mut u8;
+            frame.data[1] = std::ptr::null_mut();
+            (frame, tex)
+        }
+    }
+
+    /// Un décodeur remplacé sans `clear_srv_cache` (changement de résolution en cours de flux,
+    /// `CpuFrames::ensure_tex`) peut donner à une texture NEUVE l'adresse d'une ancienne. La
+    /// copie privée gardée pour l'ancienne est alors trop petite, `CopySubresourceRegion` la
+    /// saute sans erreur et l'image gèle. On ne peut pas choisir l'adresse d'une texture ;
+    /// l'entrée de la petite est donc replacée sous la clé de la grande, l'état exact où le
+    /// cache se retrouve après un tel recyclage.
+    #[test]
+    fn a_larger_source_at_a_cached_address_gets_a_copy_of_its_own_size() {
+        let Ok(gpu) = crate::d3d::Gpu::create_auto(false) else {
+            eprintln!("pas de device D3D11 — test sauté");
+            return;
+        };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("compositeur");
+        let (small, _small_tex) = nv12_frame(&gpu, 64, 64);
+        let (large, _large_tex) = nv12_frame(&gpu, 128, 96);
+        let (small_key, large_key) = (small.data[0] as usize, large.data[0] as usize);
+
+        unsafe { comp.nv12_srvs(&*small) }.expect("source de 64x64");
+        {
+            let mut cache = comp.srv_cache.borrow_mut();
+            let stale = cache.remove(&small_key).expect("entrée de la petite source");
+            cache.insert(large_key, stale);
+        }
+        unsafe { comp.nv12_srvs(&*large) }.expect("source de 128x96");
+
+        let (dst, ..) = comp.srv_cache.borrow().get(&large_key).cloned().expect("entrée remplacée");
+        let mut dd = D3D11_TEXTURE2D_DESC::default();
+        unsafe { dst.GetDesc(&mut dd) };
+        assert_eq!((dd.Width, dd.Height), (128, 96), "la copie a gardé la taille de l'ancienne texture");
     }
 
     /// Un cran de padding en format Auto change la taille de rendu de la preview. `resized`

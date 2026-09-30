@@ -41,8 +41,9 @@ pub(crate) struct CpuFrames {
     /// NV12 en mémoire système : la cible de swscale, la source de l'upload.
     nv12: *mut AVFrame,
     /// La texture NV12 échantillonnée par les shaders. UNE seule, réécrite à chaque
-    /// frame — le `srv_cache` du compositeur (clé `(ptr, slice)`) n'a donc qu'une entrée
-    /// et ne recrée jamais de SRV, contrairement au pool tournant de D3D11VA.
+    /// frame — le `srv_cache` du compositeur (clé : le pointeur de texture) n'a donc qu'une
+    /// entrée et ne recrée jamais de SRV, contrairement au pool tournant de D3D11VA. Quand
+    /// `ensure_tex` la réalloue à une autre taille, `nv12_srvs` voit l'écart et refait la copie.
     // ponytail: une seule texture = le CPU peut attendre que le GPU ait fini de lire la
     // frame précédente. Sur WARP tout est CPU et le pilote sérialise déjà ; si un backend
     // GPU réutilise ce chemin un jour et que le Map bloque, double-bufferiser ici.
