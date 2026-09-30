@@ -4,9 +4,12 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AxcutClip } from "@/lib/ai-edition/schema";
 import {
-	PRIMARY_AUDIO_PLAYING_LEASH_SEC,
-	SUPPLEMENTAL_AUDIO_PLAYING_LEASH_SEC,
+	AUDIO_NUDGE_START_SEC,
+	AUDIO_NUDGE_STOP_SEC,
+	AUDIO_SEEK_LEASH_SEC,
+	IMPORTED_AUDIO_PLAYING_LEASH_SEC,
 	shouldResyncAudio,
+	steerAudio,
 	type VideoSource,
 	VirtualPreview,
 } from "./VirtualPreview";
@@ -155,49 +158,72 @@ describe("VirtualPreview keeps one demuxer seek in flight (issue #395 root cause
 	});
 });
 
-describe("the primary audio element free-runs instead of being re-seeked every frame", () => {
-	// Measured in the shipped editor on a Snapdragon X Elite, during ordinary playback:
-	// 157 `seeking` events in 20 s with a single `seeked`, and 87 `currentTime` writes in
-	// 15 s — about six a second. Each write stepped forward by ~0.1 s, which is exactly the
-	// time that had passed: the audio was being sent to where it already was heading.
-	//
-	// The 25 ms leash assumed the rAF tick runs tight against the <video>'s own clock. It
-	// does not when the renderer main thread is loaded (measured ~44 % blocked during
-	// playback): ticks land 100+ ms apart, the audio element has free-run past 25 ms by
-	// then, and gets yanked back. The yank stalls it, so it falls behind again — the storm
-	// sustains itself, which is why the drift sat at a steady ~100 ms instead of decaying.
-	it("leaves a playing element alone at the drift the storm was measured at", () => {
-		expect(shouldResyncAudio(0.1, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
-		expect(shouldResyncAudio(-0.1, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+// What the rAF loop does to a playing audio element between two ticks. The measured story
+// behind these is on `AUDIO_NUDGE_START_SEC`; the loop itself is driven end to end in
+// VirtualPreview.playback.test.tsx ("primary audio keeps to the picture"), because a
+// decision that is right in isolation says nothing about what the call site feeds it.
+describe("steerAudio: a playing element is nudged, not seeked", () => {
+	const playing = (driftSec: number, nudged = false) =>
+		steerAudio(driftSec, true, false, false, nudged);
+
+	it("leaves an element on the picture alone", () => {
+		expect(playing(0.01)).toEqual({ seek: false, rateFactor: 1 });
+		expect(playing(-0.01)).toEqual({ seek: false, rateFactor: 1 });
 	});
 
-	it("still corrects a real desync", () => {
-		expect(shouldResyncAudio(0.4, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
-		expect(shouldResyncAudio(-0.4, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+	it("nudges the rate toward the picture instead of seeking, whichever side it is on", () => {
+		// The drift the storm was measured at: what used to be re-seeked six times a second.
+		const behind = playing(-0.1);
+		const ahead = playing(0.1);
+		expect(behind.seek).toBe(false);
+		expect(ahead.seek).toBe(false);
+		expect(behind.rateFactor).toBeGreaterThan(1);
+		expect(ahead.rateFactor).toBeLessThan(1);
+		// Symmetric: a lead is noticed sooner than a lag, so it must not be the slower to close.
+		expect(behind.rateFactor - 1).toBeCloseTo(1 - ahead.rateFactor, 10);
 	});
 
-	// A parked element is not free-running, so nothing sustains its position: it has to be
-	// placed exactly, and placing it costs nothing because it is not playing.
-	it("keeps the tight leash when the element is not free-running", () => {
-		expect(shouldResyncAudio(0.05, false, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
-		expect(shouldResyncAudio(0.01, false, PRIMARY_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+	it("stops nudging closer to the picture than it starts, so an edge does not flap", () => {
+		const between = (AUDIO_NUDGE_START_SEC + AUDIO_NUDGE_STOP_SEC) / 2;
+		expect(playing(between, false).rateFactor).toBe(1);
+		expect(playing(between, true).rateFactor).not.toBe(1);
+		expect(playing(AUDIO_NUDGE_STOP_SEC / 2, true).rateFactor).toBe(1);
 	});
 
-	// The same discipline the video path learned in issue #395: a write onto an element
-	// that is already seeking restarts the seek instead of finishing it, so the element
-	// never arrives. Measured after the leash change alone, residual writes still landed
-	// on an element mid-seek.
+	it("seeks only past what a nudge can close", () => {
+		expect(playing(AUDIO_SEEK_LEASH_SEC * 0.9).seek).toBe(false);
+		expect(playing(AUDIO_SEEK_LEASH_SEC * 1.1)).toEqual({ seek: true, rateFactor: 1 });
+		expect(playing(-AUDIO_SEEK_LEASH_SEC * 1.1).seek).toBe(true);
+	});
+
+	it("places a parked element exactly", () => {
+		expect(steerAudio(0.05, false, false, false, false).seek).toBe(true);
+		expect(steerAudio(0.01, false, false, false, false).seek).toBe(false);
+	});
+
+	it("follows an explicit jump of the picture whatever the drift", () => {
+		expect(steerAudio(0.001, true, false, true, false).seek).toBe(true);
+		expect(steerAudio(0.08, false, false, true, false).seek).toBe(true);
+	});
+
+	// The discipline the video path learned in issue #395: a write onto an element that is
+	// already seeking restarts the seek instead of finishing it, so the element never arrives.
 	it("never stacks a write onto an element that is already seeking", () => {
-		expect(shouldResyncAudio(5, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC, true)).toBe(false);
-		expect(shouldResyncAudio(5, false, PRIMARY_AUDIO_PLAYING_LEASH_SEC, true)).toBe(false);
-		expect(shouldResyncAudio(5, true, PRIMARY_AUDIO_PLAYING_LEASH_SEC, false)).toBe(true);
+		expect(steerAudio(5, true, true, false, false).seek).toBe(false);
+		expect(steerAudio(5, false, true, false, false).seek).toBe(false);
+		expect(steerAudio(0.001, true, true, true, false).seek).toBe(false); // the jump waits
+	});
+});
+
+describe("shouldResyncAudio: an imported track free-runs inside a wide leash", () => {
+	it("leaves a playing track alone inside the leash and corrects a real desync", () => {
+		expect(shouldResyncAudio(0.2, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+		expect(shouldResyncAudio(-0.2, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+		expect(shouldResyncAudio(0.4, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
 	});
 
-	// Lip sync is the constraint the primary track has and an imported one does not, so it
-	// gets the shorter leash of the two. Audio behind picture is tolerated to about 125 ms
-	// before it reads as out of sync, which is the ceiling this has to stay under.
-	it("gives the primary track a shorter leash than an imported one", () => {
-		expect(PRIMARY_AUDIO_PLAYING_LEASH_SEC).toBeLessThan(SUPPLEMENTAL_AUDIO_PLAYING_LEASH_SEC);
-		expect(PRIMARY_AUDIO_PLAYING_LEASH_SEC).toBeLessThan(0.125);
+	it("places a parked track exactly, and never onto one that is seeking", () => {
+		expect(shouldResyncAudio(0.05, false, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+		expect(shouldResyncAudio(5, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC, true)).toBe(false);
 	});
 });
