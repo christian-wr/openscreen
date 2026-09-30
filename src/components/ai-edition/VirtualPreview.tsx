@@ -61,19 +61,6 @@ export interface VideoSource {
 	label: string;
 }
 
-/**
- * Where an audio element should sit to track the video, and whether it should be playing.
- *
- * The audio elements mirror the video's own time — there is no offset to apply, because the
- * only per-track difference that survives is length: the supplemental track is extracted
- * separately and can end before the video does. Past its end the element is parked at its
- * duration and paused rather than left seeking into nothing.
- *
- * Only an unusable duration falls back to Infinity — `NaN` before the element has its
- * metadata, or a negative value. Zero is a real length, and the shortest track that is
- * already over: an empty extraction has to read as ended, or the rAF loop below spends the
- * whole timeline seeking and calling `play()` on an element that has nothing to play.
- */
 /** Drift tolerated before an audio element that is NOT free-running gets placed
  *  exactly. Nothing sustains a parked element's position, and placing it costs
  *  nothing because it is not playing. */
@@ -129,6 +116,19 @@ export function shouldResyncAudio(
 	return Math.abs(driftSec) > (freeRunning ? playingLeashSec : AUDIO_PARKED_LEASH_SEC);
 }
 
+/**
+ * Where an audio element should sit to track the video, and whether it should be playing.
+ *
+ * The audio elements mirror the video's own time — there is no offset to apply, because the
+ * only per-track difference that survives is length: the supplemental track is extracted
+ * separately and can end before the video does. Past its end the element is parked at its
+ * duration and paused rather than left seeking into nothing.
+ *
+ * Only an unusable duration falls back to Infinity — `NaN` before the element has its
+ * metadata, or a negative value. Zero is a real length, and the shortest track that is
+ * already over: an empty extraction has to read as ended, or the rAF loop below spends the
+ * whole timeline seeking and calling `play()` on an element that has nothing to play.
+ */
 export function resolveAudioTrackPlayback(
 	videoTimeSec: number,
 	durationSec = Number.POSITIVE_INFINITY,
