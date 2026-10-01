@@ -29,6 +29,7 @@ import {
 	PROVIDER_DEFINITIONS,
 	type ProviderDefinition,
 } from "../../../electron/ai-edition/provider-registry";
+import { McpServerSettings } from "./McpServerSettings";
 import { ModalShell } from "./Modals";
 import styles from "./NewEditorShell.module.css";
 
@@ -177,11 +178,14 @@ function ProviderSettings({ open, onClose }: ProviderSettingsProps) {
 			wide
 		>
 			{mode === "list" ? (
-				<ProviderList
-					connected={new Set(snapshot?.connectedProviders ?? [])}
-					activeProvider={snapshot?.config?.provider ?? null}
-					onPick={openForm}
-				/>
+				<>
+					<ProviderList
+						connected={new Set(snapshot?.connectedProviders ?? [])}
+						activeProvider={snapshot?.config?.provider ?? null}
+						onPick={openForm}
+					/>
+					<McpServerSettings open={open} />
+				</>
 			) : active ? (
 				<ProviderForm
 					def={active}

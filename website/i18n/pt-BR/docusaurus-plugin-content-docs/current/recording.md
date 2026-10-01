@@ -80,7 +80,7 @@ Você não precisa começar pelo HUD. No editor, mude a barra superior para **Gr
 
 - **Fonte** — o mesmo seletor de tela/janela, em uma janela modal, ou o seletor do sistema da Apple no macOS 15.2 e posterior. No Linux, essa linha também mostra *O sistema perguntará o que compartilhar*, e a caixa de diálogo do portal faz a escolha.
 - **Áudio do sistema**, **Microfone**, **Câmera** — cada um é uma linha de ativar/desativar; o microfone e a câmera se expandem em uma lista de dispositivos, e a câmera mostra uma pré-visualização ao vivo para você se enquadrar antes de começar.
-- **Destaque do cursor** — ativado significa o cursor da sobreposição editável; desativado significa o cursor comum do sistema.
+- **Cursor editável** — ativado significa o cursor da sobreposição editável; desativado significa o cursor comum do sistema.
 
 **Iniciar gravação** abre o widget de gravação e fecha a janela do editor; cancelar leva você de volta ao modo Editar. É também aqui que **Novo projeto → Gravação de tela** leva você.
 

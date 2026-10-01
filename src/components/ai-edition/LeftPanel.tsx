@@ -2,6 +2,7 @@ import { ArrowLeft, Check, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useEditorDialogActions, useEditorDialogSection } from "@/contexts/EditorDialogsContext";
 import { useScopedT } from "@/contexts/I18nContext";
 import {
@@ -471,6 +472,7 @@ export function ChatStripPanel() {
 	const [connectedProviders, setConnectedProviders] = useState<string[] | null>(null);
 	// unknown ≠ none; see chatAvailability.ts.
 	const canChat = canSendChat(llmConfig, connectedProviders);
+	const sendDisabled = busy || !input.trim() || !canChat;
 	const [modelPopoverOpen, setModelPopoverOpen] = useState(false);
 	const modelButtonRef = useRef<HTMLButtonElement | null>(null);
 	const [modelPopoverRect, setModelPopoverRect] = useState<{
@@ -1006,92 +1008,95 @@ export function ChatStripPanel() {
 							{t("chat.contextPercent", { percent: Math.min(100, Math.round(budget.ratio * 100)) })}
 						</span>
 						<span className={styles.stripActions}>
-							<button
-								type="button"
-								title={t("chat.compactContext")}
-								aria-label={t("chat.compactContext")}
-								className={styles.iconBtn}
-								onClick={() => void compactNow()}
-								disabled={!activeSessionId || compactNowPending}
-							>
-								<svg
-									width={14}
-									height={14}
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									aria-hidden="true"
+							{/* `aria-disabled`, not `disabled`, so the tooltip still opens on a greyed button. */}
+							<Tooltip content={t("chat.compactContext")}>
+								<button
+									type="button"
+									aria-label={t("chat.compactContext")}
+									className={styles.iconBtn}
+									onClick={
+										!activeSessionId || compactNowPending ? undefined : () => void compactNow()
+									}
+									aria-disabled={!activeSessionId || compactNowPending || undefined}
 								>
-									<path d="M8 4l4 4 4-4" />
-									<path d="M8 20l4-4 4 4" />
-									<path d="M6 12h12" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								title={t("chat.aiSettings")}
-								aria-label={t("chat.aiSettings")}
-								onClick={openProviderSettings}
-							>
-								<svg
-									width={14}
-									height={14}
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
+									<svg
+										width={14}
+										height={14}
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										aria-hidden="true"
+									>
+										<path d="M8 4l4 4 4-4" />
+										<path d="M8 20l4-4 4 4" />
+										<path d="M6 12h12" />
+									</svg>
+								</button>
+							</Tooltip>
+							<Tooltip content={t("chat.aiSettings")}>
+								<button
+									type="button"
+									aria-label={t("chat.aiSettings")}
+									onClick={openProviderSettings}
 								>
-									<circle cx="12" cy="12" r="3" />
-									<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								title={t("chat.history")}
-								aria-label={t("chat.history")}
-								onClick={() => setChatsOpen(true)}
-							>
-								<svg
-									width={14}
-									height={14}
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
+									<svg
+										width={14}
+										height={14}
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<circle cx="12" cy="12" r="3" />
+										<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+									</svg>
+								</button>
+							</Tooltip>
+							<Tooltip content={t("chat.history")}>
+								<button
+									type="button"
+									aria-label={t("chat.history")}
+									onClick={() => setChatsOpen(true)}
 								>
-									<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-									<path d="M3 3v5h5" />
-									<path d="M12 7v5l4 2" />
-								</svg>
-							</button>
-							<button
-								type="button"
-								title={t("chat.newConversation")}
-								aria-label={t("chat.newConversation")}
-								onClick={newChat}
-							>
-								<svg
-									width={14}
-									height={14}
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-									<path d="M12 7v6" />
-									<path d="M9 10h6" />
-								</svg>
-							</button>
+									<svg
+										width={14}
+										height={14}
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+										<path d="M3 3v5h5" />
+										<path d="M12 7v5l4 2" />
+									</svg>
+								</button>
+							</Tooltip>
+							<Tooltip content={t("chat.newConversation")}>
+								<button type="button" aria-label={t("chat.newConversation")} onClick={newChat}>
+									<svg
+										width={14}
+										height={14}
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+										<path d="M12 7v6" />
+										<path d="M9 10h6" />
+									</svg>
+								</button>
+							</Tooltip>
 						</span>
 					</div>
 				</div>
@@ -1160,61 +1165,66 @@ export function ChatStripPanel() {
 									t("chat.untitledConversation")}
 							</span>
 						)}
-						<button
-							type="button"
-							title={t("chat.renameConversation")}
-							aria-label={t("chat.renameConversation")}
-							disabled={editingSessionId === activeSessionId}
-							onClick={() => {
-								const current = sessions.find((s) => s.id === activeSessionId);
-								if (current) beginEditTitle(activeSessionId, current.title);
-							}}
-							className={styles.iconBtn}
-						>
-							<svg
-								width={14}
-								height={14}
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
+						<Tooltip content={t("chat.renameConversation")}>
+							<button
+								type="button"
+								aria-label={t("chat.renameConversation")}
+								aria-disabled={editingSessionId === activeSessionId || undefined}
+								onClick={() => {
+									if (editingSessionId === activeSessionId) return;
+									const current = sessions.find((s) => s.id === activeSessionId);
+									if (current) beginEditTitle(activeSessionId, current.title);
+								}}
+								className={styles.iconBtn}
 							>
-								<path d="M12 20h9" />
-								<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
-							</svg>
-						</button>
-						<button
-							type="button"
-							title={t("chat.deleteConversation")}
-							aria-label={t("chat.deleteConversation")}
-							onClick={() => {
-								const current = sessions.find((s) => s.id === activeSessionId);
-								if (!current) return;
-								if (window.confirm(t("chat.confirmDeleteConversation", { title: current.title }))) {
-									void handleDelete(activeSessionId);
-								}
-							}}
-							className={styles.iconBtn}
-						>
-							<svg
-								width={14}
-								height={14}
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
+								<svg
+									width={14}
+									height={14}
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<path d="M12 20h9" />
+									<path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+								</svg>
+							</button>
+						</Tooltip>
+						<Tooltip content={t("chat.deleteConversation")}>
+							<button
+								type="button"
+								aria-label={t("chat.deleteConversation")}
+								onClick={() => {
+									const current = sessions.find((s) => s.id === activeSessionId);
+									if (!current) return;
+									if (
+										window.confirm(t("chat.confirmDeleteConversation", { title: current.title }))
+									) {
+										void handleDelete(activeSessionId);
+									}
+								}}
+								className={styles.iconBtn}
 							>
-								<polyline points="3 6 5 6 21 6" />
-								<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-								<path d="M10 11v6" />
-								<path d="M14 11v6" />
-								<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-							</svg>
-						</button>
+								<svg
+									width={14}
+									height={14}
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<polyline points="3 6 5 6 21 6" />
+									<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+									<path d="M10 11v6" />
+									<path d="M14 11v6" />
+									<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+								</svg>
+							</button>
+						</Tooltip>
 					</div>
 				) : null}
 			</div>
@@ -1293,21 +1303,59 @@ export function ChatStripPanel() {
 									}}
 								>
 									{m.role === "user" && m.checkpointId ? (
+										// The name stays "Rewind to this message"; the tip adds what it does, which
+										// only the confirmation dialog said before.
+										<Tooltip content={t("chat.rewindTip")}>
+											<button
+												type="button"
+												data-rewind-trigger="true"
+												aria-label={t("chat.rewindToMessage")}
+												aria-expanded={rewindFor?.messageId === m.id}
+												onClick={(event) => {
+													const rect = event.currentTarget.getBoundingClientRect();
+													setRewindFor({
+														messageId: m.id ?? "",
+														anchor: {
+															left: rect.left + rect.width / 2,
+															bottom: window.innerHeight - rect.top + 6,
+														},
+													});
+												}}
+												className={styles.iconBtn}
+											>
+												<svg
+													width={14}
+													height={14}
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													strokeWidth="2"
+													strokeLinecap="round"
+													strokeLinejoin="round"
+												>
+													<path d="M3 7v6h6" />
+													<path d="M21 17a9 9 0 0 0-15-6.7L3 13" />
+												</svg>
+											</button>
+										</Tooltip>
+									) : null}
+									<Tooltip content={t("chat.copyMessage")}>
 										<button
 											type="button"
-											data-rewind-trigger="true"
-											title={t("chat.rewindToMessage")}
-											aria-label={t("chat.rewindToMessage")}
-											aria-expanded={rewindFor?.messageId === m.id}
-											onClick={(event) => {
-												const rect = event.currentTarget.getBoundingClientRect();
-												setRewindFor({
-													messageId: m.id ?? "",
-													anchor: {
-														left: rect.left + rect.width / 2,
-														bottom: window.innerHeight - rect.top + 6,
-													},
-												});
+											aria-label={t("chat.copyMessage")}
+											onClick={() => {
+												// Electron denies the renderer's navigator clipboard write
+												// (issue #738), so the write crosses to main when the
+												// bridge offers it; the navigator path remains for
+												// shim/web contexts without the bridge.
+												const bridge = window.electronAPI?.copyToClipboard;
+												const write = bridge
+													? bridge(m.content)
+													: navigator.clipboard.writeText(m.content);
+												void write.then(
+													() => toast.success(t("chat.copiedToClipboard")),
+													() => toast.error(t("chat.copyFailed")),
+												);
 											}}
 											className={styles.iconBtn}
 										>
@@ -1321,45 +1369,11 @@ export function ChatStripPanel() {
 												strokeLinecap="round"
 												strokeLinejoin="round"
 											>
-												<path d="M3 7v6h6" />
-												<path d="M21 17a9 9 0 0 0-15-6.7L3 13" />
+												<rect x="9" y="9" width="13" height="13" rx="2" />
+												<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
 											</svg>
 										</button>
-									) : null}
-									<button
-										type="button"
-										title={t("chat.copyMessage")}
-										aria-label={t("chat.copyMessage")}
-										onClick={() => {
-											// Electron denies the renderer's navigator clipboard write
-											// (issue #738), so the write crosses to main when the
-											// bridge offers it; the navigator path remains for
-											// shim/web contexts without the bridge.
-											const bridge = window.electronAPI?.copyToClipboard;
-											const write = bridge
-												? bridge(m.content)
-												: navigator.clipboard.writeText(m.content);
-											void write.then(
-												() => toast.success(t("chat.copiedToClipboard")),
-												() => toast.error(t("chat.copyFailed")),
-											);
-										}}
-										className={styles.iconBtn}
-									>
-										<svg
-											width={14}
-											height={14}
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2"
-											strokeLinecap="round"
-											strokeLinejoin="round"
-										>
-											<rect x="9" y="9" width="13" height="13" rx="2" />
-											<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-										</svg>
-									</button>
+									</Tooltip>
 								</div>
 								{m.toolCalls?.length ? (
 									<div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1546,28 +1560,34 @@ export function ChatStripPanel() {
 							onOpenFullSettings={openProviderSettings}
 						/>
 					) : null}
-					<button
-						type="button"
-						className={styles.sendBtn}
-						title={canChat ? t("chat.sendTitle") : t("chat.composerDisabledNoProvider")}
-						aria-label={t("chat.send")}
-						onClick={() => void send()}
-						disabled={busy || !input.trim() || !canChat}
+					{/* `aria-disabled`, not `disabled`: this is where "Set up a provider" is said, and a
+					    natively disabled button takes no pointer events, so nothing could show it. */}
+					<Tooltip
+						content={canChat ? t("chat.send") : t("chat.composerDisabledNoProvider")}
+						shortcut={canChat ? "Enter" : undefined}
 					>
-						<svg
-							width={14}
-							height={14}
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
+						<button
+							type="button"
+							className={styles.sendBtn}
+							aria-label={t("chat.send")}
+							aria-disabled={sendDisabled || undefined}
+							onClick={sendDisabled ? undefined : () => void send()}
 						>
-							<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.843 7.627a.498.498 0 0 0 .683.627l18-8.5a.5.5 0 0 0 0-.904Z" />
-							<path d="M6 12h16" />
-						</svg>
-					</button>
+							<svg
+								width={14}
+								height={14}
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							>
+								<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.843 7.627a.498.498 0 0 0 .683.627l18-8.5a.5.5 0 0 0 0-.904Z" />
+								<path d="M6 12h16" />
+							</svg>
+						</button>
+					</Tooltip>
 				</div>
 			</div>
 			<ChatHistoryModal

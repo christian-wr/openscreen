@@ -12,6 +12,7 @@ import {
 	type AiEditionLlmDisconnectResult,
 	type AiEditionLlmProviderModelsResult,
 	type AiEditionLlmSnapshot,
+	type AiEditionMcpStatus,
 	type AiEditionProjectSummary,
 	type CursorCapabilities,
 	type CursorRecordingData,
@@ -255,6 +256,34 @@ export const nativeBridgeClient = {
 				domain: "aiEdition",
 				action: "llm.listProviderModels",
 				payload: { providerId },
+			}),
+		mcpGetStatus: () =>
+			requireNativeBridgeData<AiEditionMcpStatus>({
+				domain: "aiEdition",
+				action: "mcp.getStatus",
+			}),
+		mcpSetEnabled: (enabled: boolean) =>
+			requireNativeBridgeData<AiEditionMcpStatus>({
+				domain: "aiEdition",
+				action: "mcp.setEnabled",
+				payload: { enabled },
+			}),
+		mcpSetPort: (port: number) =>
+			requireNativeBridgeData<AiEditionMcpStatus>({
+				domain: "aiEdition",
+				action: "mcp.setPort",
+				payload: { port },
+			}),
+		mcpSetAllowEdits: (allowEdits: boolean) =>
+			requireNativeBridgeData<AiEditionMcpStatus>({
+				domain: "aiEdition",
+				action: "mcp.setAllowEdits",
+				payload: { allowEdits },
+			}),
+		mcpRegenerateToken: () =>
+			requireNativeBridgeData<AiEditionMcpStatus>({
+				domain: "aiEdition",
+				action: "mcp.regenerateToken",
 			}),
 		chatRun: (
 			projectId: string,

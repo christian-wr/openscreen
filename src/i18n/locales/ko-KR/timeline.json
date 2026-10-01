@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "줌 추가 (Z)",
-		"suggestZooms": "커서 기반 줌 제안",
-		"autoZoomOn": "자동 줌 제안 켜짐 — 클릭하면 제안된 줌을 제거합니다",
-		"autoZoomOff": "자동 줌 제안 꺼짐 — 클릭하면 커서 기반으로 줌을 제안합니다",
-		"autoFocusAllOn": "모든 줌에 자동 초점 켜짐 — 클릭하면 모두 수동으로 전환합니다",
-		"autoFocusAllOff": "모든 줌에 자동 초점 켜기 (카메라가 커서를 따라갑니다)",
-		"addTrim": "트림 추가 (T)",
-		"addAnnotation": "주석 추가 (A)",
-		"addSpeed": "속도 추가 (S)",
-		"addCameraFullscreen": "전체 화면 카메라 추가 (C)"
+		"addZoom": "현재 시점에 줌 추가",
+		"autoFocusAll": "모든 줌에 자동 초점",
+		"autoFocusAllTip": "모든 줌이 커서를 따라갑니다. 꺼짐: 줌마다 초점을 직접 고릅니다.",
+		"clearTimeline": "모든 줌, 트림, 속도, 주석, 전체 화면 카메라를 제거합니다. 클립, 오디오, 자막은 그대로 남습니다.",
+		"addTrim": "트림 추가: 현재 시점에서 영상의 한 구간을 제거합니다",
+		"addAnnotation": "현재 시점에 텍스트, 화살표, 이미지 또는 블러 추가",
+		"addSpeed": "현재 시점에 속도 변경 추가",
+		"addCameraFullscreen": "전체 화면 카메라 추가: 현재 시점에 카메라를 전체 화면으로 표시합니다"
 	},
 	"hints": {
 		"pressZoom": "Z를 눌러 줌 추가",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "이동",
+		"panTip": "타임라인 스크롤",
 		"zoom": "줌",
+		"zoomTip": "타임라인 확대/축소",
 		"trim": "트림",
 		"speed": "속도",
 		"zoomItem": "줌 {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "클립 정리",
 		"arrangeClipsHint": "아래 클립을 드래그하여 순서를 바꾸거나 새 클립을 놓으세요",
 		"newAnnotation": "주석",
-		"dragToReorderHint": "드래그하여 순서 변경 · 더블클릭하여 시작/종료 지점 편집",
+		"dragToReorderHint": "드래그하여 순서를 바꿉니다. 더블클릭하여 시작과 종료를 바꿉니다.",
 		"editInOutPoints": "시작/종료 지점 편집",
 		"deleteClip": "클립 삭제",
 		"dropToAdd": "타임라인에 추가하려면 놓으세요",

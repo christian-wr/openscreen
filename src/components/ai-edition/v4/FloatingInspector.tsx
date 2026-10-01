@@ -28,6 +28,7 @@ import {
 import type { ComponentProps } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { TOOLTIP_GAP_PX, Tooltip } from "@/components/ui/tooltip";
 import { parseCustomPlaybackSpeedInput } from "@/components/video-editor/customPlaybackSpeed";
 import {
 	effectiveZoomScale,
@@ -73,6 +74,7 @@ import {
 	TranscriptPane,
 	VideoEffectsPane,
 } from "../RightPanes";
+import { useHasRecordedCursor } from "../recordedCursorTypes";
 import { TextColorField } from "../TextColorField";
 import styles from "./EditorShellV4.module.css";
 
@@ -93,6 +95,11 @@ const FACETS: Array<{ id: Facet; labelKey: string; icon: typeof SlidersHorizonta
 	{ id: "cursor", labelKey: "cursor.title", icon: MousePointer2 },
 	{ id: "transcript", labelKey: "facets.transcript", icon: FileText },
 ];
+
+// The rail is a column against the right edge, so its tooltips open to the left: above or below
+// they would cover the next button. The rail's own padding and border (6px + 1px) come on top of
+// the usual gap, so the gap is measured from the rail's edge, not from the button's.
+const RAIL_TOOLTIP = { side: "left", sideOffset: TOOLTIP_GAP_PX + 7 } as const;
 
 type TranscriptProps = ComponentProps<typeof TranscriptPane>;
 
@@ -116,7 +123,7 @@ interface FloatingInspectorProps {
 }
 
 export function FloatingInspector({
-	facet,
+	facet: chosenFacet,
 	open,
 	onFacetChange,
 	onToggleOpen,
@@ -127,6 +134,21 @@ export function FloatingInspector({
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
 	const te = useScopedT("editor");
+	// A take with no cursor data (recorded with the system cursor, or imported) has nothing for
+	// the cursor settings to act on, so that facet is not offered: never shown while the answer is
+	// unknown, and a choice of it that lost its footing falls back to the first facet.
+	const hasCursor = useHasRecordedCursor() === true;
+	const facets = hasCursor ? FACETS : FACETS.filter(({ id }) => id !== "cursor");
+	// Literal keys, one call each, so `npm run i18n:check` resolves them (a key held in FACETS
+	// would not be checked).
+	const railTips: Record<Facet, string> = {
+		effects: ts("facets.tips.effects"),
+		layout: ts("facets.tips.layout"),
+		audio: ts("facets.tips.audio"),
+		cursor: ts("facets.tips.cursor"),
+		transcript: ts("facets.tips.transcript"),
+	};
+	const facet = facets.some(({ id }) => id === chosenFacet) ? chosenFacet : facets[0].id;
 	const [clipPickerOpen, setClipPickerOpen] = useState(false);
 	const clipPickerRef = useRef<HTMLDivElement | null>(null);
 	useEffect(() => {
@@ -158,46 +180,49 @@ export function FloatingInspector({
 				</div>
 			) : null}
 			<div className={styles.facetRail}>
-				{FACETS.map(({ id, labelKey, icon: Icon }) => (
-					<button
-						key={id}
-						type="button"
-						title={ts(labelKey)}
-						aria-label={ts(labelKey)}
-						aria-pressed={!selection && !audioTrackSelected && open && facet === id}
-						onClick={() => {
-							// Switching facets while an element is selected should show
-							// the facet, not leave the selection pane on top of it.
-							if (selection || audioTrackSelected) tl.clearSelection();
-							if (facet === id && open) {
-								onToggleOpen();
-							} else {
-								onFacetChange(id);
-							}
-						}}
-					>
-						<Icon size={17} />
-					</button>
+				{facets.map(({ id, labelKey, icon: Icon }) => (
+					// The name is the pane's title; the tip says what the pane holds. They are two keys
+					// because the title is also the pane's heading and cannot carry the list.
+					<Tooltip key={id} content={railTips[id]} {...RAIL_TOOLTIP}>
+						<button
+							type="button"
+							aria-label={ts(labelKey)}
+							aria-pressed={!selection && !audioTrackSelected && open && facet === id}
+							onClick={() => {
+								// Switching facets while an element is selected should show
+								// the facet, not leave the selection pane on top of it.
+								if (selection || audioTrackSelected) tl.clearSelection();
+								if (facet === id && open) {
+									onToggleOpen();
+								} else {
+									onFacetChange(id);
+								}
+							}}
+						>
+							<Icon size={17} />
+						</button>
+					</Tooltip>
 				))}
 				<div ref={clipPickerRef} style={{ position: "relative" }}>
-					<button
-						type="button"
-						title={te("editClipDialog.title")}
-						aria-label={te("editClipDialog.title")}
-						aria-haspopup={clips.length > 1 ? "menu" : undefined}
-						aria-expanded={clips.length > 1 ? clipPickerOpen : undefined}
-						onClick={() => {
-							if (selection) tl.clearSelection();
-							if (clips.length === 0) return;
-							if (clips.length === 1) {
-								onEditClip(clips[0]);
-								return;
-							}
-							setClipPickerOpen((v) => !v);
-						}}
-					>
-						<Pencil size={17} />
-					</button>
+					<Tooltip content={te("inspector.editClipTip")} {...RAIL_TOOLTIP}>
+						<button
+							type="button"
+							aria-label={te("editClipDialog.title")}
+							aria-haspopup={clips.length > 1 ? "menu" : undefined}
+							aria-expanded={clips.length > 1 ? clipPickerOpen : undefined}
+							onClick={() => {
+								if (selection) tl.clearSelection();
+								if (clips.length === 0) return;
+								if (clips.length === 1) {
+									onEditClip(clips[0]);
+									return;
+								}
+								setClipPickerOpen((v) => !v);
+							}}
+						>
+							<Pencil size={17} />
+						</button>
+					</Tooltip>
 					{clipPickerOpen && clips.length > 1 ? (
 						<div
 							role="menu"
@@ -497,6 +522,7 @@ export function ZoomLevelControl({
 	};
 
 	const presets = ZOOM_PRESETS.filter((preset) => preset.value <= maxScale);
+	const hasSelectedPreset = presets.some((preset) => preset.value === requested);
 
 	return (
 		<>
@@ -519,7 +545,7 @@ export function ZoomLevelControl({
 						type="text"
 						inputMode="decimal"
 						aria-label={ts("zoom.customScale")}
-						placeholder={`${requested}×`}
+						placeholder={hasSelectedPreset ? "" : `${requested}×`}
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
 						onBlur={commitDraft}

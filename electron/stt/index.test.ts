@@ -34,6 +34,9 @@ vi.mock("./whisperServer", () => {
 
 vi.mock("./modelManager", () => ({
 	ensureModels: vi.fn(async () => undefined),
+	ensureAligner: vi.fn(async ({ language }: { language: string }) => `/fake/${language}.gguf`),
+	cachedAligner: vi.fn(async () => null),
+	alignerPath: vi.fn((base: string, language: string): string | null => `${base}/${language}.gguf`),
 	modelPaths: (base: string) => ({
 		whisper: `${base}/whisper-ggml/ggml-small-q8_0.bin`,
 	}),
@@ -468,6 +471,110 @@ describe("SttManager", () => {
 
 		expect(mocked).toHaveBeenCalledTimes(2);
 		expect(fakeWhisperServer.start).toHaveBeenCalledOnce();
+	});
+
+	describe("word aligner", () => {
+		/** Chunks report what `alignerFor("fr")` gave them, as the helper would use it. */
+		function recordAligner() {
+			const asked: Array<string | null> = [];
+			fakeWhisperServer.transcribe.mockImplementation(
+				async (opts: { alignerFor?: (language: string) => Promise<string | null> }) => {
+					asked.push((await opts.alignerFor?.("fr")) ?? null);
+					return {
+						segments: [],
+						wordSegments: [],
+						detectedLanguage: "fr",
+						backend: "whispercpp-cpu" as const,
+					};
+				},
+			);
+			return asked;
+		}
+		const long = new Float32Array(16_000 * 400);
+
+		async function mocks() {
+			const mm = await import("./modelManager");
+			const ensure = vi.mocked(mm.ensureAligner);
+			const cached = vi.mocked(mm.cachedAligner);
+			ensure.mockReset();
+			cached.mockReset();
+			cached.mockResolvedValue(null);
+			return { ensure, cached };
+		}
+
+		it("never holds a chunk on the download, and uses the aligner once it lands", async () => {
+			const { ensure } = await mocks();
+			let land: (file: string) => void = () => undefined;
+			ensure.mockImplementation(() => new Promise((resolve) => (land = resolve)));
+			const asked = recordAligner();
+			const mgr = new SttManager();
+			await mgr.init({ modelsBaseDir: "/tmp/fake-stt-models" });
+
+			// The download never finishes during this run: every chunk goes on without it.
+			await mgr.transcribe({ samples: long, language: "fr" });
+			expect(asked.length).toBeGreaterThan(1);
+			expect(asked.every((x) => x === null)).toBe(true);
+			expect(ensure).toHaveBeenCalledOnce();
+
+			land("/fake/fr.gguf");
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			asked.length = 0;
+			await mgr.transcribe({ samples: new Float32Array(16_000), language: "fr" });
+			expect(asked).toEqual(["/fake/fr.gguf"]);
+			expect(ensure).toHaveBeenCalledOnce();
+		});
+
+		it("uses a verified copy already on disk without downloading", async () => {
+			const { ensure, cached } = await mocks();
+			cached.mockResolvedValue("/fake/fr.gguf");
+			const asked = recordAligner();
+			const mgr = new SttManager();
+			await mgr.init({ modelsBaseDir: "/tmp/fake-stt-models" });
+			await mgr.transcribe({ samples: long, language: "fr" });
+			expect(asked.every((x) => x === "/fake/fr.gguf")).toBe(true);
+			expect(cached).toHaveBeenCalledOnce();
+			expect(ensure).not.toHaveBeenCalled();
+		});
+
+		it("aborts the download on cancel and on shutdown, then retries on a later run", async () => {
+			const { ensure } = await mocks();
+			const signals: AbortSignal[] = [];
+			ensure.mockImplementation(
+				({ signal }: { signal?: AbortSignal }) =>
+					new Promise((_, reject) => {
+						if (signal) signals.push(signal);
+						signal?.addEventListener("abort", () => reject(signal.reason));
+					}),
+			);
+			recordAligner();
+			const mgr = new SttManager();
+			await mgr.init({ modelsBaseDir: "/tmp/fake-stt-models" });
+			await mgr.transcribe({ samples: long, language: "fr" });
+			expect(signals).toHaveLength(1);
+
+			mgr.cancel();
+			expect(signals[0].aborted).toBe(true);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			// Not cached as failed for good: the next transcription starts it again.
+			await mgr.transcribe({ samples: long, language: "fr" });
+			expect(signals).toHaveLength(2);
+			expect(signals[1].aborted).toBe(false);
+			await mgr.shutdown();
+			expect(signals[1].aborted).toBe(true);
+		});
+
+		it("gives a language without an aligner nothing, and downloads nothing", async () => {
+			const { ensure } = await mocks();
+			const mm = await import("./modelManager");
+			vi.mocked(mm.alignerPath).mockReturnValueOnce(null);
+			const asked = recordAligner();
+			const mgr = new SttManager();
+			await mgr.init({ modelsBaseDir: "/tmp/fake-stt-models" });
+			await mgr.transcribe({ samples: new Float32Array(16_000), language: "fr" });
+			expect(asked).toEqual([null]);
+			expect(ensure).not.toHaveBeenCalled();
+		});
 	});
 
 	it("fans status out to every sink, and detaching one leaves the others", async () => {

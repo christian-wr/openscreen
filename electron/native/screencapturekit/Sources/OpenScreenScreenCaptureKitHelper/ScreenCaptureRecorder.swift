@@ -152,6 +152,9 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 	private var totalPausedDuration = CMTime.zero
 	/// Sample queue only. See `VideoTimestampGate` for the failure it exists to prevent.
 	private var videoTimestampGate = VideoTimestampGate()
+	/// Sample queue only. Frames the writer input was not ready for, or refused, reported in
+	/// `recording-stopped` so a macOS drop rate can be measured at all (#937).
+	private var droppedVideoFrames = 0
 	private var nativeMicrophoneEnabled = false
 	private var outputWidth = 1920
 	private var outputHeight = 1080
@@ -454,8 +457,11 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 					"captureBounds": captureBoundsPayload(),
 				])
 			} else if !appended {
+				droppedVideoFrames += 1
 				reportWriterFailure("video append")
 			}
+		} else {
+			droppedVideoFrames += 1
 		}
 	}
 
@@ -701,7 +707,15 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(max(1, request.video.fps)))
 		configuration.queueDepth = 6
 		configuration.showsCursor = !request.video.hideSystemCursor
-		configuration.pixelFormat = kCVPixelFormatType_32BGRA
+		// Studio-range BT.709 YCbCr from ScreenCaptureKit itself, which the encoder takes as is
+		// and the compositor decodes (#943). BGRA left the matrix to VideoToolbox. Nothing here
+		// reads the pixels: a frame goes through `retimedSampleBuffer` (timing only) to
+		// `append`, and `isCompleteFrame` reads attachments. 1.5 bytes a pixel instead of 4,
+		// times `queueDepth`.
+		configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+		configuration.colorMatrix = captureYCbCrMatrix
+		// Unset, the buffers carry the display's colour space: P3 on most Macs.
+		configuration.colorSpaceName = CGColorSpace.sRGB
 		configuration.sampleRate = 48_000
 		configuration.channelCount = 2
 		configuration.excludesCurrentProcessAudio = true
@@ -754,8 +768,12 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			AVVideoCodecKey: AVVideoCodecType.h264,
 			AVVideoWidthKey: outputWidth,
 			AVVideoHeightKey: outputHeight,
+			// BT.709 tags, the colour the stream is captured in (#943).
+			AVVideoColorPropertiesKey: videoColorProperties,
 			AVVideoCompressionPropertiesKey: [
-				AVVideoAverageBitRateKey: request.video.bitrate ?? 18_000_000,
+				// From the size this stream really got. The renderer sends none (#924).
+				AVVideoAverageBitRateKey: request.video.bitrate
+					?? defaultVideoBitrate(width: outputWidth, height: outputHeight, fps: request.video.fps),
 				AVVideoExpectedSourceFrameRateKey: request.video.fps,
 				// Without this the encoder defaults to B-frames, and a reordered
 				// stream needs a composition offset per sample. AVAssetWriter emits
@@ -784,6 +802,11 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 				// particular run happened to die. Reordering off is 3/3 clean across
 				// both rates, and a SIGKILL at 25s still leaves 27 readable `moof`.
 				AVVideoAllowFrameReorderingKey: false,
+				// A keyframe every second, by frame count and by time: a still screen
+				// delivers fewer frames than the fps, and the count alone would then
+				// stretch the GOP, which is the editor's scrub cost (#937).
+				AVVideoMaxKeyFrameIntervalKey: videoKeyFrameInterval(fps: request.video.fps),
+				AVVideoMaxKeyFrameIntervalDurationKey: 1,
 			],
 		]
 		let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
@@ -906,7 +929,9 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			}
 		}
 
-		let refusedVideoFrames = sampleQueue.sync { videoTimestampGate.rejectedCount }
+		let (refusedVideoFrames, droppedFrames) = sampleQueue.sync {
+			(videoTimestampGate.rejectedCount, droppedVideoFrames)
+		}
 		if refusedVideoFrames > 1 {
 			emit([
 				"event": "warning",
@@ -929,6 +954,7 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 			emit([
 				"event": "recording-stopped",
 				"screenPath": request.outputs.screenPath,
+				"droppedVideoFrames": droppedFrames,
 			])
 		} else {
 			emitError(

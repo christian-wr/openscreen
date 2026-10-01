@@ -361,6 +361,10 @@
 	overflow: hidden;
 	display: grid;
 	place-items: center;
+	/* Its own stacking context: the layers inside it (gimbals, zoom focus, webcam drag) order
+	   themselves with z-indexes up to 1000 and more, which must not reach past the preview. A
+	   selected annotation's gimbal painted over the export dialog (z-index 100). */
+	isolation: isolate;
 }
 /* Once the native canvas has painted, it covers the whole card, and anything painted UNDER the
    same rounded clip leaks through its anti-aliased edge: the wallpaper placeholder and the inset
@@ -1280,22 +1284,6 @@ textarea.control {
 	border-color: var(--accent);
 	color: var(--accent);
 }
-/* The export dialog's "Advanced" disclosure. Its own class: it must not ride on a pane's. */
-.exportAdvanced {
-	display: inline-flex;
-	align-self: flex-start;
-	align-items: center;
-	gap: 4px;
-	padding: 0;
-	border: 0;
-	background: transparent;
-	color: var(--fg-2);
-	font: 500 13px/1.2 var(--font-body);
-	cursor: pointer;
-}
-.exportAdvanced:hover { color: var(--fg); }
-.exportAdvanced svg { transition: transform var(--motion-fast) var(--ease); }
-.exportAdvanced[aria-expanded="true"] svg { transform: rotate(180deg); }
 .bgThumb:hover { transform: translateY(-1px); }
 .bgThumb.isActive {
 	border-color: var(--brand);
@@ -1524,7 +1512,8 @@ textarea.control {
 	background: var(--surface-3);
 	color: var(--fg-2);
 }
-.stripActions button:disabled {
+.stripActions button:disabled,
+.stripActions button[aria-disabled="true"] {
 	opacity: 0.4;
 	cursor: not-allowed;
 }
@@ -1678,8 +1667,9 @@ textarea.control {
 	cursor: pointer;
 	transition: background var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease);
 }
-.sendBtn:hover:not(:disabled) { background: var(--brand-lo); transform: scale(1.05); }
-.sendBtn:disabled {
+.sendBtn:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--brand-lo); transform: scale(1.05); }
+.sendBtn:disabled,
+.sendBtn[aria-disabled="true"] {
 	background: color-mix(in oklab, var(--fg) 8%, transparent);
 	color: var(--muted);
 	cursor: not-allowed;
@@ -2479,7 +2469,8 @@ textarea.control {
   cursor: pointer;
 }
 .iconBtn:hover { background: var(--surface-3); color: var(--fg); }
-.iconBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.iconBtn:disabled,
+.iconBtn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 
 /* A labelled sibling of .iconBtn. Captions lost their own tab (issue #560), so the
    control that replaces it cannot be an icon you must hover to identify: the whole

@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "Yakınlaştırma Ekle (Z)",
-		"suggestZooms": "İmleçten Yakınlaştırma Öner",
-		"autoZoomOn": "Otomatik yakınlaştırma önerileri açık — önerilen yakınlaştırmaları kaldırmak için tıklayın",
-		"autoZoomOff": "Otomatik yakınlaştırma önerileri kapalı — imleçten yakınlaştırma önermek için tıklayın",
-		"autoFocusAllOn": "Tüm yakınlaştırmalarda Otomatik Odak açık — hepsini manuel yapmak için tıklayın",
-		"autoFocusAllOff": "Tüm yakınlaştırmalarda Otomatik Odağı aç (kamera imleci takip eder)",
-		"addTrim": "Kırpma Ekle (T)",
-		"addAnnotation": "Açıklama Ekle (A)",
-		"addSpeed": "Hız Ekle (S)",
-		"addCameraFullscreen": "Tam Ekran Kamera Ekle (C)"
+		"addZoom": "Şu anki zamanda yakınlaştırma ekle",
+		"autoFocusAll": "Tüm yakınlaştırmalar için Otomatik Odak",
+		"autoFocusAllTip": "Tüm yakınlaştırmalar imleci takip eder. Kapalı: her yakınlaştırmanın odağını siz seçersiniz.",
+		"clearTimeline": "Tüm yakınlaştırma, kırpma, hız, açıklama ve Tam Ekran Kamera öğelerini kaldır. Klipler, ses ve altyazılar kalır.",
+		"addTrim": "Kırpma ekle: videonun bir bölümünü şu anki zamanda çıkarır",
+		"addAnnotation": "Şu anki zamanda metin, ok, resim veya bulanıklık ekle",
+		"addSpeed": "Şu anki zamanda hız değişikliği ekle",
+		"addCameraFullscreen": "Tam Ekran Kamera ekle: kamerayı şu anki zamanda tam ekran gösterir"
 	},
 	"hints": {
 		"pressZoom": "Yakınlaştırma eklemek için Z tuşuna basın",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "Kaydır",
+		"panTip": "Zaman çizelgesini kaydır",
 		"zoom": "Yakınlaştır",
+		"zoomTip": "Zaman çizelgesini yakınlaştır",
 		"trim": "Kırp",
 		"speed": "Hız",
 		"zoomItem": "Yakınlaştırma {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "Klipleri düzenle",
 		"arrangeClipsHint": "Yeniden sıralamak için aşağıdaki klipleri sürükleyin veya yenilerini bırakın",
 		"newAnnotation": "Açıklama",
-		"dragToReorderHint": "Yeniden sıralamak için sürükleyin · giriş/çıkış noktalarını düzenlemek için çift tıklayın",
+		"dragToReorderHint": "Sıralamak için sürükleyin. Başlangıç ve bitişi değiştirmek için çift tıklayın.",
 		"editInOutPoints": "Giriş/çıkış noktalarını düzenle",
 		"deleteClip": "Klibi sil",
 		"dropToAdd": "Zaman çizelgesine eklemek için bırakın",

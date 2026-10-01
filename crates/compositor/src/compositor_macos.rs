@@ -261,6 +261,8 @@ pub struct Compositor {
     scene: RefCell<Option<Scene>>,
     cursor: RefCell<Option<crate::cursor::CursorTrack>>,
     cursor_time: RefCell<Option<f32>>,
+    /// Le métrage dans la dernière image composée, que l'éditeur lit avec elle (`live.rs`).
+    footage: std::cell::Cell<Option<crate::frame_geometry::FootageQuad>>,
     timeline_time: RefCell<Option<f32>>,
     /// Temps programme (secondes de sortie) — cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
@@ -682,6 +684,7 @@ impl Compositor {
             scene: RefCell::new(None),
             cursor: RefCell::new(None),
             cursor_time: RefCell::new(None),
+            footage: std::cell::Cell::new(None),
             timeline_time: RefCell::new(None),
             programme_time: RefCell::new(None),
             live_params: RefCell::new(LiveParams::default()),
@@ -1417,6 +1420,23 @@ impl Compositor {
     }
 
 
+    /// Fige l'image composée dans `ann_copy` (mip 0), qu'y lisent les flous (mips dérivés,
+    /// `mips`) et le cristal de Prism Glow.
+    unsafe fn snapshot_rt(&self, cmd: &metal::CommandBufferRef, mips: bool) {
+        let blit = cmd.new_blit_command_encoder();
+        blit.copy_from_texture(
+            &self.rt, 0, 0,
+            metal::MTLOrigin { x: 0, y: 0, z: 0 },
+            metal::MTLSize { width: self.render_w as u64, height: self.render_h as u64, depth: 1 },
+            &self.ann_copy, 0, 0,
+            metal::MTLOrigin { x: 0, y: 0, z: 0 },
+        );
+        if mips {
+            blit.generate_mipmaps(&self.ann_copy);
+        }
+        blit.end_encoding();
+    }
+
     /// Annotations : calque le plus haut, ancré sur `s_ann` — le rect écran SANS ZOOM, le
     /// conteneur que reçoit l'overlay web. Port de `compositor_windows::draw_annotations`.
     ///
@@ -1425,6 +1445,9 @@ impl Compositor {
     /// grossir les sous-titres sous un zoom (issue #179, puis #397 sur Linux). L'arithmétique
     /// elle-même vit dans `frame_geometry::annotation_dst_in`, partagée par les trois backends.
     /// Le flou, lui, se place par `g.privacy_mask` : un masque doit rester sur ce qu'il cache.
+    ///
+    /// `privacy` : les flous de confidentialité seuls, dessinés sur le métrage avant le curseur ;
+    /// sinon toutes les autres annotations, le calque le plus haut.
     unsafe fn draw_annotations(
         &self,
         cmd: &metal::CommandBufferRef,
@@ -1432,30 +1455,21 @@ impl Compositor {
         t: f32,
         s_ann: [f32; 4],
         g: &crate::frame_geometry::FrameGeometry,
+        privacy: bool,
     ) -> Result<()> {
         let Some(scene) = scene else { return Ok(()) };
-        if scene.annotations.is_empty() {
-            return Ok(());
-        }
         let (rw, rh) = (self.render_w as f32, self.render_h as f32);
         let visible = |a: &crate::scene::SceneAnnotation| {
-            t >= a.start_sec as f32 && t < a.end_sec as f32
+            t >= a.start_sec as f32 && t < a.end_sec as f32 && (a.kind == "blur") == privacy
         };
+        if !scene.annotations.iter().any(visible) {
+            return Ok(());
+        }
         // UNE seule recopie pour toutes les annotations flou de la frame : leur lecture doit
         // voir l'image composée SANS les flous eux-mêmes, sinon deux zones qui se recouvrent
         // s'échantillonneraient l'une l'autre selon l'ordre de dessin.
-        if scene.annotations.iter().any(|a| a.kind == "blur" && visible(a)) {
-            let blit = cmd.new_blit_command_encoder();
-            blit.copy_from_texture(
-                &self.rt, 0, 0,
-                metal::MTLOrigin { x: 0, y: 0, z: 0 },
-                metal::MTLSize { width: rw as u64, height: rh as u64, depth: 1 },
-                &self.ann_copy, 0, 0,
-                metal::MTLOrigin { x: 0, y: 0, z: 0 },
-            );
-            // Seul le mip 0 est rempli ; le GPU dérive le reste.
-            blit.generate_mipmaps(&self.ann_copy);
-            blit.end_encoding();
+        if privacy {
+            self.snapshot_rt(cmd, true);
         }
 
         let enc = self.begin_pass(cmd, &self.rt, None, &self.pipeline_main)?;
@@ -2066,7 +2080,8 @@ impl Compositor {
     /// `frame_geometry::cursor_sprite_cb`, partagée avec Windows et Linux.
     ///
     /// Avec `model`, le même sprite extrudé (mode 15, `cursor_model_cb`) : le sprite en
-    /// texture(2), son champ de distance en texture(4).
+    /// texture(2), son champ de distance en texture(4), l'enregistrement que l'appelant a lié en
+    /// texture(0) et (1).
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_cursor_sprite(
         &self,
@@ -2142,6 +2157,11 @@ impl Compositor {
         }
     }
 
+    /// Le métrage dans la dernière image composée : ses coins et son warp (`FootageQuad`).
+    pub fn footage_quad(&self) -> Option<crate::frame_geometry::FootageQuad> {
+        self.footage.get()
+    }
+
     /// Compose la frame : fond, ombre écran, écran, ombre caméra, caméra — puis miroir
     /// `Shared` pour la lecture CPU.
     ///
@@ -2211,6 +2231,7 @@ impl Compositor {
             timeline_t_override: *self.timeline_time.borrow(),
             programme_time: *self.programme_time.borrow(),
         });
+        self.footage.set(Some(g.footage_quad([rw, rh])));
 
         let cmd_buf = self.gpu.context.new_command_buffer();
         // Profondeur de champ : pyramide remplie seulement sur une frame inclinée qui la lit,
@@ -2400,6 +2421,11 @@ impl Compositor {
 
         enc.end_encoding();
 
+        // --- flous de confidentialité : sur le métrage, AVANT le curseur (parité Windows). Le
+        // curseur reste net par-dessus, et le cristal de Prism Glow, qui réfracte l'image
+        // composée, n'y voit que des pixels déjà floutés.
+        self.draw_annotations(cmd_buf, scene_ref.as_ref(), g.source_t, g.s_ann, &g, true)?;
+
         // --- curseur --- (parité `compositor_windows.rs`, section « curseur custom »)
         if let Some(track) = cursor_ref.as_ref() {
             let plan = crate::frame_geometry::plan_cursor(
@@ -2422,6 +2448,12 @@ impl Compositor {
                     .map(|s| s.cursor.cursor_sprites.clone())
                     .unwrap_or_default();
                 let kind = plan.cursor_type.as_deref();
+                // Le cristal de Prism Glow réfracte l'image telle qu'elle est composée à cet
+                // instant, flous compris : sa copie en texture(5), une fois pour toutes les copies
+                // de la traînée (`ann_copy` est libre, les flous l'ont déjà lue).
+                if plan.glass {
+                    self.snapshot_rt(cmd_buf, false);
+                }
                 // L'impact des clics (mode 16, sans texture), posé sur l'écran SOUS le curseur.
                 if !plan.impacts.is_empty() {
                     let e = self.begin_pass(cmd_buf, &self.rt, None, &self.pipeline_main)?;
@@ -2432,6 +2464,9 @@ impl Compositor {
                 }
                 if plan.taps <= 1 {
                     let e = self.begin_pass(cmd_buf, &self.rt, None, &self.pipeline_main)?;
+                    if plan.glass {
+                        e.set_fragment_texture(5, Some(&self.ann_copy));
+                    }
                     self.draw_cur_themed(
                         e,
                         &sprites,
@@ -2454,6 +2489,9 @@ impl Compositor {
                         Some(metal::MTLClearColor::new(0.0, 0.0, 0.0, 0.0)),
                         &self.pipeline_add,
                     )?;
+                    if plan.glass {
+                        e.set_fragment_texture(5, Some(&self.ann_copy));
+                    }
                     for k in 0..plan.taps {
                         let f = k as f32 / (plan.taps - 1) as f32;
                         let w = crate::frame_geometry::cursor_tap_weight(k, plan.taps);
@@ -2578,8 +2616,9 @@ impl Compositor {
         // --- annotations : calque le plus haut, ancré sur le rect ÉCRAN SANS ZOOM ---
         // `s_ann`, pas `s_dst` : le zoom vit dans la boîte depuis l'issue #179, donc `s_dst`
         // grandit avec lui et emmenait annotations et sous-titres dans le mouvement. Le flou de
-        // confidentialité est l'exception : il suit le contenu, d'où `&g`.
-        self.draw_annotations(cmd_buf, scene_ref.as_ref(), g.source_t, g.s_ann, &g)?;
+        // confidentialité est l'exception : il suit le contenu, d'où `&g` ; il est passé avant le
+        // curseur (plus haut).
+        self.draw_annotations(cmd_buf, scene_ref.as_ref(), g.source_t, g.s_ann, &g, false)?;
 
         // Ni miroir RGBA ni attente ici : le miroir ne sert qu'à `readback_direct` (la
         // preview), et l'export ne lit jamais le RGBA — le blit pleine résolution était payé

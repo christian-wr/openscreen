@@ -1,11 +1,13 @@
 #include "audio_sample_utils.h"
 #include "desktop_icon_cover.h"
 #include "dpi_awareness.h"
+#include "realtime_scheduling.h"
 #include "mf_encoder.h"
 #include "monitor_utils.h"
 #include "wasapi_device_watcher.h"
 #include "wasapi_loopback_capture.h"
 #include "wasapi_render_keepalive.h"
+#include "frame_visibility.h"
 #include "webcam_capture.h"
 #include "wgc_session.h"
 
@@ -393,30 +395,6 @@ void reportCaptureAdapters(ID3D11Device* device, HMONITOR targetMonitor) {
     }
 }
 
-bool hasVisibleBgraContent(const std::vector<BYTE>& frame) {
-    if (frame.size() < 4) {
-        return false;
-    }
-
-    uint64_t lumaTotal = 0;
-    BYTE maxLuma = 0;
-    const size_t pixelCount = frame.size() / 4;
-    const size_t step = std::max<size_t>(1, pixelCount / 4096);
-    size_t sampledPixels = 0;
-    for (size_t pixel = 0; pixel < pixelCount; pixel += step) {
-        const size_t offset = pixel * 4;
-        const BYTE b = frame[offset + 0];
-        const BYTE g = frame[offset + 1];
-        const BYTE r = frame[offset + 2];
-        const BYTE luma = static_cast<BYTE>((static_cast<uint16_t>(r) * 54 + static_cast<uint16_t>(g) * 183 + static_cast<uint16_t>(b) * 19) >> 8);
-        lumaTotal += luma;
-        maxLuma = std::max(maxLuma, luma);
-        sampledPixels += 1;
-    }
-
-    const uint64_t averageLuma = sampledPixels > 0 ? lumaTotal / sampledPixels : 0;
-    return maxLuma > 24 || averageLuma > 4;
-}
 
 bool findBool(const std::string& json, const std::string& key, bool fallback) {
     auto pos = json.find("\"" + key + "\"");
@@ -673,6 +651,7 @@ int wmain(int argc, wchar_t* argv[]) {
         std::cerr << "ERROR: Could not enable per-monitor-v2 DPI awareness" << std::endl;
         return 1;
     }
+    const HighResolutionTiming highResolutionTiming;
 
     if (argc < 2) {
         std::cerr << "ERROR: Missing JSON config argument" << std::endl;
@@ -753,7 +732,14 @@ int wmain(int argc, wchar_t* argv[]) {
         // A window is captured by whichever display it currently sits on, which
         // is the adapter that matters for the same reason a monitor's does.
         capturedMonitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
-        if (!session.initialize(window, config.fps, config.captureCursor)) {
+        // A window source would otherwise lose every context menu and dropdown,
+        // which are windows of their own (getopenscreen/openscreen#894). Windows 11
+        // 24H2+ can draw them into this capture; OPENSCREEN_WGC_DISABLE_SECONDARY_
+        // WINDOWS=1 restores the window-only capture. Never for a monitor source,
+        // which already contains everything on that screen.
+        const bool includeSecondaryWindows =
+            readEnvInt("OPENSCREEN_WGC_DISABLE_SECONDARY_WINDOWS", 0) != 1;
+        if (!session.initialize(window, config.fps, config.captureCursor, includeSecondaryWindows)) {
             std::cerr << "ERROR: Failed to initialize WGC window session" << std::endl;
             return 1;
         }
@@ -777,7 +763,10 @@ int wmain(int argc, wchar_t* argv[]) {
 
     WebcamCapture webcamCapture;
     bool webcamActive = false;
-    bool writeSeparateWebcam = false;
+    // Decided before initialize(), not after: it selects the capture pixel
+    // format, and only a camera going to its own file can use NV12 -- an inline
+    // picture-in-picture composite needs the frame as BGRA.
+    bool writeSeparateWebcam = config.webcamEnabled && !config.webcamOutputPath.empty();
     if (config.webcamEnabled) {
         if (!webcamCapture.initialize(
                 utf8ToWide(config.webcamDeviceId),
@@ -785,7 +774,8 @@ int wmain(int argc, wchar_t* argv[]) {
                 utf8ToWide(config.webcamDirectShowClsid),
                 config.webcamWidth,
                 config.webcamHeight,
-                config.webcamFps > 0 ? config.webcamFps : config.fps)) {
+                config.webcamFps > 0 ? config.webcamFps : config.fps,
+                writeSeparateWebcam)) {
             // Non-fatal: a screen+audio recording the user can still use is far
             // better than losing the whole recording because one camera device
             // didn't match. Report it so the renderer can inform the user (and,
@@ -797,13 +787,14 @@ int wmain(int argc, wchar_t* argv[]) {
                          "\"Failed to initialize native webcam capture\"}"
                       << std::endl;
             config.webcamEnabled = false;
+            writeSeparateWebcam = false;
         } else {
             std::cout << "{\"event\":\"webcam-format\",\"schemaVersion\":2,\"width\":" << webcamCapture.width()
                       << ",\"height\":" << webcamCapture.height()
                       << ",\"fps\":" << webcamCapture.fps()
                       << ",\"deviceName\":\"" << jsonEscape(wideToUtf8(webcamCapture.selectedDeviceName()))
                       << "\"}" << std::endl;
-            writeSeparateWebcam = !config.webcamOutputPath.empty();
+            // writeSeparateWebcam was decided above, before the pixel format.
         }
     }
 
@@ -980,8 +971,17 @@ int wmain(int argc, wchar_t* argv[]) {
         MFEncoderOptions webcamEncoderOptions = encoderOptions;
         webcamEncoderOptions.injectDefaultSinkWriterFailureOnce = false;
         webcamEncoderOptions.useDxgiInput = false;
+        // The two-step ladder this replaces topped out at 8 Mbit/s for anything
+        // 720p or larger. That was sized for a camera nobody had configured
+        // above 640x480; now that the capture runs at the camera's real
+        // resolution, 8 Mbit/s starves a 1440p or 2160p frame badly enough to
+        // undo the extra pixels. The tiers mirror the screen ladder above.
         const int webcamPixels = std::max(1, webcamCapture.width()) * std::max(1, webcamCapture.height());
-        const int webcamBitrate = webcamPixels >= 1280 * 720 ? 8'000'000 : 4'000'000;
+        const int webcamBitrate = webcamPixels >= 3840 * 2160   ? 40'000'000
+                                  : webcamPixels >= 2560 * 1440 ? 24'000'000
+                                  : webcamPixels >= 1920 * 1080 ? 16'000'000
+                                  : webcamPixels >= 1280 * 720  ? 8'000'000
+                                                                : 4'000'000;
         if (!webcamEncoder.initialize(
                 utf8ToWide(config.webcamOutputPath),
                 webcamCapture.width(),
@@ -1073,6 +1073,7 @@ int wmain(int argc, wchar_t* argv[]) {
     }
 
     auto writeVideoFrames = [&]() {
+        const MmcssThread mmcss(L"Capture");
         const auto frameDuration = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
             std::chrono::duration<double>(1.0 / config.fps));
         uint64_t frameIndex = 0;
@@ -1100,6 +1101,10 @@ int wmain(int argc, wchar_t* argv[]) {
             Microsoft::WRL::ComPtr<IMFSample> webcamSample;
             bool hasVideoSample = false;
             bool hasWebcamSample = false;
+            // Whether the picture this tick encodes differs from the last one:
+            // a new WGC frame, or a new camera frame drawn into it. The legacy
+            // callback path cannot tell, so it always reads back.
+            bool pictureChanged = legacyFrameCallback;
 
             std::unique_lock<std::timed_mutex> legacyLock;
             {
@@ -1138,6 +1143,7 @@ int wmain(int argc, wchar_t* argv[]) {
                     ID3D11Texture2D* wgcTexture = nullptr;
                     int64_t wgcTimestampHns = 0;
                     const bool gotFrame = session.tryGetNextFrame(&wgcTexture, &wgcTimestampHns);
+                    pictureChanged = gotFrame;
                     if (gotFrame) {
                         if (!latestFrameTexture) {
                             D3D11_TEXTURE2D_DESC desc{};
@@ -1173,14 +1179,14 @@ int wmain(int argc, wchar_t* argv[]) {
                 }
                 if (webcamActive) {
                     WebcamFrameSnapshot candidateWebcamFrame;
-                    if (webcamCapture.copyLatestFrame(candidateWebcamFrame) &&
-                        candidateWebcamFrame.sequence != latestWebcamSequence &&
-                        hasVisibleBgraContent(candidateWebcamFrame.data)) {
+                    if (webcamCapture.copyLatestFrame(candidateWebcamFrame, latestWebcamSequence) &&
+                        hasVisibleWebcamContent(candidateWebcamFrame.data, webcamCapture.deliversNv12())) {
                         latestWebcamFrame = std::move(candidateWebcamFrame.data);
                         latestWebcamWidth = candidateWebcamFrame.width;
                         latestWebcamHeight = candidateWebcamFrame.height;
                         latestWebcamSequence = candidateWebcamFrame.sequence;
                         hasVisibleWebcamFrame = true;
+                        pictureChanged = pictureChanged || !writeSeparateWebcam;
                     }
                 }
                 const BgraFrameView webcamFrame{
@@ -1230,7 +1236,15 @@ int wmain(int argc, wchar_t* argv[]) {
                         // Capture the sample here, but submit it to the sink
                         // writer OUTSIDE this block below (issue #115) so a
                         // slow WriteSample can't hold up the next frame pull.
-                        hasWebcamSample = webcamEncoder.captureBgraSample(webcamFrame, webcamTimestampHns, webcamSample);
+                        hasWebcamSample =
+                            webcamCapture.deliversNv12()
+                                ? webcamEncoder.captureNv12Sample(
+                                      Nv12FrameView{
+                                          webcamFrame.data, webcamFrame.width, webcamFrame.height},
+                                      webcamTimestampHns,
+                                      webcamSample)
+                                : webcamEncoder.captureBgraSample(
+                                      webcamFrame, webcamTimestampHns, webcamSample);
                         if (!hasWebcamSample) {
                             encodeFailed = true;
                             control.requestStop();
@@ -1266,7 +1280,12 @@ int wmain(int argc, wchar_t* argv[]) {
                     // this struct's request: it falls back to the CPU path on
                     // its own when the GPU path does not fit the machine.
                     bool captured = false;
-                    if (usesDxgiInput) {
+                    if (!usesDxgiInput && !pictureChanged &&
+                        encoder.repeatLastVideoSample(frameTimestampHns, videoSample)) {
+                        // Nothing new to read back (#925): the static screen,
+                        // most of a demo, costs no GPU copy and no conversion.
+                        captured = true;
+                    } else if (usesDxgiInput) {
                         captured = encoder.captureDxgiSample(
                             latestFrameTexture.Get(),
                             frameTimestampHns,
@@ -1460,8 +1479,8 @@ int wmain(int argc, wchar_t* argv[]) {
         const auto webcamDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while (std::chrono::steady_clock::now() < webcamDeadline && !hasVisibleWebcamFrame) {
             WebcamFrameSnapshot candidateWebcamFrame;
-            if (webcamCapture.copyLatestFrame(candidateWebcamFrame) &&
-                hasVisibleBgraContent(candidateWebcamFrame.data)) {
+            if (webcamCapture.copyLatestFrame(candidateWebcamFrame, latestWebcamSequence) &&
+                hasVisibleWebcamContent(candidateWebcamFrame.data, webcamCapture.deliversNv12())) {
                 latestWebcamFrame = std::move(candidateWebcamFrame.data);
                 latestWebcamWidth = candidateWebcamFrame.width;
                 latestWebcamHeight = candidateWebcamFrame.height;
@@ -1541,6 +1560,17 @@ int wmain(int argc, wchar_t* argv[]) {
     std::cout << "Recording started" << std::endl;
 
     control.waitForStop();
+
+    // The take ends here, for the sound as for the picture: the video writer
+    // stops on this same request. The mixer is clock-driven, so left running
+    // it would go on writing chunks through the half second the steps below
+    // take, and every take ended with ~0.5 s of audio past its video
+    // (getopenscreen/openscreen#942, measured on three takes). A pause writes
+    // what the cushion holds up to this instant and then nothing; one already
+    // in place is left where it is.
+    if (audioMixer) {
+        audioMixer->setPaused(true);
+    }
 
     const auto stopStart = std::chrono::steady_clock::now();
     auto stopElapsedMs = [&] {

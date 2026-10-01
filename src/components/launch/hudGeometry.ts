@@ -149,3 +149,21 @@ export function computeHudWindowSize(input: HudSizeInput): {
 		},
 	};
 }
+
+/**
+ * How far past its trigger a tooltip has to sit to clear the BAR, on the side it opens.
+ *
+ * Radix places a tooltip against the small trigger, but the bar is the surface the eye sees. It
+ * pads the button (8px from the button's top edge to the bar's), and a vertical bar widens to
+ * fit the timer while recording (Pause, Restart and Cancel then sit about 28px inside its right
+ * edge). Both ate into the tooltip's gap, so it overlapped the bar. Measured at the moment the
+ * tooltip opens, it holds for either orientation and either state.
+ */
+export function computeHudTooltipClearance(
+	trigger: { top: number; right: number },
+	bar: { top: number; right: number },
+	side: "top" | "right",
+): number {
+	const inset = side === "top" ? trigger.top - bar.top : bar.right - trigger.right;
+	return Math.max(0, Math.round(inset));
+}

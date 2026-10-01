@@ -137,6 +137,14 @@ function makeTwoClipDoc(): ReturnType<typeof makeDoc> {
 	return doc;
 }
 
+// A pill draws its own label when it is wide enough, and carries the label as a `title` only when
+// it is not (a title next to a visible label would repeat it), so a pill is found by either.
+function zoomPill(page: Page, label: string): Locator {
+	return page.locator(
+		`[class*="lanePill"][title="${label}"], [class*="lanePill"]:has-text("${label}")`,
+	);
+}
+
 async function seedAndOpen(page: Page, doc: ReturnType<typeof makeDoc> = makeDoc()): Promise<void> {
 	await page.addInitScript((serialized) => {
 		const parsed = JSON.parse(serialized);
@@ -283,7 +291,7 @@ test.describe("v4 editor shell", () => {
 		page,
 	}) => {
 		await seedAndOpen(page, makeZoomDoc());
-		await page.locator('[class*="lanePill"][title="1.80×"]').first().click();
+		await zoomPill(page, "1.80×").first().click();
 
 		const levels = page.getByRole("group", { name: "Zoom Level" }).getByRole("button");
 		await expect(levels).toHaveCount(4);
@@ -331,7 +339,7 @@ test.describe("v4 editor shell", () => {
 		const custom = page.getByRole("textbox", { name: "Custom zoom" });
 		await custom.fill("2.5");
 		await custom.press("Enter");
-		await expect(page.locator('[class*="lanePill"][title="2.50×"]')).toHaveCount(1);
+		await expect(zoomPill(page, "2.50×")).toHaveCount(1);
 		await expect(levels.and(page.locator('[aria-pressed="true"]'))).toHaveCount(0);
 	});
 
@@ -369,7 +377,7 @@ test.describe("v4 editor shell", () => {
 		});
 		await seedAndOpen(page);
 
-		await page.getByRole("button", { name: "Toggle chat panel" }).click();
+		await page.getByRole("button", { name: "Chat panel", exact: true }).click();
 		const composer = page.getByRole("textbox", { name: "Describe the edit you want." });
 		await expect(composer).toBeVisible();
 		await composer.fill("selectable user turn text");

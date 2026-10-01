@@ -3,7 +3,16 @@ import "@testing-library/jest-dom";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AxcutClip } from "@/lib/ai-edition/schema";
-import { type VideoSource, VirtualPreview } from "./VirtualPreview";
+import {
+	AUDIO_NUDGE_START_SEC,
+	AUDIO_NUDGE_STOP_SEC,
+	AUDIO_SEEK_LEASH_SEC,
+	IMPORTED_AUDIO_PLAYING_LEASH_SEC,
+	shouldResyncAudio,
+	steerAudio,
+	type VideoSource,
+	VirtualPreview,
+} from "./VirtualPreview";
 
 // The root cause of issue #395, in a test.
 //
@@ -146,5 +155,75 @@ describe("VirtualPreview keeps one demuxer seek in flight (issue #395 root cause
 		scrubTo(7);
 
 		expect(video.writes).toEqual([3, 7]);
+	});
+});
+
+// What the rAF loop does to a playing audio element between two ticks. The measured story
+// behind these is on `AUDIO_NUDGE_START_SEC`; the loop itself is driven end to end in
+// VirtualPreview.playback.test.tsx ("primary audio keeps to the picture"), because a
+// decision that is right in isolation says nothing about what the call site feeds it.
+describe("steerAudio: a playing element is nudged, not seeked", () => {
+	const playing = (driftSec: number, nudged = false) =>
+		steerAudio(driftSec, true, false, false, nudged);
+
+	it("leaves an element on the picture alone", () => {
+		expect(playing(0.01)).toEqual({ seek: false, rateFactor: 1 });
+		expect(playing(-0.01)).toEqual({ seek: false, rateFactor: 1 });
+	});
+
+	it("nudges the rate toward the picture instead of seeking, whichever side it is on", () => {
+		// The drift the storm was measured at: what used to be re-seeked six times a second.
+		const behind = playing(-0.1);
+		const ahead = playing(0.1);
+		expect(behind.seek).toBe(false);
+		expect(ahead.seek).toBe(false);
+		expect(behind.rateFactor).toBeGreaterThan(1);
+		expect(ahead.rateFactor).toBeLessThan(1);
+		// Symmetric: a lead is noticed sooner than a lag, so it must not be the slower to close.
+		expect(behind.rateFactor - 1).toBeCloseTo(1 - ahead.rateFactor, 10);
+	});
+
+	it("stops nudging closer to the picture than it starts, so an edge does not flap", () => {
+		const between = (AUDIO_NUDGE_START_SEC + AUDIO_NUDGE_STOP_SEC) / 2;
+		expect(playing(between, false).rateFactor).toBe(1);
+		expect(playing(between, true).rateFactor).not.toBe(1);
+		expect(playing(AUDIO_NUDGE_STOP_SEC / 2, true).rateFactor).toBe(1);
+	});
+
+	it("seeks only past what a nudge can close", () => {
+		expect(playing(AUDIO_SEEK_LEASH_SEC * 0.9).seek).toBe(false);
+		expect(playing(AUDIO_SEEK_LEASH_SEC * 1.1)).toEqual({ seek: true, rateFactor: 1 });
+		expect(playing(-AUDIO_SEEK_LEASH_SEC * 1.1).seek).toBe(true);
+	});
+
+	it("places a parked element exactly", () => {
+		expect(steerAudio(0.05, false, false, false, false).seek).toBe(true);
+		expect(steerAudio(0.01, false, false, false, false).seek).toBe(false);
+	});
+
+	it("follows an explicit jump of the picture whatever the drift", () => {
+		expect(steerAudio(0.001, true, false, true, false).seek).toBe(true);
+		expect(steerAudio(0.08, false, false, true, false).seek).toBe(true);
+	});
+
+	// The discipline the video path learned in issue #395: a write onto an element that is
+	// already seeking restarts the seek instead of finishing it, so the element never arrives.
+	it("never stacks a write onto an element that is already seeking", () => {
+		expect(steerAudio(5, true, true, false, false).seek).toBe(false);
+		expect(steerAudio(5, false, true, false, false).seek).toBe(false);
+		expect(steerAudio(0.001, true, true, true, false).seek).toBe(false); // the jump waits
+	});
+});
+
+describe("shouldResyncAudio: an imported track free-runs inside a wide leash", () => {
+	it("leaves a playing track alone inside the leash and corrects a real desync", () => {
+		expect(shouldResyncAudio(0.2, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+		expect(shouldResyncAudio(-0.2, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(false);
+		expect(shouldResyncAudio(0.4, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+	});
+
+	it("places a parked track exactly, and never onto one that is seeking", () => {
+		expect(shouldResyncAudio(0.05, false, IMPORTED_AUDIO_PLAYING_LEASH_SEC)).toBe(true);
+		expect(shouldResyncAudio(5, true, IMPORTED_AUDIO_PLAYING_LEASH_SEC, true)).toBe(false);
 	});
 });

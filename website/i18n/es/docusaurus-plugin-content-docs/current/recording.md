@@ -80,7 +80,7 @@ No tienes que empezar desde el HUD. En el editor, cambia la barra superior a **G
 
 - **Fuente**: el mismo selector de pantalla o ventana, en una ventana modal, o el selector del sistema de Apple en macOS 15.2 y posteriores. En Linux, esta fila también dice *El sistema te preguntará qué compartir*, y el cuadro de diálogo del portal es el que elige.
 - **Audio del sistema**, **Micrófono**, **Cámara**: cada uno es una fila que se activa o desactiva; el micrófono y la cámara se despliegan en una lista de dispositivos, y la cámara muestra una vista previa en vivo para que te encuadres antes de empezar.
-- **Resaltar cursor**: activado significa el cursor editable; desactivado, el cursor normal del sistema.
+- **Cursor editable**: activado significa el cursor editable; desactivado, el cursor normal del sistema.
 
 **Iniciar grabación** abre el widget de grabación y cierra la ventana del editor; si cancelas, vuelves al modo Editar. Este es también el punto de partida al que te lleva **Nuevo proyecto → Grabación de pantalla**.
 

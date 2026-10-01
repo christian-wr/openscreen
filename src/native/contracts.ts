@@ -160,6 +160,11 @@ export interface CompositorFramePacket {
 	width: number;
 	height: number;
 	data: Buffer;
+	/** The footage in this frame: its TL, TR, BR, BL corners (x, y as fractions of the frame,
+	 *  eight numbers), where a privacy blur's gimbal goes. Absent before anything is composed. */
+	footage?: number[] | null;
+	/** The footage maps from those corners by their homography (real camera), not bilinearly. */
+	footageProjective?: boolean;
 }
 
 /** Un clip de la timeline pour l'export multiclip natif (fichiers screen+webcam + trim). */
@@ -285,6 +290,46 @@ export interface AiEditionLlmProviderModelsResult {
 	models: string[];
 	error?: string;
 }
+
+/** The local MCP server that offers the agent's tools to external MCP clients. */
+export interface AiEditionMcpStatus {
+	enabled: boolean;
+	port: number;
+	/** Whether clients may run the tools that change the project. Off by default. */
+	allowEdits: boolean;
+	running: boolean;
+	/** `http://127.0.0.1:<port>/mcp` — what a client is pointed at. */
+	url: string;
+	/** Bearer token a client must send. Only filled in while the server is enabled. */
+	token: string | null;
+	/** Why the server is enabled but not running (port taken, keychain unavailable…). */
+	error: string | null;
+}
+
+/**
+ * Main → editor window: the MCP server reading or writing the live document.
+ * The editor answers every request on `AI_EDITION_MCP_RESPONSE_CHANNEL`.
+ */
+export type AiEditionMcpHostRequest =
+	| { requestId: string; op: "snapshot" }
+	| { requestId: string; op: "apply"; document: unknown; expectedRevision: number };
+
+export interface AiEditionMcpHostSnapshot {
+	document: unknown;
+	revision: number;
+}
+
+export type AiEditionMcpApplyResult = "applied" | "conflict" | "save-failed" | "no-live-document";
+
+export interface AiEditionMcpHostResponse {
+	requestId: string;
+	result: AiEditionMcpHostSnapshot | null | AiEditionMcpApplyResult;
+}
+
+/** Editor → main: `true` when an editor starts answering MCP requests, `false` when it stops. */
+export const AI_EDITION_MCP_HOST_CHANNEL = "ai-edition.mcp-host";
+export const AI_EDITION_MCP_REQUEST_CHANNEL = "ai-edition.mcp-request";
+export const AI_EDITION_MCP_RESPONSE_CHANNEL = "ai-edition.mcp-response";
 
 /** One executed agent tool call, rendered as a compact "applied: …" line in
  * the chat panel (P1.7). */
@@ -599,6 +644,36 @@ export type NativeBridgeRequest =
 			domain: "aiEdition";
 			action: "llm.listProviderModels";
 			payload: { providerId: string };
+			requestId?: string;
+	  }
+	| {
+			domain: "aiEdition";
+			action: "mcp.getStatus";
+			payload?: EmptyPayload;
+			requestId?: string;
+	  }
+	| {
+			domain: "aiEdition";
+			action: "mcp.setEnabled";
+			payload: { enabled: boolean };
+			requestId?: string;
+	  }
+	| {
+			domain: "aiEdition";
+			action: "mcp.setPort";
+			payload: { port: number };
+			requestId?: string;
+	  }
+	| {
+			domain: "aiEdition";
+			action: "mcp.setAllowEdits";
+			payload: { allowEdits: boolean };
+			requestId?: string;
+	  }
+	| {
+			domain: "aiEdition";
+			action: "mcp.regenerateToken";
+			payload?: EmptyPayload;
 			requestId?: string;
 	  }
 	| {

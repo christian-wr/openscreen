@@ -154,17 +154,23 @@ async function renderPanelWithAssistantMessage() {
 	useProjectStore.setState({ projectId: "project-1" });
 	const { EditorDialogsProvider } = await import("@/contexts/EditorDialogsContext");
 	const { ChatStripPanel } = await import("./LeftPanel");
+	const { TooltipProvider } = await import("@/components/ui/tooltip");
 	const view = render(
-		<EditorDialogsProvider>
-			<ChatStripPanel />
-		</EditorDialogsProvider>,
+		<TooltipProvider>
+			<EditorDialogsProvider>
+				<ChatStripPanel />
+			</EditorDialogsProvider>
+		</TooltipProvider>,
 	);
 	// Flush the session load so the assistant bubble (and its copy button) is on screen.
 	await waitFor(() => {
-		expect(view.getAllByTitle("chat.copyMessage").length).toBeGreaterThan(0);
+		expect(view.getAllByRole("button", { name: "chat.copyMessage" }).length).toBeGreaterThan(0);
 	});
 	return view;
 }
+
+const copyButtonsOf = (view: ReturnType<typeof render>) =>
+	view.getAllByRole("button", { name: "chat.copyMessage" });
 
 describe("ChatStripPanel Copy message (issue #738)", () => {
 	it("copies the full message through the preload bridge and reports success, never touching the denied navigator clipboard", async () => {
@@ -172,7 +178,7 @@ describe("ChatStripPanel Copy message (issue #738)", () => {
 		const view = await renderPanelWithAssistantMessage();
 
 		// Two copy buttons (user + assistant); the assistant message is the last one rendered.
-		const copyButtons = view.getAllByTitle("chat.copyMessage");
+		const copyButtons = copyButtonsOf(view);
 		// user + assistant + the empty trailing assistant turn.
 		expect(copyButtons).toHaveLength(3);
 		await act(async () => {
@@ -193,7 +199,7 @@ describe("ChatStripPanel Copy message (issue #738)", () => {
 		stubClipboard(undefined);
 		const view = await renderPanelWithAssistantMessage();
 
-		const copyButtons = view.getAllByTitle("chat.copyMessage");
+		const copyButtons = copyButtonsOf(view);
 		// The fallback inherits Electron's denial in a bare context: the click
 		// lands on the navigator path and reports the failure toast.
 		await act(async () => {
@@ -229,7 +235,7 @@ describe("ChatStripPanel Copy message (issue #738)", () => {
 		// copy button sits last. The handler must not branch on content — an
 		// empty string crosses to the bridge exactly like any other content and
 		// still reports success.
-		const copyButtons = view.getAllByTitle("chat.copyMessage");
+		const copyButtons = copyButtonsOf(view);
 		await act(async () => {
 			fireEvent.click(copyButtons[copyButtons.length - 1]);
 			await Promise.resolve();

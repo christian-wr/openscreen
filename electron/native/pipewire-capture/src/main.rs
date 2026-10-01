@@ -662,8 +662,31 @@ fn run<W: Write>(
     // means the import never works, which would otherwise record nothing — see
     // MAX_CONSECUTIVE_IMPORT_FAILURES.
     let mut consecutive_drops: u32 = 0;
+    // When the capture clock last advanced. See the heartbeat at the top of the loop.
+    let mut last_advance = Instant::now();
 
     loop {
+        // THE HEARTBEAT, CHECKED ON EVERY PASS, NOT ONLY ON A TIMEOUT. `advance`
+        // holds the last picture forward and drains the audio rings, and it used
+        // to run only on a new frame or when `recv_timeout` expired. Any other
+        // message restarts that timeout, and cursor messages arrive at the
+        // compositor's rate while the mouse moves: a static screen with a moving
+        // mouse never timed out, so nothing drained and the 2 s rings dropped
+        // their oldest audio (getopenscreen/openscreen#936).
+        if heartbeat_due(last_advance, Instant::now(), config.tick) {
+            last_advance = Instant::now();
+            if let Some(capture) = capture.as_mut() {
+                if let Err(message) = capture.advance() {
+                    let _ = emitter.emit(&Event::Error {
+                        code: "encode-failed".to_owned(),
+                        message,
+                    });
+                    exit_code = 1;
+                    break;
+                }
+            }
+        }
+
         // Return PipeWire buffers whose dmabuf imports completed last iteration
         // (or that were superseded on the capture thread). This MUST run on this
         // loop, not the PipeWire thread — `Session::requeue` takes the thread-loop
@@ -918,6 +941,7 @@ fn run<W: Write>(
                     }
                 }
                 if let Some(capture) = capture.as_mut() {
+                    last_advance = Instant::now();
                     if let Err(message) = capture.advance() {
                         let _ = emitter.emit(&Event::Error {
                             code: "encode-failed".to_owned(),
@@ -1239,19 +1263,8 @@ fn run<W: Write>(
                     emit_sample(emitter, &cursor, content_rect(&capture, size), &mut pending_asset, None);
                     last_emit = Instant::now();
                 }
-                // The heartbeat that keeps the output at a constant frame rate
-                // while the screen is static: no frame arrived, but the clock
-                // moved, so the last picture is held forward.
-                if let Some(capture) = capture.as_mut() {
-                    if let Err(message) = capture.advance() {
-                        let _ = emitter.emit(&Event::Error {
-                            code: "encode-failed".to_owned(),
-                            message,
-                        });
-                        exit_code = 1;
-                        break;
-                    }
-                }
+                // No advance here: a timeout means a tick has passed, so the
+                // heartbeat at the top of the next pass holds the picture forward.
             }
 
             Err(RecvTimeoutError::Disconnected) => break,
@@ -1271,9 +1284,9 @@ fn run<W: Write>(
 
 /// Writes the trailer and reports what the recording cost.
 ///
-/// Runs even when the loop broke on an error: a file whose moov atom was never
-/// written is unplayable, and a partial recording is worth more to the user than
-/// none.
+/// Runs even when the loop broke on an error: a file whose trailer was never
+/// written loses its last fragment, and a partial recording is worth more to the
+/// user than none.
 fn finish_capture<W: Write>(
     emitter: &mut Emitter<W>,
     capture: Capture,
@@ -1349,6 +1362,11 @@ fn finish_capture<W: Write>(
 /// only rectangle the file shows. Before then, and for a cursor-only session
 /// that opens no encoder at all, the whole negotiated stream, which is what the
 /// consumer of a cursor-only recording is compositing over.
+/// Whether a tick has passed since the capture clock last advanced.
+fn heartbeat_due(last_advance: Instant, now: Instant, tick: Duration) -> bool {
+    now.saturating_duration_since(last_advance) >= tick
+}
+
 fn content_rect(capture: &Option<Capture>, size: Option<(i32, i32)>) -> Option<shim::CropRect> {
     match capture {
         Some(capture) if capture.started() => Some(capture.content_rect()),
@@ -1561,6 +1579,28 @@ mod cursor_sample_tests {
             None,
         );
         assert!(buffer.is_empty(), "emitted {}", String::from_utf8_lossy(&buffer));
+    }
+
+    /// #936: messages arriving faster than the tick must not hold the heartbeat
+    /// off. The loop checks it on every pass, so what matters is that it comes
+    /// due once a tick has passed, however many passes happened in between.
+    #[test]
+    fn the_heartbeat_comes_due_every_tick_whatever_else_arrives() {
+        let tick = Duration::from_millis(16);
+        let start = Instant::now();
+        let mut last_advance = start;
+        let mut advances = 0;
+        // A cursor message every 7 ms (144 Hz) for one second of loop passes.
+        for pass in 0..=(1000 / 7) {
+            let now = start + Duration::from_millis(pass * 7);
+            if heartbeat_due(last_advance, now, tick) {
+                last_advance = now;
+                advances += 1;
+            }
+        }
+        // Every 21 ms at worst (three 7 ms passes): about 47 a second, never zero.
+        assert!(advances >= 1000 / 21, "{advances} advances in a second of cursor traffic");
+        assert!(!heartbeat_due(start, start + Duration::from_millis(15), tick));
     }
 
     /// A cursor-only session opens no encoder, so it falls back to the whole

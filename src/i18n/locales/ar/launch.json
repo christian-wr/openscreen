@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "إخفاء واجهة العرض",
+		"hideHUDTip": "إخفاء الشريط. يمكنك إظهاره مجددًا من أيقونة علبة النظام.",
 		"closeApp": "إغلاق التطبيق",
-		"restartRecording": "إعادة تشغيل التسجيل",
-		"cancelRecording": "إلغاء التسجيل",
+		"restartRecording": "حذف هذا التسجيل وبدء تسجيل جديد",
+		"cancelRecording": "إيقاف هذا التسجيل وحذفه",
 		"pauseRecording": "إيقاف التسجيل مؤقتاً",
 		"resumeRecording": "استئناف التسجيل",
 		"useVerticalTray": "استخدام الشريط العمودي",
 		"useHorizontalTray": "استخدام الشريط الأفقي",
-		"openStudio": "فتح الاستوديو",
-		"openNotes": "فتح الملاحظات",
+		"changeSource": "اختيار شاشة أو نافذة أخرى",
+		"systemAudio": "صوت النظام: يسجّل الصوت الذي يشغّله الكمبيوتر",
+		"microphone": "الميكروفون: يسجّل صوتك",
+		"camera": "الكاميرا: تسجّل صورتك كطبقة منفصلة يمكنك تحريكها في المحرر",
+		"openStudio": "فتح الاستوديو: محرر تسجيلاتك",
+		"openNotes": "فتح الملاحظات: نص تقرؤه أثناء التسجيل",
 		"openNotesPlaceholder": "اكتب ملاحظاتك هنا...",
 		"notesToolbar": {
 			"bold": "غامق",
@@ -27,30 +32,25 @@
 			"fontSize": "حجم الخط",
 			"decreaseFontSize": "تصغير حجم الخط",
 			"increaseFontSize": "تكبير حجم الخط",
-			"mirror": "عكس أفقي"
+			"mirror": "عكس أفقي",
+			"mirrorTip": "اقلب النص أفقيًا لقراءته في مرآة"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "تفعيل صوت النظام",
-		"disableSystemAudio": "تعطيل صوت النظام",
-		"enableMicrophone": "تفعيل الميكروفون",
-		"disableMicrophone": "تعطيل الميكروفون",
-		"defaultMicrophone": "الميكروفون الافتراضي",
 		"systemAudio": "صوت النظام",
 		"microphone": "الميكروفون",
-		"on": "قيد التشغيل",
-		"off": "متوقف",
 		"inputDevice": "جهاز الإدخال"
 	},
 	"webcam": {
-		"enableWebcam": "تفعيل كاميرا الويب",
-		"disableWebcam": "تعطيل كاميرا الويب",
-		"defaultCamera": "الكاميرا الافتراضية",
 		"searching": "جاري البحث...",
 		"noneFound": "لم يتم العثور على كاميرا",
 		"unavailable": "الكاميرا غير متوفرة",
 		"camera": "الكاميرا",
-		"cameraDevice": "جهاز الكاميرا"
+		"cameraDevice": "جهاز الكاميرا",
+		"quality": "جودة الكاميرا",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"sourceSelector": {
 		"loading": "جاري تحميل المصادر...",
@@ -64,10 +64,12 @@
 	"recording": {
 		"selectSource": "يرجى تحديد مصدر للتسجيل",
 		"systemPicker": "سيسألك النظام عمّا تريد مشاركته",
-		"inProgress": "جارٍ التسجيل",
+		"start": "بدء التسجيل",
+		"stop": "إيقاف التسجيل وحفظه",
 		"saving": "جاري الحفظ..."
 	},
 	"language": "اللغة",
+	"languageWithName": "اللغة: {{language}}",
 	"systemLanguagePrompt": {
 		"title": "هل تريد استخدام لغة نظامك؟",
 		"description": "اكتشفنا أن {{language}} هي لغة نظامك. هل تريد تبديل OpenScreen إلى {{language}}؟",
@@ -75,8 +77,9 @@
 		"keepDefault": "الاحتفاظ باللغة الحالية"
 	},
 	"cursor": {
-		"useEditableCursorHint": "استخدام مؤشر قابل للتحرير: يعيد تشغيل التكبير التلقائي وتأثيرات المؤشر",
-		"useSystemCursorHint": "استخدام مؤشر النظام: يوقف التكبير التلقائي وتأثيرات المؤشر"
+		"name": "مؤشر قابل للتحرير",
+		"editableTip": "مؤشر قابل للتحرير: يُسجَّل بشكل منفصل، فيمكنك تغيير شكله واستخدام التكبير التلقائي في المحرر",
+		"systemTip": "مؤشر النظام: مؤشرك الفعلي، يُسجَّل داخل الفيديو. بلا تغيير للشكل وبلا تكبير تلقائي."
 	},
 	"softwareEncoderFallback": {
 		"title": "تم التبديل إلى الترميز البرمجي",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "إعدادات الأجهزة",
-		"done": "تم",
+		"close": "إغلاق",
 		"micLevel": "مستوى الإدخال",
 		"micHint": "تحدّث لاختبار الميكروفون",
 		"noMicrophones": "لم يتم العثور على ميكروفون",

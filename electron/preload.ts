@@ -4,8 +4,18 @@ import type { NativeMacRecordingRequest } from "../src/lib/nativeMacRecording";
 import type { NativeWindowsRecordingRequest } from "../src/lib/nativeWindowsRecording";
 import type { RecordingSession, StoreRecordedSessionInput } from "../src/lib/recordingSession";
 import type { ShortcutBinding } from "../src/lib/shortcuts";
-import type { AiEditionChatEvent } from "../src/native/contracts";
-import { NATIVE_BRIDGE_CHANNEL, type NativeBridgeRequest } from "../src/native/contracts";
+import type {
+	AiEditionChatEvent,
+	AiEditionMcpHostRequest,
+	AiEditionMcpHostResponse,
+} from "../src/native/contracts";
+import {
+	AI_EDITION_MCP_HOST_CHANNEL,
+	AI_EDITION_MCP_REQUEST_CHANNEL,
+	AI_EDITION_MCP_RESPONSE_CHANNEL,
+	NATIVE_BRIDGE_CHANNEL,
+	type NativeBridgeRequest,
+} from "../src/native/contracts";
 import type { RecordingPrefs } from "./ipc/handlers";
 import type {
 	SttStatusEvent,
@@ -128,6 +138,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	},
 	usesSystemSourcePicker: (): Promise<boolean> => {
 		return ipcRenderer.invoke("uses-system-source-picker");
+	},
+	getLastPickedSource: (): Promise<string | null> => {
+		return ipcRenderer.invoke("get-last-picked-source");
 	},
 	openNotes: () => {
 		return ipcRenderer.invoke("open-notes");
@@ -254,6 +267,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	},
 	startNativeMacRecording: (request: NativeMacRecordingRequest) => {
 		return ipcRenderer.invoke("start-native-mac-recording", request);
+	},
+	onNativeMacSystemAudioUnavailable: (callback: () => void) => {
+		const listener = () => callback();
+		ipcRenderer.on("native-mac-system-audio-unavailable", listener);
+		return () => ipcRenderer.removeListener("native-mac-system-audio-unavailable", listener);
 	},
 	pauseNativeMacRecording: () => {
 		return ipcRenderer.invoke("pause-native-mac-recording");
@@ -516,6 +534,33 @@ contextBridge.exposeInMainWorld("electronAPI", {
 		const listener = (_e: unknown, payload: AiEditionChatEvent) => callback(payload);
 		ipcRenderer.on("ai-edition.chat-event", listener);
 		return () => ipcRenderer.removeListener("ai-edition.chat-event", listener);
+	},
+	// The editor answers the MCP server's reads and writes of the live document.
+	// Subscribing is what makes this window the one the server asks; the
+	// returned unsubscribe withdraws it. See electron/mcp/editor-document-host.ts.
+	onAiEditionMcpRequest: (
+		callback: (request: AiEditionMcpHostRequest) => Promise<AiEditionMcpHostResponse["result"]>,
+	) => {
+		const listener = (_e: unknown, request: AiEditionMcpHostRequest) => {
+			void callback(request).then(
+				(result) =>
+					ipcRenderer.send(AI_EDITION_MCP_RESPONSE_CHANNEL, {
+						requestId: request.requestId,
+						result,
+					}),
+				() =>
+					ipcRenderer.send(AI_EDITION_MCP_RESPONSE_CHANNEL, {
+						requestId: request.requestId,
+						result: null,
+					}),
+			);
+		};
+		ipcRenderer.on(AI_EDITION_MCP_REQUEST_CHANNEL, listener);
+		ipcRenderer.send(AI_EDITION_MCP_HOST_CHANNEL, true);
+		return () => {
+			ipcRenderer.removeListener(AI_EDITION_MCP_REQUEST_CHANNEL, listener);
+			ipcRenderer.send(AI_EDITION_MCP_HOST_CHANNEL, false);
+		};
 	},
 	stt: {
 		transcribe: (request: SttTranscribeRequest): Promise<SttTranscribeResponse> => {

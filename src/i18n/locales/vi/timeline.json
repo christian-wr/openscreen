@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "Thêm Thu phóng (Z)",
-		"suggestZooms": "Đề xuất Thu phóng từ Con trỏ",
-		"autoZoomOn": "Đề xuất thu phóng tự động đang bật — nhấp để loại bỏ các thu phóng được đề xuất",
-		"autoZoomOff": "Đề xuất thu phóng tự động đang tắt — nhấp để đề xuất thu phóng từ con trỏ",
-		"autoFocusAllOn": "Lấy nét tự động đang bật cho tất cả các thu phóng — nhấp để chuyển tất cả sang thủ công",
-		"autoFocusAllOff": "Bật lấy nét tự động cho tất cả các thu phóng (máy ảnh theo dõi con trỏ)",
-		"addTrim": "Thêm Cắt (T)",
-		"addAnnotation": "Thêm Chú thích (A)",
-		"addSpeed": "Thêm Tốc độ (S)",
-		"addCameraFullscreen": "Thêm Camera Toàn màn hình (C)"
+		"addZoom": "Thêm thu phóng tại thời điểm hiện tại",
+		"autoFocusAll": "Lấy nét tự động cho mọi thu phóng",
+		"autoFocusAllTip": "Mọi thu phóng đều theo con trỏ. Tắt: bạn chọn điểm lấy nét cho từng thu phóng.",
+		"clearTimeline": "Xóa mọi thu phóng, đoạn cắt, thay đổi tốc độ, chú thích và Camera Toàn màn hình. Clip, âm thanh và phụ đề được giữ lại.",
+		"addTrim": "Thêm cắt: xóa một đoạn video tại thời điểm hiện tại",
+		"addAnnotation": "Thêm văn bản, mũi tên, hình ảnh hoặc làm mờ tại thời điểm hiện tại",
+		"addSpeed": "Thêm thay đổi tốc độ tại thời điểm hiện tại",
+		"addCameraFullscreen": "Thêm Camera Toàn màn hình: hiển thị camera toàn màn hình tại thời điểm hiện tại"
 	},
 	"hints": {
 		"pressZoom": "Nhấn Z để thêm thu phóng",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "Xoay",
+		"panTip": "Cuộn dòng thời gian",
 		"zoom": "Thu phóng",
+		"zoomTip": "Thu phóng dòng thời gian",
 		"trim": "Cắt",
 		"speed": "Tốc độ",
 		"zoomItem": "Thu phóng {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "Sắp xếp clip",
 		"arrangeClipsHint": "Kéo các clip bên dưới để sắp xếp lại hoặc thả clip mới vào",
 		"newAnnotation": "Chú thích",
-		"dragToReorderHint": "Kéo để sắp xếp lại · nhấp đúp để chỉnh sửa điểm vào/ra",
+		"dragToReorderHint": "Kéo để sắp xếp lại. Nhấp đúp để đổi điểm bắt đầu và kết thúc.",
 		"editInOutPoints": "Chỉnh sửa điểm vào/ra",
 		"deleteClip": "Xóa clip",
 		"dropToAdd": "Thả để thêm vào dòng thời gian",

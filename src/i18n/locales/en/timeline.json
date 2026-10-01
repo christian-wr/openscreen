@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "Add zoom (Z)",
-		"suggestZooms": "Suggest zooms from cursor",
-		"autoZoomOn": "Auto zoom suggestions on — click to remove suggested zooms",
-		"autoZoomOff": "Auto zoom suggestions off — click to suggest zooms from cursor",
-		"autoFocusAllOn": "Auto-Focus on for all zooms — click to switch all to manual",
-		"autoFocusAllOff": "Auto-Focus all zooms (camera follows the cursor)",
-		"addTrim": "Add trim (T)",
-		"addAnnotation": "Add annotation (A)",
-		"addSpeed": "Add speed (S)",
-		"addCameraFullscreen": "Add Full Camera (C)"
+		"addZoom": "Add a zoom at the current time",
+		"autoFocusAll": "Auto-Focus for all zooms",
+		"autoFocusAllTip": "All zooms follow the cursor. Off: you choose the focus of each zoom.",
+		"clearTimeline": "Remove all zooms, trims, speeds, annotations and Full Camera. Clips, audio and captions stay.",
+		"addTrim": "Add a trim: removes a section of the video at the current time",
+		"addAnnotation": "Add text, an arrow, an image or a blur at the current time",
+		"addSpeed": "Add a speed change at the current time",
+		"addCameraFullscreen": "Add Full Camera: shows the camera full screen at the current time"
 	},
 	"hints": {
 		"pressZoom": "Press Z to add zoom",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "Pan",
+		"panTip": "Scroll the timeline",
 		"zoom": "Zoom",
+		"zoomTip": "Zoom the timeline",
 		"trim": "Trim",
 		"speed": "Speed",
 		"zoomItem": "Zoom {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "Arrange clips",
 		"arrangeClipsHint": "Drag clips below to reorder or drop new ones in",
 		"newAnnotation": "Annotation",
-		"dragToReorderHint": "Drag to reorder · double-click to change where it starts and ends",
+		"dragToReorderHint": "Drag to reorder. Double-click to change the start and end.",
 		"editInOutPoints": "Edit start and end",
 		"deleteClip": "Delete clip",
 		"dropToAdd": "Drop to add to timeline",

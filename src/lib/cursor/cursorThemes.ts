@@ -129,14 +129,16 @@ export function readCursorAsArrow(
 
 /**
  * Bundled cursor themes. These five packs are original OpenScreen artwork. Their raster
- * masters live in design/cursors/ and are prepared by scripts/generate-original-cursor-themes.mjs.
+ * masters live in design/cursors/ and are prepared by scripts/generate-original-cursor-themes.mjs,
+ * except Pixel Candy's pixel art, drawn as a grid in scripts/generate-pixel-candy-voxels.mjs.
  * The former Sweezy packs were removed
  * because their terms forbid redistribution without written permission.
  *
  * To add one: drop arrow.png/pointer.png into public/cursors/<id>/ and add an entry here
  * with hotspots normalized to the 32-logical reference (divide a 128px-pack hotspot by 4).
- * Mark an asset `sculpted` when the compositor has a 3D model for it (`sculpt.rs`); other states
- * are extruded from their sprite in 3D. An id that leaves this list reads back as the default art
+ * Mark an asset `sculpted` when the compositor has a 3D model for it (`sculpt.rs`; Prism Glow's
+ * is a crystal mesh traced on its drawing, `prism_mesh.rs`); other states are extruded from their
+ * sprite in 3D. An id that leaves this list reads back as the default art
  * through `normalizeCursorThemeId`, so a project saved with it still opens.
  */
 export const CURSOR_THEMES: readonly CursorTheme[] = [
@@ -214,7 +216,7 @@ export const CURSOR_THEMES: readonly CursorTheme[] = [
 				assetPath: "cursors/pixel-candy/arrow.png",
 				width: 32,
 				height: 32,
-				hotspotX: 7.3664,
+				hotspotX: 6.5,
 				hotspotY: 2,
 				sculpted: true,
 			},
@@ -222,8 +224,8 @@ export const CURSOR_THEMES: readonly CursorTheme[] = [
 				assetPath: "cursors/pixel-candy/pointer.png",
 				width: 32,
 				height: 32,
-				hotspotX: 13.376,
-				hotspotY: 1.9264,
+				hotspotX: 10.75,
+				hotspotY: 2,
 				sculpted: true,
 			},
 		},

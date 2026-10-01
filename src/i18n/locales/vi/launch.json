@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "Ẩn HUD",
+		"hideHUDTip": "Ẩn thanh ghi hình. Hiện lại từ biểu tượng ở khay hệ thống.",
 		"closeApp": "Đóng ứng dụng",
-		"restartRecording": "Khởi động lại ghi hình",
-		"cancelRecording": "Hủy ghi hình",
+		"restartRecording": "Xóa bản ghi hình này và bắt đầu bản mới",
+		"cancelRecording": "Dừng và xóa bản ghi hình này",
 		"pauseRecording": "Tạm dừng ghi hình",
 		"resumeRecording": "Tiếp tục ghi hình",
 		"useVerticalTray": "Dùng khay dọc",
 		"useHorizontalTray": "Dùng khay ngang",
-		"openStudio": "Mở Studio",
-		"openNotes": "Mở ghi chú",
+		"changeSource": "Chọn màn hình hoặc cửa sổ khác",
+		"systemAudio": "Âm thanh hệ thống: ghi âm thanh máy tính phát ra",
+		"microphone": "Micro: ghi giọng nói của bạn",
+		"camera": "Máy ảnh: ghi bạn thành một lớp riêng có thể di chuyển trong trình chỉnh sửa",
+		"openStudio": "Mở Studio: trình chỉnh sửa cho các bản ghi hình của bạn",
+		"openNotes": "Mở ghi chú: văn bản để đọc khi ghi hình",
 		"openNotesPlaceholder": "Ghi chú của bạn tại đây...",
 		"notesToolbar": {
 			"bold": "In đậm",
@@ -27,30 +32,25 @@
 			"fontSize": "Cỡ chữ",
 			"decreaseFontSize": "Giảm cỡ chữ",
 			"increaseFontSize": "Tăng cỡ chữ",
-			"mirror": "Lật ngang"
+			"mirror": "Lật ngang",
+			"mirrorTip": "Lật văn bản theo chiều ngang để đọc qua gương"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "Bật âm thanh hệ thống",
-		"disableSystemAudio": "Tắt âm thanh hệ thống",
-		"enableMicrophone": "Bật micro",
-		"disableMicrophone": "Tắt micro",
-		"defaultMicrophone": "Micro Mặc định",
 		"systemAudio": "Âm thanh hệ thống",
 		"microphone": "Micro",
-		"on": "Bật",
-		"off": "Tắt",
 		"inputDevice": "Thiết bị đầu vào"
 	},
 	"webcam": {
-		"enableWebcam": "Bật webcam",
-		"disableWebcam": "Tắt webcam",
-		"defaultCamera": "Máy ảnh Mặc định",
 		"searching": "Đang tìm kiếm...",
 		"noneFound": "Không tìm thấy máy ảnh",
 		"unavailable": "Máy ảnh không khả dụng",
 		"camera": "Máy ảnh",
-		"cameraDevice": "Thiết bị máy ảnh"
+		"cameraDevice": "Thiết bị máy ảnh",
+		"quality": "Chất lượng camera",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"sourceSelector": {
 		"loading": "Đang tải nguồn...",
@@ -64,10 +64,12 @@
 	"recording": {
 		"selectSource": "Vui lòng chọn một nguồn để ghi",
 		"systemPicker": "Hệ thống sẽ hỏi bạn muốn chia sẻ gì",
-		"inProgress": "Đang ghi",
+		"start": "Bắt đầu ghi hình",
+		"stop": "Dừng và lưu bản ghi hình",
 		"saving": "Đang lưu..."
 	},
 	"language": "Ngôn ngữ",
+	"languageWithName": "Ngôn ngữ: {{language}}",
 	"systemLanguagePrompt": {
 		"title": "Sử dụng ngôn ngữ hệ thống của bạn?",
 		"description": "Chúng tôi phát hiện {{language}} là ngôn ngữ hệ thống của bạn. Bạn có muốn chuyển OpenScreen sang {{language}} không?",
@@ -75,8 +77,9 @@
 		"keepDefault": "Giữ ngôn ngữ hiện tại"
 	},
 	"cursor": {
-		"useEditableCursorHint": "Dùng con trỏ có thể chỉnh sửa: bật lại thu phóng tự động và hiệu ứng con trỏ",
-		"useSystemCursorHint": "Dùng con trỏ hệ thống: tắt thu phóng tự động và hiệu ứng con trỏ"
+		"name": "Con trỏ có thể chỉnh sửa",
+		"editableTip": "Con trỏ có thể chỉnh sửa: được ghi riêng, nên bạn có thể đổi kiểu và dùng thu phóng tự động trong trình chỉnh sửa",
+		"systemTip": "Con trỏ hệ thống: con trỏ thật của bạn, được ghi vào video. Không đổi kiểu, không thu phóng tự động."
 	},
 	"softwareEncoderFallback": {
 		"title": "Đã chuyển sang mã hóa bằng phần mềm",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "Cài đặt thiết bị",
-		"done": "Xong",
+		"close": "Đóng",
 		"micLevel": "Mức đầu vào",
 		"micHint": "Hãy nói để kiểm tra micrô",
 		"noMicrophones": "Không tìm thấy micrô",

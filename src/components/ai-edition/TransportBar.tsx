@@ -1,9 +1,12 @@
 import { Pause, Play } from "lucide-react";
 import { memo } from "react";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useScopedT } from "@/contexts/I18nContext";
+import { useShortcuts } from "@/contexts/ShortcutsContext";
 import type { AxcutClip } from "@/lib/ai-edition/schema";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { formatSec } from "@/lib/ai-edition/timeline/format";
+import { formatBinding } from "@/lib/shortcuts";
 import styles from "./NewEditorShell.module.css";
 
 interface TransportBarProps {
@@ -24,6 +27,7 @@ export const TransportBar = memo(function TransportBar({
 	onTogglePlay,
 }: TransportBarProps) {
 	const te = useScopedT("editor");
+	const { shortcuts, isMac } = useShortcuts();
 	// Same reason as PlayheadOverlay (see V4Timeline.tsx): the timecode is animated
 	// during playback, so it subscribes to the playhead directly instead of forcing
 	// V4Timeline — and the whole editor shell above it — to re-render once per frame
@@ -35,18 +39,26 @@ export const TransportBar = memo(function TransportBar({
 		0,
 	);
 
+	// The icon swaps, so the name swaps with it: an action button, not a toggle (no aria-pressed).
+	const playLabel = playing ? te("transport.pause") : te("transport.play");
+
 	return (
 		<div className={styles.transport} role="toolbar" aria-label={te("transport.playbackControls")}>
-			<button
-				type="button"
-				className={`${styles.tbtn} ${styles.play}`}
-				title={te("transport.playPauseTitle")}
-				aria-label={te("transport.playPause")}
-				data-playing={playing}
-				onClick={onTogglePlay}
-			>
-				{playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
-			</button>
+			<Tooltip content={playLabel} shortcut={formatBinding(shortcuts.playPause, isMac)}>
+				<button
+					type="button"
+					className={`${styles.tbtn} ${styles.play}`}
+					aria-label={playLabel}
+					data-playing={playing}
+					onClick={onTogglePlay}
+				>
+					{playing ? (
+						<Pause size={16} fill="currentColor" />
+					) : (
+						<Play size={16} fill="currentColor" />
+					)}
+				</button>
+			</Tooltip>
 			<span className={styles.time}>
 				<span>{formatSec(currentTimeSec)}</span>
 				<span className={styles.sep}>/</span>

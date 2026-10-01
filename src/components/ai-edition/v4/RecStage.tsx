@@ -12,12 +12,14 @@ import {
 	VolumeX,
 	ZoomIn,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AudioLevelMeter } from "@/components/ui/audio-level-meter";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useScopedT } from "@/contexts/I18nContext";
 import { useAudioLevelMeter } from "@/hooks/useAudioLevelMeter";
 import { useCameraDevices } from "@/hooks/useCameraDevices";
 import { useCameraPreviewStream } from "@/hooks/useCameraPreviewStream";
+import { useEditableCursorAvailable } from "@/hooks/useEditableCursorAvailable";
 import { useMicrophoneDevices } from "@/hooks/useMicrophoneDevices";
 import { usePortalOwnsSource } from "@/hooks/usePortalOwnsSource";
 import { canRecordMicrophone, getPlatform } from "@/utils/platformUtils";
@@ -245,7 +247,12 @@ export function RecStage({
 	const windowSources = sources.filter((s) => s.id.startsWith("window:"));
 	const visibleSources = sourceTab === "screen" ? screenSources : windowSources;
 
-	const cursorHighlight = prefs.cursorCaptureMode === "editable-overlay";
+	const editableCursor = prefs.cursorCaptureMode === "editable-overlay";
+	const editableCursorAvailable = useEditableCursorAvailable();
+	// Names for the On/Off pills: the row label is the accessible name, and `aria-pressed` says
+	// which state it is in. A pill named "On" or "Off" says which control it is nowhere.
+	const rowLabels = useId();
+	const rowLabelId = (row: string) => `${rowLabels}-${row}`;
 	// macOS leaves the icons out of the capture; Windows covers them for the take. Linux
 	// records through the portal, which offers neither, so the row would do nothing there.
 	const platform = getPlatform();
@@ -345,23 +352,30 @@ export function RecStage({
 					)}
 
 					<div className={styles.recRow}>
-						<div className={styles.recRowLabel}>
+						<div id={rowLabelId("systemAudio")} className={styles.recRowLabel}>
 							{prefs.systemAudioEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
 							{t("rec.systemAudio")}
 						</div>
-						<button
-							type="button"
-							className={`${styles.recToggleBtn}${prefs.systemAudioEnabled ? ` ${styles.on}` : ""}`}
-							aria-pressed={prefs.systemAudioEnabled}
-							onClick={() => updatePrefs({ systemAudioEnabled: !prefs.systemAudioEnabled })}
-						>
-							{prefs.systemAudioEnabled ? t("rec.on") : t("rec.off")}
-						</button>
+						{/* "System audio" is jargon for what the computer plays: the one row whose label
+						    alone does not say what it records. The row tooltips open above their pill: to
+						    the left they would sit on the label being read, and below the last row they
+						    would cover Start recording. */}
+						<Tooltip content={t("rec.systemAudioTip")} side="top">
+							<button
+								type="button"
+								className={`${styles.recToggleBtn}${prefs.systemAudioEnabled ? ` ${styles.on}` : ""}`}
+								aria-labelledby={rowLabelId("systemAudio")}
+								aria-pressed={prefs.systemAudioEnabled}
+								onClick={() => updatePrefs({ systemAudioEnabled: !prefs.systemAudioEnabled })}
+							>
+								{prefs.systemAudioEnabled ? t("rec.on") : t("rec.off")}
+							</button>
+						</Tooltip>
 					</div>
 
 					{canRecordMicrophone() ? (
 						<div className={styles.recRow}>
-							<div className={styles.recRowLabel}>
+							<div id={rowLabelId("microphone")} className={styles.recRowLabel}>
 								{prefs.micEnabled ? <MicOn size={15} /> : <MicOff size={15} />}
 								{t("rec.microphone")}
 							</div>
@@ -406,6 +420,7 @@ export function RecStage({
 								<button
 									type="button"
 									className={`${styles.recToggleBtn}${prefs.micEnabled ? ` ${styles.on}` : ""}`}
+									aria-labelledby={rowLabelId("microphone")}
 									aria-pressed={prefs.micEnabled}
 									onClick={() => updatePrefs({ micEnabled: !prefs.micEnabled })}
 								>
@@ -416,7 +431,7 @@ export function RecStage({
 					) : null}
 
 					<div className={styles.recRow}>
-						<div className={styles.recRowLabel}>
+						<div id={rowLabelId("camera")} className={styles.recRowLabel}>
 							{prefs.camEnabled ? <Camera size={15} /> : <CameraOff size={15} />}
 							{t("rec.camera")}
 						</div>
@@ -454,6 +469,7 @@ export function RecStage({
 							<button
 								type="button"
 								className={`${styles.recToggleBtn}${prefs.camEnabled ? ` ${styles.on}` : ""}`}
+								aria-labelledby={rowLabelId("camera")}
 								aria-pressed={prefs.camEnabled}
 								onClick={() => updatePrefs({ camEnabled: !prefs.camEnabled })}
 							>
@@ -462,30 +478,38 @@ export function RecStage({
 						</div>
 					</div>
 
-					<div className={styles.recRow}>
-						<div className={styles.recRowLabel}>
-							<MousePointer2 size={15} />
-							{t("rec.cursorHighlight")}
+					{/* Without its native helper the browser records, and it always draws the system cursor
+					    into the video: there is nothing to switch, so neither this row nor Auto-zoom, which
+					    reads what the editable cursor records, is shown. Same rule as the HUD's button. */}
+					{editableCursorAvailable ? (
+						<div className={styles.recRow}>
+							<div id={rowLabelId("cursor")} className={styles.recRowLabel}>
+								<MousePointer2 size={15} />
+								{t("rec.editableCursor")}
+							</div>
+							<Tooltip content={t("rec.editableCursorTip")} side="top">
+								<button
+									type="button"
+									className={`${styles.recToggleBtn}${editableCursor ? ` ${styles.on}` : ""}`}
+									aria-labelledby={rowLabelId("cursor")}
+									aria-pressed={editableCursor}
+									onClick={() =>
+										updatePrefs({
+											cursorCaptureMode: editableCursor ? "system" : "editable-overlay",
+										})
+									}
+								>
+									{editableCursor ? t("rec.on") : t("rec.off")}
+								</button>
+							</Tooltip>
 						</div>
-						<button
-							type="button"
-							className={`${styles.recToggleBtn}${cursorHighlight ? ` ${styles.on}` : ""}`}
-							aria-pressed={cursorHighlight}
-							onClick={() =>
-								updatePrefs({
-									cursorCaptureMode: cursorHighlight ? "system" : "editable-overlay",
-								})
-							}
-						>
-							{cursorHighlight ? t("rec.on") : t("rec.off")}
-						</button>
-					</div>
+					) : null}
 
 					{/* Auto-zoom places zooms from the cursor telemetry the editable-overlay mode
 					    writes. The system cursor writes none, so the row is not offered there. */}
-					{cursorHighlight ? (
+					{editableCursorAvailable && editableCursor ? (
 						<div className={styles.recRow}>
-							<div className={styles.recRowLabel}>
+							<div id={rowLabelId("autoZoom")} className={styles.recRowLabel}>
 								<ZoomIn size={15} />
 								{t("rec.autoZoom")}
 							</div>
@@ -493,6 +517,7 @@ export function RecStage({
 								type="button"
 								data-testid="rec-auto-zoom-button"
 								className={`${styles.recToggleBtn}${prefs.autoZoomEnabled ? ` ${styles.on}` : ""}`}
+								aria-labelledby={rowLabelId("autoZoom")}
 								aria-pressed={prefs.autoZoomEnabled}
 								onClick={() => updatePrefs({ autoZoomEnabled: !prefs.autoZoomEnabled })}
 							>
@@ -503,19 +528,21 @@ export function RecStage({
 
 					{desktopIconsHint ? (
 						<div className={styles.recRow}>
-							<div className={styles.recRowLabel} title={desktopIconsHint}>
+							<div id={rowLabelId("hideDesktopIcons")} className={styles.recRowLabel}>
 								<LayoutGrid size={15} />
 								{t("rec.hideDesktopIcons")}
 							</div>
-							<button
-								type="button"
-								className={`${styles.recToggleBtn}${prefs.hideDesktopIcons ? ` ${styles.on}` : ""}`}
-								aria-pressed={prefs.hideDesktopIcons}
-								title={desktopIconsHint}
-								onClick={() => updatePrefs({ hideDesktopIcons: !prefs.hideDesktopIcons })}
-							>
-								{prefs.hideDesktopIcons ? t("rec.on") : t("rec.off")}
-							</button>
+							<Tooltip content={desktopIconsHint} side="top">
+								<button
+									type="button"
+									className={`${styles.recToggleBtn}${prefs.hideDesktopIcons ? ` ${styles.on}` : ""}`}
+									aria-labelledby={rowLabelId("hideDesktopIcons")}
+									aria-pressed={prefs.hideDesktopIcons}
+									onClick={() => updatePrefs({ hideDesktopIcons: !prefs.hideDesktopIcons })}
+								>
+									{prefs.hideDesktopIcons ? t("rec.on") : t("rec.off")}
+								</button>
+							</Tooltip>
 						</div>
 					) : null}
 				</div>

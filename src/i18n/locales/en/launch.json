@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "Hide recording bar",
+		"hideHUDTip": "Hide the recording bar. Show it again from the tray icon.",
 		"closeApp": "Quit OpenScreen",
-		"restartRecording": "Restart recording",
-		"cancelRecording": "Cancel recording",
+		"restartRecording": "Delete this recording and start a new one",
+		"cancelRecording": "Stop and delete this recording",
 		"pauseRecording": "Pause recording",
 		"resumeRecording": "Resume recording",
 		"useVerticalTray": "Switch to vertical bar",
 		"useHorizontalTray": "Switch to horizontal bar",
-		"openStudio": "Open Studio",
-		"openNotes": "Open Notes",
+		"changeSource": "Choose another screen or window",
+		"systemAudio": "System audio: records the sound your computer plays",
+		"microphone": "Microphone: records your voice",
+		"camera": "Camera: records you as a separate layer you can move in the editor",
+		"openStudio": "Open Studio: the editor for your recordings",
+		"openNotes": "Open Notes: text to read while you record",
 		"openNotesPlaceholder": "Take notes here...",
 		"notesToolbar": {
 			"bold": "Bold",
@@ -27,34 +32,30 @@
 			"fontSize": "Font size",
 			"decreaseFontSize": "Decrease font size",
 			"increaseFontSize": "Increase font size",
-			"mirror": "Mirror horizontally"
+			"mirror": "Mirror horizontally",
+			"mirrorTip": "Flip the text left to right, to read it in a mirror"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "Enable system audio",
-		"disableSystemAudio": "Disable system audio",
-		"enableMicrophone": "Enable microphone",
-		"disableMicrophone": "Disable microphone",
-		"defaultMicrophone": "Default Microphone",
 		"systemAudio": "System audio",
 		"microphone": "Microphone",
-		"on": "On",
-		"off": "Off",
 		"inputDevice": "Input device"
 	},
 	"webcam": {
-		"enableWebcam": "Enable webcam",
-		"disableWebcam": "Disable webcam",
-		"defaultCamera": "Default Camera",
 		"searching": "Searching...",
 		"noneFound": "No camera found",
 		"unavailable": "Camera unavailable",
 		"camera": "Camera",
-		"cameraDevice": "Camera device"
+		"cameraDevice": "Camera device",
+		"quality": "Camera quality",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "Use editable cursor: turns auto zoom and cursor effects back on",
-		"useSystemCursorHint": "Use system cursor: turns off auto zoom and cursor effects"
+		"name": "Editable cursor",
+		"editableTip": "Editable cursor: recorded separately, so you can restyle it and auto-zoom in the editor",
+		"systemTip": "System cursor: your real cursor, recorded in the video. No restyling, no auto-zoom."
 	},
 	"sourceSelector": {
 		"loading": "Loading screens and windows...",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "Choose a screen or window to record",
 		"systemPicker": "Your system will ask what to share",
-		"inProgress": "Recording",
+		"start": "Start recording",
+		"stop": "Stop and save the recording",
 		"saving": "Saving..."
 	},
 	"language": "Language",
+	"languageWithName": "Language: {{language}}",
 	"systemLanguagePrompt": {
 		"title": "Use your system language?",
 		"description": "We detected {{language}} as your system language. Do you want to switch OpenScreen to {{language}}?",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "Device settings",
-		"done": "Done",
+		"close": "Close",
 		"micLevel": "Input level",
 		"micHint": "Speak to check your microphone",
 		"noMicrophones": "No microphone found",

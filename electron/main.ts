@@ -65,6 +65,7 @@ import {
 	showPermissionsWindow,
 	showPermissionsWindowIfNeeded,
 } from "./permissions";
+import { setDisplaySleepBlocked } from "./recording/displaySleepBlocker";
 import { offersStarPrompt, REPO_URL, storeReviewUrl } from "./star-prompt";
 import { registerSttIpc, shutdownStt } from "./stt";
 import { checkLatestRelease } from "./update-checker";
@@ -1360,7 +1361,7 @@ appReady?.then(async () => {
 		showMainWindow();
 	}
 
-	registerIpcHandlers(
+	const { mcpController } = registerIpcHandlers(
 		createEditorWindowWrapper,
 		createSourceSelectorWindowWrapper,
 		createCountdownOverlayWindowWrapper,
@@ -1372,6 +1373,7 @@ appReady?.then(async () => {
 		(recording: boolean, sourceName: string) => {
 			selectedSourceName = sourceName;
 			isRecording = recording;
+			setDisplaySleepBlocked(recording);
 			if (!tray) createTray();
 			updateTrayMenu(recording);
 			// `canOfferUpdateCheck()` now answers "not mid-take" too, and the app/Help menus are
@@ -1404,6 +1406,9 @@ appReady?.then(async () => {
 	}
 
 	createWindow();
+	// Off unless the user turned it on in Settings → AI. Started here rather than
+	// in registerIpcHandlers so neither the headless CLI nor a bench run binds it.
+	void mcpController.startIfEnabled();
 	void showPermissionsWindowIfNeeded().catch((error) =>
 		console.warn("[permissions] could not read the permissions at launch:", error),
 	);

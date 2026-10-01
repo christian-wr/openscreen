@@ -27,7 +27,8 @@
 //         "start": 0.0, "end": 11.0,
 //         "words": [ { "word": "...", "start": 0.5, "end": 0.9, "probability": 0.9 }, ... ]
 //       }, ...
-//     ]
+//     ],
+//     "speech": [ { "start": 0.4, "end": 2.1 }, ... ]   // only when the VAD model loaded
 //   }
 //
 // Concurrency: whisper contexts are not thread-safe. /inference is serialized
@@ -35,6 +36,7 @@
 // this is a belt-and-braces guarantee against a future bug or parallel invoker).
 
 #include "whisper.h"
+#include "ctc_aligner.h"
 
 #include <algorithm>
 #include <atomic>
@@ -222,11 +224,56 @@ std::string detect_active_backend() {
 }
 
 struct Word {
-	double start = 0.0;
-	double end   = 0.0;
-	double prob  = 0.0;
+	double start  = 0.0;
+	double end    = 0.0;
+	// t_dtw of the word's first token: the end of that token, so always inside
+	// the word. Only used to tell which stretch of speech a word belongs to.
+	double anchor = 0.0;
+	double prob   = 0.0;
 	std::string text;
 };
+
+// One stretch of speech copied from the upload into the buffer whisper decodes.
+struct Kept {
+	int64_t at;    // first sample in that buffer
+	int64_t from;  // first sample in the upload
+	int64_t len;
+};
+
+// A whisper time (centiseconds on the speech-only buffer) back on the upload's
+// clock, in seconds. Inside a kept stretch it moves with the stretch; in the
+// silence inserted between two stretches it snaps to the nearer edge, so a
+// word can never land in audio that was cut out. No stretches: VAD was off.
+double to_original_sec(int64_t cs, const std::vector<Kept>& kept) {
+	if (kept.empty()) return cs / 100.0;
+	const int64_t x = cs * 160;  // 16 kHz: 160 samples per centisecond
+	for (size_t i = 0; i < kept.size(); ++i) {
+		const Kept& k = kept[i];
+		if (x < k.at) {
+			if (i == 0) return k.from / 16000.0;
+			const Kept& p = kept[i - 1];
+			const bool nearer_prev = x - (p.at + p.len) <= k.at - x;
+			return (nearer_prev ? p.from + p.len : k.from) / 16000.0;
+		}
+		if (x < k.at + k.len) return (k.from + x - k.at) / 16000.0;
+	}
+	return (kept.back().from + kept.back().len) / 16000.0;
+}
+
+std::string base64(const void* data, size_t n) {
+	static const char* abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	const auto* p = static_cast<const unsigned char*>(data);
+	std::string out;
+	out.reserve((n + 2) / 3 * 4);
+	for (size_t i = 0; i < n; i += 3) {
+		const uint32_t v = (p[i] << 16) | (i + 1 < n ? p[i + 1] << 8 : 0) | (i + 2 < n ? p[i + 2] : 0);
+		out += abc[(v >> 18) & 63];
+		out += abc[(v >> 12) & 63];
+		out += i + 1 < n ? abc[(v >> 6) & 63] : '=';
+		out += i + 2 < n ? abc[v & 63] : '=';
+	}
+	return out;
+}
 
 } // namespace
 
@@ -312,17 +359,17 @@ int main(int argc, char** argv) {
 	log("model loaded; backend=" + active_backend);
 
 	// ---- Init VAD context (Silero VAD v6.2.0) ----
+	// On the CPU, always. Asked for the GPU on Vulkan, whisper.cpp 1.9.1 puts the
+	// VAD weights in a Vulkan buffer, then finds no GPU for the VAD's own backend
+	// and aborts inside ggml (0xC0000409) — so the app relaunched the helper with
+	// --cpu and every transcription lost its GPU. Silero is 0.9 MB: the CPU is
+	// not where the time goes.
 	struct whisper_vad_context* vctx = nullptr;
 	if (!vad_model_path.empty()) {
 		struct whisper_vad_context_params vad_ctx_params = whisper_vad_default_context_params();
 		vad_ctx_params.n_threads = threads;
-		vad_ctx_params.use_gpu   = !force_cpu;
+		vad_ctx_params.use_gpu   = false;
 		vctx = whisper_vad_init_from_file_with_params(vad_model_path.c_str(), vad_ctx_params);
-		if (!vctx && vad_ctx_params.use_gpu) {
-			log("GPU VAD initialization failed; retrying with CPU inference");
-			vad_ctx_params.use_gpu = false;
-			vctx = whisper_vad_init_from_file_with_params(vad_model_path.c_str(), vad_ctx_params);
-		}
 		if (vctx) {
 			log("VAD model loaded; path=" + vad_model_path);
 		} else {
@@ -345,13 +392,15 @@ int main(int argc, char** argv) {
 		res.set_content(probe.dump(), "application/json");
 	});
 
-	// POST /inference — multipart form with `file` (WAV) + `language` + `response_format`.
-	svr.Post("/inference", [&](const httplib::Request& req, httplib::Response& res) {
+	// The upload of /inference and /emissions: a 16 kHz mono PCM16 WAV in the
+	// multipart field `file`. False after answering 400.
+	const auto read_upload = [](const httplib::Request& req, httplib::Response& res,
+	                            std::vector<float>& pcm) -> bool {
 		auto it = req.files.find("file");
 		if (it == req.files.end()) {
 			res.status = 400;
 			res.set_content(R"({"error":"missing 'file' form field"})", "application/json");
-			return;
+			return false;
 		}
 		const auto& file_entry = it->second;
 
@@ -373,7 +422,6 @@ int main(int argc, char** argv) {
 			out.write(file_entry.content.data(),
 			          static_cast<std::streamsize>(file_entry.content.size()));
 		}
-		std::vector<float> pcm;
 		int sample_rate = 0, channels = 0;
 		const bool ok = read_wav_pcm16(tmp_wav, pcm, sample_rate, channels);
 		std::error_code ec;
@@ -381,15 +429,22 @@ int main(int argc, char** argv) {
 		if (!ok) {
 			res.status = 400;
 			res.set_content(R"({"error":"failed to parse WAV"})", "application/json");
-			return;
+			return false;
 		}
 		if (sample_rate != 16000 || channels != 1) {
 			res.status = 400;
 			res.set_content(
 				R"({"error":"expected 16 kHz mono PCM16 WAV"})",
 				"application/json");
-			return;
+			return false;
 		}
+		return true;
+	};
+
+	// POST /inference — multipart form with `file` (WAV) + `language` + `response_format`.
+	svr.Post("/inference", [&](const httplib::Request& req, httplib::Response& res) {
+		std::vector<float> pcm;
+		if (!read_upload(req, res, pcm)) return;
 
 		// language param
 		std::string language = "auto";
@@ -407,14 +462,52 @@ int main(int argc, char** argv) {
 		wparams.print_realtime   = false;
 		wparams.print_timestamps = false;
 		wparams.n_threads        = threads;
-		if (vctx && !vad_model_path.empty()) {
-			wparams.vad            = true;
-			wparams.vad_model_path = vad_model_path.c_str();
-			wparams.vad_params     = whisper_vad_default_params();
-		}
 
-		const auto t0 = std::chrono::steady_clock::now();
-		const int rc  = whisper_full(ctx, wparams, pcm.data(), static_cast<int>(pcm.size()));
+		// ---- Speech only (Silero VAD), cut here rather than by whisper_full ----
+		// whisper_full's own `vad` param maps SEGMENT times back onto the upload
+		// but not token times, so every word (t_dtw included) came back early by
+		// all the silence removed before it: 13 s into a 25 s clip. Cutting here
+		// keeps the map. The stretches also go out as `speech`, which the Node
+		// side anchors phrase edges on.
+		const auto t0 = std::chrono::steady_clock::now();  // VAD time is part of the run
+		std::vector<float> speech;
+		std::vector<Kept> kept;
+		nlohmann::json speech_json = nlohmann::json::array();
+		if (vctx) {
+			whisper_vad_segments* vs = whisper_vad_segments_from_samples(
+				vctx, whisper_vad_default_params(), pcm.data(), static_cast<int>(pcm.size()));
+			if (!vs) {
+				res.status = 500;
+				res.set_content(R"({"error":"VAD failed"})", "application/json");
+				return;
+			}
+			const int64_t n_pcm = static_cast<int64_t>(pcm.size());
+			const auto to_sample = [&](float cs) {
+				return std::clamp<int64_t>(std::llround(cs * 160.0), 0, n_pcm);
+			};
+			const int n_vs = whisper_vad_segments_n_segments(vs);
+			for (int i = 0; i < n_vs; ++i) {
+				const int64_t from = to_sample(whisper_vad_segments_get_segment_t0(vs, i));
+				const int64_t end  = to_sample(whisper_vad_segments_get_segment_t1(vs, i));
+				if (end <= from) continue;
+				speech_json.push_back({{"start", from / 16000.0}, {"end", end / 16000.0}});
+				// As whisper.cpp does: 0.1 s past the detected end so a soft ending
+				// survives, and 0.1 s of silence between stretches. Unlike it, the
+				// tail never runs into the next stretch and decodes it twice.
+				const int64_t next = i + 1 < n_vs
+					? to_sample(whisper_vad_segments_get_segment_t0(vs, i + 1))
+					: n_pcm;
+				const int64_t to = std::max(end, std::min(end + 1600, next));
+				if (!kept.empty()) speech.insert(speech.end(), 1600, 0.0f);
+				kept.push_back({static_cast<int64_t>(speech.size()), from, to - from});
+				speech.insert(speech.end(), pcm.begin() + from, pcm.begin() + to);
+			}
+			whisper_vad_free_segments(vs);
+		}
+		// VAD on and no speech found: nothing to decode, so nothing to report.
+		const std::vector<float>& input = vctx ? speech : pcm;
+
+		const int rc  = input.empty() ? 0 : whisper_full(ctx, wparams, input.data(), static_cast<int>(input.size()));
 		const auto t1 = std::chrono::steady_clock::now();
 		if (rc != 0) {
 			log("whisper_full returned " + std::to_string(rc));
@@ -451,18 +544,28 @@ int main(int argc, char** argv) {
 		};
 		std::vector<Segment> segments;
 
-		const int n_segments = whisper_full_n_segments(ctx);
+		// whisper.cpp writes a token's t_dtw when the DTW path enters the decoder
+		// row that PREDICTS the next token (whisper_exp_compute_token_level_
+		// timestamps_dtw, v1.9.1): it marks the END of the token, not its start.
+		// So a word runs from the t_dtw of the text token before it to the t_dtw
+		// of its own last token. Taking its first token's t_dtw as the start put
+		// every word one token late (+175 ms median, tools/stt-eval/word-timing).
+		// The previous token carries across segments; the request's very first
+		// word has none and starts on its first token's time (the Node side
+		// anchors it on the speech onset anyway).
+		double prev_tok_end = -1.0;
+		const int n_segments = input.empty() ? 0 : whisper_full_n_segments(ctx);
 		for (int si = 0; si < n_segments; ++si) {
 			Segment seg;
-			seg.start = whisper_full_get_segment_t0(ctx, si) / 100.0;
-			seg.end   = whisper_full_get_segment_t1(ctx, si) / 100.0;
+			seg.start = to_original_sec(whisper_full_get_segment_t0(ctx, si), kept);
+			seg.end   = to_original_sec(whisper_full_get_segment_t1(ctx, si), kept);
 			if (const char* t = whisper_full_get_segment_text(ctx, si)) seg.text = t;
 
-			struct W { double t_dtw_first; double p_sum; int p_n; std::string text; };
+			struct W { double start; double end; double anchor; double p_sum; int p_n; std::string text; };
 			std::vector<W> word_buf;
 			std::string cur_text;
 			bool in_word = false;
-			double w_first_t_dtw = 0;
+			double w_start = 0, w_end = 0, w_anchor = 0;
 			double w_p_sum = 0; int w_p_n = 0;
 
 			const int n_tokens = whisper_full_n_tokens(ctx, si);
@@ -486,33 +589,35 @@ int main(int argc, char** argv) {
 				++non_special_tokens;
 
 				const bool starts_word = (!in_word) || (!raw.empty() && raw[0] == ' ');
-				const double td_dtw = (td.t_dtw >= 0 ? td.t_dtw : 0) / 100.0;
+				const double td_dtw = to_original_sec(td.t_dtw >= 0 ? td.t_dtw : 0, kept);
 
 				if (starts_word && in_word) {
-					word_buf.push_back({ w_first_t_dtw, w_p_sum, w_p_n, cur_text });
+					word_buf.push_back({ w_start, w_end, w_anchor, w_p_sum, w_p_n, cur_text });
 					w_p_sum = 0; w_p_n = 0; cur_text.clear();
 				}
 				if (starts_word) {
 					in_word = true;
-					w_first_t_dtw = td_dtw;
+					w_start  = prev_tok_end >= 0 ? prev_tok_end : td_dtw;
+					w_anchor = td_dtw;
 					cur_text = (!raw.empty() && raw[0] == ' ') ? raw.substr(1) : raw;
 				} else {
 					cur_text += raw;
 				}
+				w_end        = td_dtw;
+				prev_tok_end = td_dtw;
 				w_p_sum += td.p;
 				w_p_n   += 1;
 			}
 			if (in_word) {
-				word_buf.push_back({ w_first_t_dtw, w_p_sum, w_p_n, cur_text });
+				word_buf.push_back({ w_start, w_end, w_anchor, w_p_sum, w_p_n, cur_text });
 			}
-			for (size_t wi = 0; wi < word_buf.size(); ++wi) {
+			for (const W& b : word_buf) {
 				Word w;
-				w.start = word_buf[wi].t_dtw_first;
-				w.end   = (wi + 1 < word_buf.size())
-				            ? word_buf[wi + 1].t_dtw_first
-				            : seg.end;
-				w.prob  = word_buf[wi].p_sum / std::max(1, word_buf[wi].p_n);
-				w.text  = word_buf[wi].text;
+				w.start  = b.start;
+				w.end    = b.end;
+				w.anchor = b.anchor;
+				w.prob   = b.p_sum / std::max(1, b.p_n);
+				w.text   = b.text;
 				seg.words.push_back(w);
 			}
 			segments.push_back(std::move(seg));
@@ -547,7 +652,7 @@ int main(int argc, char** argv) {
 		// whisper resolved — the detected one under "auto", and the forced one
 		// otherwise, which is correct for both paths.
 		std::string resolved_language = language;
-		const int lang_id = whisper_full_lang_id(ctx);
+		const int lang_id = input.empty() ? -1 : whisper_full_lang_id(ctx);
 		if (lang_id >= 0) {
 			if (const char* lang_str = whisper_lang_str(lang_id)) {
 				resolved_language = lang_str;
@@ -576,6 +681,7 @@ int main(int argc, char** argv) {
 					{"word",        w.text},
 					{"start",       w.start},
 					{"end",         w.end},
+					{"anchor",      w.anchor},
 					{"probability", w.prob},
 				});
 			}
@@ -583,73 +689,78 @@ int main(int argc, char** argv) {
 			segs.push_back(std::move(seg));
 		}
 		reply["segments"] = std::move(segs);
+		if (vctx) reply["speech"] = std::move(speech_json);
 		res.set_content(reply.dump(), "application/json");
 	});
 
-	// POST /vad — multipart form with `file` (WAV: 16 kHz mono PCM16).
-	// Runs Silero VAD segmentation and returns speech intervals [start, end] in seconds.
-	svr.Post("/vad", [&](const httplib::Request& req, httplib::Response& res) {
-		if (!vctx) {
-			res.status = 503;
-			res.set_content(R"({"error":"VAD model was not loaded on server startup"})", "application/json");
-			return;
-		}
-		auto it = req.files.find("file");
-		if (it == req.files.end()) {
-			res.status = 400;
-			res.set_content(R"({"error":"missing 'file' form field"})", "application/json");
-			return;
-		}
-		const auto& file_entry = it->second;
-
-		static std::atomic<uint64_t> tmp_vad_counter{0};
-		const auto tmp_vad_id = tmp_vad_counter.fetch_add(1, std::memory_order_relaxed);
-		const auto tmp_vad_ts = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-		const std::string tmp_wav = (std::filesystem::temp_directory_path() /
-		                             ("openscreen-vad-" + std::to_string(tmp_vad_ts) +
-		                              "-" + std::to_string(tmp_vad_id) + ".wav")).string();
-		{
-			std::ofstream out(tmp_wav, std::ios::binary);
-			out.write(file_entry.content.data(),
-			          static_cast<std::streamsize>(file_entry.content.size()));
-		}
+	// POST /emissions — the CTC aligner's acoustic pass (issue #948, phase 3).
+	// Multipart form: `file` (the same WAV as /inference), `model` (path of a
+	// wav2vec2 GGUF, see ctc_aligner.h) and `regions` (JSON [[start_s, end_s], ...]).
+	// Answers the model's vocabulary and, per region, base64 float32 log-probs
+	// [frames x vocab]; frame i of a region sees the audio from
+	// `start + i * stride_s` for `receptive_s`. The forced alignment itself runs
+	// on the Node side (electron/stt/ctcAlign.ts). The model stays loaded until a
+	// request names another one.
+	CtcModelPtr aligner;
+	std::string aligner_path;
+	svr.Post("/emissions", [&](const httplib::Request& req, httplib::Response& res) {
 		std::vector<float> pcm;
-		int sample_rate = 0, channels = 0;
-		const bool ok = read_wav_pcm16(tmp_wav, pcm, sample_rate, channels);
-		std::error_code ec;
-		std::filesystem::remove(tmp_wav, ec);
-		if (!ok) {
+		if (!read_upload(req, res, pcm)) return;
+		const std::string model = req.get_file_value("model").content;
+		nlohmann::json regions = nlohmann::json::parse(req.get_file_value("regions").content, nullptr, false);
+		if (model.empty() || !regions.is_array()) {
 			res.status = 400;
-			res.set_content(R"({"error":"failed to parse WAV"})", "application/json");
+			res.set_content(R"({"error":"need 'model' and a JSON 'regions' array"})", "application/json");
 			return;
 		}
-		if (sample_rate != 16000 || channels != 1) {
-			res.status = 400;
-			res.set_content(
-				R"({"error":"expected 16 kHz mono PCM16 WAV"})",
-				"application/json");
-			return;
-		}
-
 		const std::lock_guard<std::mutex> lk(infer_mu);
-		struct whisper_vad_params vad_params = whisper_vad_default_params();
-		struct whisper_vad_segments* vad_segments =
-			whisper_vad_segments_from_samples(vctx, vad_params, pcm.data(), static_cast<int>(pcm.size()));
-
-		nlohmann::json reply;
-		reply["segments"] = nlohmann::json::array();
-		if (vad_segments) {
-			const int n_segs = whisper_vad_segments_n_segments(vad_segments);
-			for (int i = 0; i < n_segs; ++i) {
-				const float t0 = whisper_vad_segments_get_segment_t0(vad_segments, i);
-				const float t1 = whisper_vad_segments_get_segment_t1(vad_segments, i);
-				reply["segments"].push_back({
-					{"start", static_cast<double>(t0) / 100.0},
-					{"end",   static_cast<double>(t1) / 100.0}
-				});
+		const auto t0 = std::chrono::steady_clock::now();
+		if (!aligner || aligner_path != model) {
+			aligner.reset();
+			std::string err;
+			aligner = ctc_load(model, cparams.use_gpu, threads, err);
+			if (!aligner) {
+				log("aligner: " + err);
+				res.status = 500;
+				res.set_content(nlohmann::json{{"error", "aligner: " + err}}.dump(), "application/json");
+				return;
 			}
-			whisper_vad_free_segments(vad_segments);
+			aligner_path = model;
+			log("aligner loaded on " + ctc_device(*aligner) + ": " + model);
 		}
+		const CtcModelInfo& info = ctc_info(*aligner);
+		nlohmann::json out_regions = nlohmann::json::array();
+		const int64_t n_pcm = static_cast<int64_t>(pcm.size());
+		for (const auto& r : regions) {
+			if (!r.is_array() || r.size() != 2 || !r[0].is_number() || !r[1].is_number()) continue;
+			const int64_t from = std::clamp<int64_t>(std::llround(r[0].get<double>() * 16000.0), 0, n_pcm);
+			const int64_t to = std::clamp<int64_t>(std::llround(r[1].get<double>() * 16000.0), from, n_pcm);
+			std::vector<float> lp;
+			int frames = 0;
+			std::string err;
+			if (!ctc_emissions(*aligner, pcm.data() + from, static_cast<size_t>(to - from), lp, frames, err)) {
+				log("aligner: " + err);
+				res.status = 500;
+				res.set_content(nlohmann::json{{"error", "aligner: " + err}}.dump(), "application/json");
+				return;
+			}
+			out_regions.push_back({
+				{"start", from / 16000.0},
+				{"frames", frames},
+				{"logprobs", base64(lp.data(), lp.size() * sizeof(float))},
+			});
+		}
+		const double elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+		nlohmann::json reply = {
+			{"vocab", info.vocab},
+			{"blank", info.blank},
+			{"languages", info.languages},
+			{"stride_s", info.stride / 16000.0},
+			{"receptive_s", info.receptive_field / 16000.0},
+			{"device", ctc_device(*aligner)},
+			{"elapsed_s", elapsed_s},
+			{"regions", std::move(out_regions)},
+		};
 		res.set_content(reply.dump(), "application/json");
 	});
 

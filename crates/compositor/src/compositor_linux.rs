@@ -71,6 +71,14 @@ fn layer_bytes(cb: &LayerCB) -> &[u8] {
     unsafe { std::slice::from_raw_parts(cb as *const LayerCB as *const u8, LAYER_BYTES as usize) }
 }
 
+/// Le maillage de Prism Glow tel que le lit le WGSL (`PrismMesh`) : les triangles, les
+/// polygones, un point par vec4 (le pas d'un tableau uniform), puis les boîtes.
+fn prism_mesh_bytes() -> Vec<u8> {
+    use crate::prism_mesh::{BOXES, POLYS, TRIS};
+    let points = POLYS.iter().map(|&[x, y]| [x, y, 0.0, 0.0]);
+    TRIS.iter().copied().chain(points).chain(BOXES).flatten().flat_map(f32::to_ne_bytes).collect()
+}
+
 /// Un calque de fond deja lie, en attente de son `draw`. `_buf`/`_tex`/`_view`
 /// ne sont jamais relus : ils gardent en vie ce que le bind group reference
 /// jusqu'au submit. Ce backend encode toute la frame avant de la soumettre, la
@@ -272,6 +280,8 @@ pub struct Compositor {
     pipeline_copy: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// Le maillage de Prism Glow (`prism_mesh.rs`) tel que le lit le WGSL (`PrismMesh`, binding 7).
+    prism_mesh: wgpu::Buffer,
 
     // Chaine de blur Kawase du fond (`blur.wgsl`) : layout dedie (uniform + 1
     // tex + sampler), 2 pipelines (down/up), 3 textures de pyramide (1/2, 1/4,
@@ -317,6 +327,8 @@ pub struct Compositor {
     scene: RefCell<Option<Scene>>,
     cursor: RefCell<Option<crate::cursor::CursorTrack>>,
     cursor_time: RefCell<Option<f32>>,
+    /// Le métrage dans la dernière image composée, que l'éditeur lit avec elle (`live.rs`).
+    footage: std::cell::Cell<Option<crate::frame_geometry::FootageQuad>>,
     timeline_time: RefCell<Option<f32>>,
     /// Temps programme (secondes de sortie) -- cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
@@ -474,8 +486,26 @@ impl Compositor {
                     // Pyramide de profondeur de champ (modes 8 et 18), `dummy` ailleurs : le
                     // mode 18 lit a la fois le metrage, son rendu isole (binding 4) et elle.
                     tex_entry(6),
+                    // Le maillage de Prism Glow (mode 15). Un uniform et non des tables dans le
+                    // shader : lavapipe les recopiait a chaque pixel de chaque calque, et une
+                    // frame sans curseur se rendait 3,4 fois plus lentement.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
+        let prism_mesh = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("prism-mesh"),
+            contents: &prism_mesh_bytes(),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
         let pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("layer"),
             bind_group_layouts: &[&bind_group_layout],
@@ -663,6 +693,7 @@ impl Compositor {
             pipeline_copy,
             bind_group_layout,
             sampler,
+            prism_mesh,
             blur_bgl,
             blur_down,
             blur_up,
@@ -682,6 +713,7 @@ impl Compositor {
             scene: RefCell::new(None),
             cursor: RefCell::new(None),
             cursor_time: RefCell::new(None),
+            footage: std::cell::Cell::new(None),
             timeline_time: RefCell::new(None),
             programme_time: RefCell::new(None),
             text_raster: crate::text::TextRasterizer::new().ok(),
@@ -1283,6 +1315,7 @@ impl Compositor {
 
     /// `make_bind`, binding 4 impose (le rendu isole du mode 18, a la place du masque webcam
     /// qu'il ne lit pas), et la pyramide de profondeur de champ en binding 6 (modes 8 et 18).
+    /// Le mode 15 y met le champ de son sprite et le sprite.
     fn make_bind_b4(
         &self,
         cb: &LayerCB,
@@ -1338,6 +1371,7 @@ impl Compositor {
                     binding: 6,
                     resource: wgpu::BindingResource::TextureView(dof.unwrap_or(dummy)),
                 },
+                wgpu::BindGroupEntry { binding: 7, resource: self.prism_mesh.as_entire_binding() },
             ],
         });
         (uniform, bind)
@@ -2024,6 +2058,11 @@ impl Compositor {
         *self.webcam_mask.borrow_mut() = None;
     }
 
+    /// Le métrage dans la dernière image composée : ses coins et son warp (`FootageQuad`).
+    pub fn footage_quad(&self) -> Option<crate::frame_geometry::FootageQuad> {
+        self.footage.get()
+    }
+
     /// Rend une frame dans le RT interne. Le screen `screen`/`webcam` sont des
     /// carriers `linux_frames` ; la geometrie vient de `plan_frame`. Coeur :
     /// fond uni + ecran cover-fit. `readback_direct` lit ensuite le RT.
@@ -2099,6 +2138,7 @@ impl Compositor {
             timeline_t_override: *self.timeline_time.borrow(),
             programme_time: *self.programme_time.borrow(),
         });
+        self.footage.set(Some(g.footage_quad([rw, rh])));
         // (`wtw`/`wth` sont les dims de la TEXTURE webcam, consommees par le
         // cover-crop du calque PiP plus bas.)
 
@@ -2502,6 +2542,8 @@ impl Compositor {
             .as_ref()
             .is_some_and(|s| s.annotations.iter().any(|a| a.kind == "blur" && visible(a)));
         let mut ann_draws: Vec<AnnDraw> = Vec::new();
+        // Les flous de confidentialite, dessines sur le metrage avant le curseur.
+        let mut privacy_draws: Vec<AnnDraw> = Vec::new();
         if let Some(scene) = scene_ref.as_ref() {
             // La liste arrive deja triee par zIndex cote app : l'ordre d'iteration
             // EST l'ordre de peinture.
@@ -2592,7 +2634,7 @@ impl Compositor {
                             Some((&self.ann_copy_view, &self.ann_copy_view, &self.ann_copy_view)),
                             &dummy,
                         );
-                        ann_draws.push(AnnDraw::plain(buf, bind));
+                        privacy_draws.push(AnnDraw::plain(buf, bind));
                     }
                     "image" => {
                         let Some(src) = a.image_path.as_ref().filter(|s| !s.is_empty()) else {
@@ -2828,6 +2870,8 @@ impl Compositor {
             binds: Vec<wgpu::BindGroup>,
             /// L'impact des clics (mode 16), dessine SOUS le curseur, sur le RT.
             impacts: Vec<wgpu::BindGroup>,
+            /// Le cristal de Prism Glow : il lit la copie de l'image composee (`CursorPlan::glass`).
+            glass: bool,
         }
         let cursor_draw: Option<CursorDraw> = (|| {
             let track = cursor_ref.as_ref()?;
@@ -2906,7 +2950,9 @@ impl Compositor {
             let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
 
             // Curseur modelise (mode 15) : ce meme sprite extrude, `plan_cursor` en a tire la
-            // pose. Sprite au binding 1 (texY), champ au binding 2 (texU). Parite Windows/macOS.
+            // pose. La copie de l'image composee au binding 1 (texY), que refracte le cristal de
+            // Prism Glow, le champ au binding 4 (texMask), le sprite au binding 6 (texDof).
+            // Parite Windows/macOS.
             if let Some(pose) = plan.model {
                 match self.cursor_sdf(&sprite.path) {
                     Ok((sdf, shape)) => {
@@ -2923,8 +2969,13 @@ impl Compositor {
                             ) else {
                                 continue;
                             };
-                            let (buf, bind) =
-                                self.make_bind(&cb, Some((&view, &sdf_view, &view)), &dummy);
+                            let (buf, bind) = self.make_bind_b4(
+                                &cb,
+                                Some((&self.ann_copy_view, &dummy, &dummy)),
+                                &dummy,
+                                Some(&sdf_view),
+                                Some(&view),
+                            );
                             bufs.push(buf);
                             binds.push(bind);
                         }
@@ -2933,6 +2984,7 @@ impl Compositor {
                             _tex: vec![(tex, view), (sdf, sdf_view)],
                             binds,
                             impacts,
+                            glass: plan.glass,
                         });
                     }
                     Err(e) => eprintln!("[curseur] champ de \"{}\" : {e:#}", sprite.path),
@@ -2956,7 +3008,7 @@ impl Compositor {
                 bufs.push(buf);
                 binds.push(bind);
             }
-            Some(CursorDraw { _bufs: bufs, _tex: vec![(tex, view)], binds, impacts })
+            Some(CursorDraw { _bufs: bufs, _tex: vec![(tex, view)], binds, impacts, glass: false })
         })();
         // Bind group de la passe de composition d'`accum` (layout du blur :
         // uniform + texture + sampler). Construit hors de la pass, comme les
@@ -3068,9 +3120,9 @@ impl Compositor {
         }
         // Blur du fond (avant l'ecran), si active par la scene/l'inspector.
         self.blur_bg(&mut encoder, cfg.bg_blur);
-        // Passe 2 : avant-plan (ecran + webcam), compose par-dessus le fond
-        // (eventuellement floute) avec `LoadOp::Load`. Les annotations sont dans
-        // une passe a part, cf. plus bas.
+        // Passe 2 : l'ecran, compose par-dessus le fond (eventuellement floute) avec
+        // `LoadOp::Load`. Puis les flous de confidentialite, le curseur, la camera et les autres
+        // annotations, dans cet ordre : celui de Windows et macOS.
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("fg-pass"),
@@ -3103,40 +3155,22 @@ impl Compositor {
                     &device_frame,
                 ),
             }
-            if let Some((_buf, bind)) = &webcam_shadow {
-                rpass.set_bind_group(0, bind, &[]);
-                rpass.draw(0..4, 0..1);
-            }
-            // Fond personnalise : ENTRE l'ombre et la camera. C'est ce sandwich qui
-            // remplace la branche « mode 3 » du shader — la camera, decoupee, se
-            // fond dessus par alpha ; l'ombre reste dessous, elle appartient a la
-            // bulle et non a son contenu.
-            if let Some(bg) = &webcam_bg {
-                rpass.set_bind_group(0, &bg.bind, &[]);
-                rpass.draw(0..4, 0..1);
-            }
-            if let Some((_buf, bind)) = &webcam_draw {
-                rpass.set_bind_group(0, bind, &[]);
-                rpass.draw(0..4, 0..1);
-            }
         }
         // Fige la frame composee pour les annotations « flou ». ICI et nulle part
-        // ailleurs : apres l'ecran et la camera (sinon un flou masquerait du vide)
-        // et avant la premiere annotation (sinon deux flous qui se recouvrent
+        // ailleurs : apres l'ecran (sinon un flou masquerait du vide)
+        // et avant le premier flou (sinon deux flous qui se recouvrent
         // s'echantillonnent l'un l'autre). Une passe de rendu ne peut pas lire sa
         // propre cible, d'ou la copie -- et d'ou le fait que les annotations
         // doivent avoir leur propre passe.
         if needs_ann_copy {
             self.generate_ann_mips(&mut encoder);
         }
-        // Passe 3 : annotations puis curseur net, par-dessus tout le reste. Elle
-        // existe meme sans flou : deux passes consecutives sur la MEME cible avec
-        // `LoadOp::Load` ne coutent rien de plus qu'une seule sur un GPU
-        // desktop, et un seul chemin de code vaut mieux qu'un branchement qui ne
-        // serait exerce que dans un projet sur dix.
-        {
+        // Passe 2 bis : les flous de confidentialite, sur le metrage, AVANT le curseur (parite
+        // Windows et macOS). Le curseur reste net par-dessus, et le cristal de Prism Glow, qui
+        // refracte l'image composee, n'y voit que des pixels deja floutes.
+        if !privacy_draws.is_empty() {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ann-pass"),
+                label: Some("privacy-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.rt_view,
                     resolve_target: None,
@@ -3150,18 +3184,44 @@ impl Compositor {
                 occlusion_query_set: None,
             });
             rpass.set_pipeline(&self.pipeline);
-            for a in &ann_draws {
+            for a in &privacy_draws {
                 rpass.set_bind_group(0, &a.bind, &[]);
                 rpass.draw(0..4, 0..1);
             }
+        }
+        // Le cristal de Prism Glow refracte l'image telle qu'elle est composee a cet instant,
+        // flous compris : sa copie dans `ann_copy` (libre, les flous l'ont deja lue ; le mip 0
+        // suffit), une fois pour toutes les copies de la trainee.
+        if cursor_draw.as_ref().is_some_and(|c| c.glass) {
+            encoder.copy_texture_to_texture(
+                self.rt.as_image_copy(),
+                self.ann_copy.as_image_copy(),
+                wgpu::Extent3d { width: self.render_w, height: self.render_h, depth_or_array_layers: 1 },
+            );
+        }
+        // Le curseur net, et l'impact des clics sous lui. La trainee, elle, a besoin de sa
+        // propre cible : elle suit.
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("cursor-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.rt_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.pipeline);
             // L'impact des clics, sous le curseur et sa trainee (dessinee plus bas).
             for bind in cursor_draw.iter().flat_map(|c| &c.impacts) {
                 rpass.set_bind_group(0, bind, &[]);
                 rpass.draw(0..4, 0..1);
             }
-            // Curseur en dernier : au-dessus de l'ecran et des annotations.
-            // Une seule copie = curseur net, il tient dans cette pass. La
-            // trainee, elle, a besoin de sa propre cible (voir plus bas).
             if let Some(c) = cursor_draw.as_ref().filter(|c| c.binds.len() == 1) {
                 rpass.set_bind_group(0, &c.binds[0], &[]);
                 rpass.draw(0..4, 0..1);
@@ -3224,6 +3284,66 @@ impl Compositor {
             rpass.set_pipeline(&self.pipeline_copy);
             rpass.set_bind_group(0, abind, &[]);
             rpass.draw(0..3, 0..1);
+        }
+        // La camera, au-dessus de l'ecran et du curseur.
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("webcam-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.rt_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.pipeline);
+            if let Some((_buf, bind)) = &webcam_shadow {
+                rpass.set_bind_group(0, bind, &[]);
+                rpass.draw(0..4, 0..1);
+            }
+            // Fond personnalise : ENTRE l'ombre et la camera. C'est ce sandwich qui
+            // remplace la branche « mode 3 » du shader — la camera, decoupee, se
+            // fond dessus par alpha ; l'ombre reste dessous, elle appartient a la
+            // bulle et non a son contenu.
+            if let Some(bg) = &webcam_bg {
+                rpass.set_bind_group(0, &bg.bind, &[]);
+                rpass.draw(0..4, 0..1);
+            }
+            if let Some((_buf, bind)) = &webcam_draw {
+                rpass.set_bind_group(0, bind, &[]);
+                rpass.draw(0..4, 0..1);
+            }
+        }
+        // Passe 3 : les autres annotations, par-dessus tout le reste (les flous sont passes avant
+        // le curseur). Elle existe meme sans annotation : deux passes consecutives sur la MEME
+        // cible avec `LoadOp::Load` ne coutent rien de plus qu'une seule sur un GPU desktop, et un
+        // seul chemin de code vaut mieux qu'un branchement qui ne serait exerce que dans un projet
+        // sur dix.
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ann-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.rt_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.pipeline);
+            for a in &ann_draws {
+                rpass.set_bind_group(0, &a.bind, &[]);
+                rpass.draw(0..4, 0..1);
+            }
         }
         self.gpu.context.submit(std::iter::once(encoder.finish()));
         Ok(())
@@ -5523,6 +5643,22 @@ mod tests {
             .collect()
     }
 
+    /// Les pixels que couvre un curseur de VERRE (le cristal de Prism Glow, qui laisse voir le
+    /// contenu et le réfracte) : opaques, ou changés sur les deux teintes sans y être plus sombres
+    /// (une ombre ne fait qu'assombrir ; le verre réfracte, reflète et luit).
+    fn model_covered(on_blue: &[u8], on_orange: &[u8], bare: &[u8], bare_orange: &[u8]) -> Vec<bool> {
+        let opaque = model_opaque(on_blue, on_orange, bare);
+        (0..1280 * 720)
+            .map(|i| {
+                let lit = |on: &[u8], under: &[u8]| {
+                    let (a, b) = (&on[i * 4..i * 4 + 3], &under[i * 4..i * 4 + 3]);
+                    a != b && model_luma(a) >= model_luma(b) - 2.0
+                };
+                opaque[i] || (lit(on_blue, bare) && lit(on_orange, bare_orange))
+            })
+            .collect()
+    }
+
     fn model_iou(a: &[bool], b: &[bool]) -> f32 {
         let inter = a.iter().zip(b).filter(|(x, y)| **x && **y).count();
         let union = a.iter().zip(b).filter(|(x, y)| **x || **y).count();
@@ -5681,7 +5817,8 @@ mod tests {
 
     /// Pendant de `the_sculpted_cursors_stand_at_the_hotspot` (Windows) : la flèche et la main
     /// sculptées des thèmes d'origine (`sculpt.rs`) passent par le WGSL, tiennent au hotspot, en
-    /// bas à droite de lui, et portent leur ombre en l'air.
+    /// bas à droite de lui, et portent leur ombre en l'air. Le cristal de Prism Glow est de verre :
+    /// son corps compte ce qu'il couvre, et une bonne part de lui change avec la teinte de l'écran.
     #[test]
     fn the_sculpted_cursors_stand_at_the_hotspot() {
         let Some(gpu) = gpu() else { return };
@@ -5693,6 +5830,7 @@ mod tests {
         let extruded = model_scene_json("null", Some(true), "default", true, 5.0);
         let hidden = model_scene_json("null", Some(true), "default", false, 5.0);
         let bare = compose_model(&comp, &blue, &hidden, &model_track("arrow", false, 0.5));
+        let bare_orange = compose_model(&comp, &orange, &hidden, &model_track("arrow", false, 0.5));
         let mut failures = Vec::new();
         for state in ["arrow", "pointer"] {
             let still = model_track(state, false, 0.5);
@@ -5707,7 +5845,12 @@ mod tests {
                     failures.push(format!("{theme}/{state}: le sprite extrude au lieu du modele"));
                 }
                 let (tip, u) = model_tip(&json, &still);
-                let mask = model_opaque(&hover, &hover_b, &bare);
+                let glass = theme == "prism-glow";
+                let mask = if glass {
+                    model_covered(&hover, &hover_b, &bare, &bare_orange)
+                } else {
+                    model_opaque(&hover, &hover_b, &bare)
+                };
                 let (mut body, mut c, mut near) = (0usize, [0.0f32; 2], f32::MAX);
                 for (i, _) in mask.iter().enumerate().filter(|(_, m)| **m) {
                     let (x, y) = ((i % 1280) as f32, (i / 1280) as f32);
@@ -5735,6 +5878,124 @@ mod tests {
                 if shadow * 10 < body * 3 {
                     failures.push(format!("{theme}/{state}: pas d'ombre en l'air ({shadow} px)"));
                 }
+                if glass {
+                    let through = (0..1280 * 720).filter(|&i| mask[i] && hover[i * 4..i * 4 + 3] != hover_b[i * 4..i * 4 + 3]).count();
+                    println!("{theme}/{state} : {through} px du corps laissent voir l'ecran");
+                    if through * 10 < body * 3 {
+                        failures.push(format!("{theme}/{state}: le cristal ne laisse voir l'ecran que sur {through} px"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// Le métrage, puis ses flous de confidentialité, puis le curseur, net par-dessus (parité
+    /// Windows et macOS) : le cristal de Prism Glow réfracte l'image déjà floutée. Sous le flou,
+    /// des rayures fines décalées d'une colonne donnent la même image floutée ; si le verre lisait
+    /// la vidéo brute, il montrerait les rayures, et les deux rendus différeraient à travers lui.
+    #[test]
+    fn the_crystal_refracts_the_blurred_picture() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 1280, 720).expect("Compositor::new_sized");
+        // Moitié gauche grise, moitié droite (la zone floutée) rayée une colonne sur deux.
+        let (w, h) = (640u32, 360u32);
+        let stripes = |phase: u32| {
+            let y: Vec<u8> = (0..w * h)
+                .map(|i| if i % w < w / 2 { 150 } else if (i % w + phase) % 2 == 0 { 40 } else { 220 })
+                .collect();
+            FakeFrame::from_planes(&gpu, w, h, &y, &vec![128; (w * (h / 2)) as usize])
+        };
+        let (a, b) = (stripes(0), stripes(1));
+        let blur = r#""annotations":[{"id":"b","startSec":0,"endSec":10,"kind":"blur","x":0.5,"y":0.0,"w":0.5,"h":1.0,"blur":{"style":"blur","shape":"rectangle","color":"white","intensity":24,"blockSize":16}}]"#;
+        let json = |show: bool| {
+            model_scene_json("null", Some(true), "default", show, 5.0)
+                .replace(r#"/arrow.png","#, r#"/arrow.png","sculpt":"prism-glow/arrow","#)
+                .replace(r#""annotations":[]"#, blur)
+        };
+        let mut failures = Vec::new();
+        // Tout entier dans la zone, puis à cheval sur son bord.
+        for x in [0.7f32, 0.48] {
+            let track = crate::cursor::CursorTrack::new(vec![(0.0, x, 0.45), (9.0, x, 0.45)], vec![], vec![(0.0, "arrow".to_string())]);
+            let (ra, rb) = (compose_model(&comp, &a, &json(true), &track), compose_model(&comp, &b, &json(true), &track));
+            let bare = compose_model(&comp, &a, &json(false), &track);
+            model_save(&format!("glass-over-blur-{x}"), &ra);
+            let px = |img: &[u8], i: usize, c: usize| img[i * 4 + c] as i32;
+            let hidden = (0..1280 * 720).filter(|&i| (0..3).any(|c| (px(&ra, i, c) - px(&rb, i, c)).abs() > 24)).count();
+            // Le serti net du curseur : des sauts francs, entre voisins, de ce qu'il change.
+            let d = |i: usize, c: usize| px(&ra, i, c) - px(&bare, i, c);
+            let sharp = (0..1280 * 720 - 1)
+                .filter(|&i| i % 1280 < 1279 && (0..3).any(|c| (d(i, c) - d(i + 1, c)).abs() > 60))
+                .count();
+            println!("cristal en x = {x} : {sharp} bords francs, {hidden} px qui suivent les rayures cachées");
+            if sharp < 50 {
+                failures.push(format!("x = {x} : {sharp} bords francs, le curseur n'est pas net par-dessus le flou"));
+            }
+            if hidden > 0 {
+                failures.push(format!("x = {x} : {hidden} px montrent les rayures cachées sous le flou"));
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// Les thèmes cerclés gardent le trait de leur dessin (`design/cursors/<thème>`) : sur la
+    /// fleche comme sur la main, le modele est pour une bonne part de la couleur du trait (le
+    /// plateau, le jonc, les rainures entre les doigts), autour de la couleur du corps, et montre
+    /// ce qu'il porte devant : l'etoile jaune de Star Sprout, le calque et les tirets jaunes de la
+    /// fleche de Pop Coral, les tirets corail de sa main. Les parts comptent les pixels francs :
+    /// ceux que l'antialiasing mêle aux bords n'entrent dans aucune.
+    #[test]
+    fn the_rimmed_models_keep_the_outline_of_their_art() {
+        type Rgb = [i32; 3];
+        let navy = |[r, g, b]: Rgb| b > r + 20 && r < 110 && g < 130;
+        let black = |[r, g, b]: Rgb| r.max(g).max(b) < 70;
+        let mint = |[r, g, b]: Rgb| g > 200 && g > r + 15 && b > 150;
+        let ivory = |[r, g, b]: Rgb| r > 200 && g > 190 && b > 160 && r - b < 70;
+        let coral = |[r, g, b]: Rgb| r > 200 && g < 150 && b < 140;
+        let yellow = |[r, g, b]: Rgb| r > 200 && g > 150 && b < 120;
+        // (thème, état, trait, corps, ornement, parts minimales du trait, du corps, de l'ornement)
+        let cases: [(&str, &str, &dyn Fn(Rgb) -> bool, &dyn Fn(Rgb) -> bool, &dyn Fn(Rgb) -> bool, [f32; 3]); 6] = [
+            ("studio-ink", "arrow", &black, &ivory, &|_| false, [0.3, 0.15, 0.0]),
+            ("studio-ink", "pointer", &black, &ivory, &|_| false, [0.2, 0.3, 0.0]),
+            ("pop-coral", "arrow", &navy, &coral, &yellow, [0.2, 0.2, 0.05]),
+            ("pop-coral", "pointer", &navy, &yellow, &coral, [0.18, 0.3, 0.02]),
+            ("star-sprout", "arrow", &navy, &mint, &yellow, [0.25, 0.2, 0.03]),
+            ("star-sprout", "pointer", &navy, &ivory, &yellow, [0.25, 0.2, 0.03]),
+        ];
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 1280, 720).expect("Compositor::new_sized");
+        let (y, uv) = model_screen_planes(false);
+        let blue = FakeFrame::from_planes(&gpu, 640, 360, &y, &uv);
+        let (y, uv) = model_screen_planes(true);
+        let orange = FakeFrame::from_planes(&gpu, 640, 360, &y, &uv);
+        let extruded = model_scene_json("null", Some(true), "default", true, 5.0);
+        let hidden = model_scene_json("null", Some(true), "default", false, 5.0);
+        let bare = compose_model(&comp, &blue, &hidden, &model_track("arrow", false, 0.5));
+        let mut failures = Vec::new();
+        for (theme, state, rim, body, extra, [min_rim, min_body, min_extra]) in cases {
+            let still = model_track(state, false, 0.5);
+            let json = extruded
+                .replace(&format!(r#"/{state}.png","#), &format!(r#"/{state}.png","sculpt":"{theme}/{state}","#));
+            let (hover, hover_b) = (compose_model(&comp, &blue, &json, &still), compose_model(&comp, &orange, &json, &still));
+            let mask = model_opaque(&hover, &hover_b, &bare);
+            let (mut total, mut counts) = (0usize, [0usize; 3]);
+            for (i, _) in mask.iter().enumerate().filter(|(_, m)| **m) {
+                let p = [hover[i * 4] as i32, hover[i * 4 + 1] as i32, hover[i * 4 + 2] as i32];
+                total += 1;
+                for (k, class) in [rim, body, extra].iter().enumerate() {
+                    counts[k] += usize::from(class(p));
+                }
+            }
+            let [rim_share, body_share, extra_share] = counts.map(|k| k as f32 / total.max(1) as f32);
+            println!("{theme}/{state} : {total} px, trait {rim_share:.3}, corps {body_share:.3}, ornement {extra_share:.3}");
+            if !(min_rim..0.7).contains(&rim_share) {
+                failures.push(format!("{theme}/{state}: {rim_share:.3} de trait, il a disparu ou tout mange"));
+            }
+            if body_share < min_body {
+                failures.push(format!("{theme}/{state}: {body_share:.3} de couleur du corps"));
+            }
+            if extra_share < min_extra {
+                failures.push(format!("{theme}/{state}: {extra_share:.3} d'ornement"));
             }
         }
         assert!(failures.is_empty(), "{failures:#?}");

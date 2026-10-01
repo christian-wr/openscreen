@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "ズームを追加 (Z)",
-		"suggestZooms": "カーソル位置からズームを提案",
-		"autoZoomOn": "自動ズーム提案がオン — クリックすると提案されたズームを削除します",
-		"autoZoomOff": "自動ズーム提案がオフ — クリックするとカーソル位置からズームを提案します",
-		"autoFocusAllOn": "すべてのズームでオートフォーカスがオン — クリックするとすべて手動に切り替わります",
-		"autoFocusAllOff": "すべてのズームでオートフォーカスをオンにする（カメラがカーソルに追従）",
-		"addTrim": "トリムを追加 (T)",
-		"addAnnotation": "注釈を追加 (A)",
-		"addSpeed": "再生速度を追加 (S)",
-		"addCameraFullscreen": "フルスクリーンカメラを追加 (C)"
+		"addZoom": "現在の再生位置にズームを追加",
+		"autoFocusAll": "すべてのズームでオートフォーカス",
+		"autoFocusAllTip": "すべてのズームがカーソルを追従します。オフ：ズームごとにフォーカスを選べます。",
+		"clearTimeline": "すべてのズーム、トリム、再生速度、注釈、フルスクリーンカメラを削除します。クリップ、音声、字幕は残ります。",
+		"addTrim": "トリムを追加：現在の再生位置で動画の一部を削除します",
+		"addAnnotation": "現在の再生位置にテキスト、矢印、画像、ぼかしを追加",
+		"addSpeed": "現在の再生位置に再生速度の変更を追加",
+		"addCameraFullscreen": "フルスクリーンカメラを追加：現在の再生位置でカメラを全画面表示します"
 	},
 	"hints": {
 		"pressZoom": "Zキーを押してズームを追加",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "移動",
+		"panTip": "タイムラインをスクロール",
 		"zoom": "ズーム",
+		"zoomTip": "タイムラインを拡大縮小",
 		"trim": "トリム",
 		"speed": "再生速度",
 		"zoomItem": "ズーム {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "クリップを配置",
 		"arrangeClipsHint": "下のクリップをドラッグして並べ替えるか、新しいクリップをドロップします",
 		"newAnnotation": "注釈",
-		"dragToReorderHint": "ドラッグして並べ替え・ダブルクリックでイン/アウトポイントを編集",
+		"dragToReorderHint": "ドラッグで並べ替え。ダブルクリックで開始と終了を変更。",
 		"editInOutPoints": "イン/アウトポイントを編集",
 		"deleteClip": "クリップを削除",
 		"dropToAdd": "ドロップしてタイムラインに追加",

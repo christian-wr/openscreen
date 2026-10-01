@@ -462,6 +462,17 @@ function createShimBridgeClient() {
 		if (taken) throw presetError("NAME_TAKEN", `A style preset named "${name}" already exists.`);
 	};
 
+	const shimMcp = { enabled: false, port: 47821, allowEdits: false, token: "shim-token" };
+	const shimMcpStatus = () => ({
+		enabled: shimMcp.enabled,
+		port: shimMcp.port,
+		allowEdits: shimMcp.allowEdits,
+		running: false,
+		url: `http://127.0.0.1:${shimMcp.port}/mcp`,
+		token: shimMcp.enabled ? shimMcp.token : null,
+		error: shimMcp.enabled ? "The MCP server only runs in the desktop app." : null,
+	});
+
 	const summarize = (s: ShimSession) => ({
 		id: s.id,
 		projectId: s.projectId,
@@ -591,6 +602,25 @@ function createShimBridgeClient() {
 				if (activeConfig?.provider === providerId) activeConfig = null;
 				saveLlmState();
 				return Promise.resolve({ success: true, snapshot: buildLlmSnapshot() });
+			},
+			// No MCP server runs in a browser: the settings keep their state so the
+			// section can be exercised, and say plainly that nothing is listening.
+			mcpGetStatus: () => Promise.resolve(shimMcpStatus()),
+			mcpSetEnabled: (enabled: boolean) => {
+				shimMcp.enabled = enabled;
+				return Promise.resolve(shimMcpStatus());
+			},
+			mcpSetPort: (port: number) => {
+				shimMcp.port = port;
+				return Promise.resolve(shimMcpStatus());
+			},
+			mcpSetAllowEdits: (allowEdits: boolean) => {
+				shimMcp.allowEdits = allowEdits;
+				return Promise.resolve(shimMcpStatus());
+			},
+			mcpRegenerateToken: () => {
+				shimMcp.token = `shim-token-${Date.now()}`;
+				return Promise.resolve(shimMcpStatus());
 			},
 			llmListProviderModels: (providerId: string) =>
 				Promise.resolve({

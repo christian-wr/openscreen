@@ -18,9 +18,12 @@ import {
 } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from "react";
 import logoMark from "@/assets/openscreen-mark.png";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n, useScopedT } from "@/contexts/I18nContext";
+import { useShortcuts } from "@/contexts/ShortcutsContext";
 import { useTheme } from "@/hooks/useTheme";
 import { getAvailableLocales, getLocaleName } from "@/i18n/loader";
+import { formatFirstFixedBinding } from "@/lib/shortcuts";
 import { StylePresetsMenu } from "../StylePresetsMenu";
 import styles from "./EditorShellV4.module.css";
 
@@ -72,6 +75,7 @@ export function EditorTopBar({
 }: EditorTopBarProps) {
 	const t = useScopedT("editor");
 	const tShortcuts = useScopedT("shortcuts");
+	const { isMac } = useShortcuts();
 	const savedLabel = dirty ? t("topbar.unsaved") : t("topbar.saved");
 
 	// ponytail: the left side panel only renders in "edit" mode (see
@@ -85,16 +89,17 @@ export function EditorTopBar({
 			<span className={styles.topbarLead}>
 				{showChatToggle ? (
 					<>
-						<button
-							type="button"
-							className={`${styles.iconBtn}${chatOpen ? ` ${styles.on}` : ""}`}
-							title={t("topbar.toggleChatPanel")}
-							aria-label={t("topbar.toggleChatPanel")}
-							aria-pressed={chatOpen}
-							onClick={actions.toggleChat}
-						>
-							<PanelLeft size={17} />
-						</button>
+						<Tooltip content={t("topbar.toggleChatPanel")}>
+							<button
+								type="button"
+								className={`${styles.iconBtn}${chatOpen ? ` ${styles.on}` : ""}`}
+								aria-label={t("topbar.toggleChatPanel")}
+								aria-pressed={chatOpen}
+								onClick={actions.toggleChat}
+							>
+								<PanelLeft size={17} />
+							</button>
+						</Tooltip>
 						<span className={styles.sep} aria-hidden />
 					</>
 				) : null}
@@ -123,7 +128,6 @@ export function EditorTopBar({
 						type="button"
 						role="tab"
 						aria-selected={mode === m.id}
-						title={t(m.labelKey)}
 						// Feeds the hidden bold copy that reserves the selected width — see
 						// .modeSwitch button::before.
 						data-label={t(m.labelKey)}
@@ -139,31 +143,40 @@ export function EditorTopBar({
 			    rather than in any one pane's header. */}
 			{/* Always mounted, disabled when there is nothing to step to: the bar keeps its width
 			    and the pair reads as the history it is. Same handlers as Ctrl+Z / Ctrl+Shift+Z. */}
-			<button
-				type="button"
-				className={styles.iconBtn}
-				title={tShortcuts("fixedActions.undo")}
-				aria-label={tShortcuts("fixedActions.undo")}
-				onClick={actions.undo}
-				disabled={!canUndo}
+			{/* `aria-disabled`, not `disabled`: a natively disabled button takes no pointer events,
+			    so the tooltip could never open on it. The click does nothing while it is set. */}
+			<Tooltip
+				content={tShortcuts("fixedActions.undo")}
+				shortcut={formatFirstFixedBinding("undo", isMac)}
 			>
-				<Undo2 size={16} />
-			</button>
-			<button
-				type="button"
-				className={styles.iconBtn}
-				title={tShortcuts("fixedActions.redo")}
-				aria-label={tShortcuts("fixedActions.redo")}
-				onClick={actions.redo}
-				disabled={!canRedo}
+				<button
+					type="button"
+					className={styles.iconBtn}
+					aria-label={tShortcuts("fixedActions.undo")}
+					aria-disabled={!canUndo || undefined}
+					onClick={canUndo ? actions.undo : undefined}
+				>
+					<Undo2 size={16} />
+				</button>
+			</Tooltip>
+			<Tooltip
+				content={tShortcuts("fixedActions.redo")}
+				shortcut={formatFirstFixedBinding("redo", isMac)}
 			>
-				<Redo2 size={16} />
-			</button>
+				<button
+					type="button"
+					className={styles.iconBtn}
+					aria-label={tShortcuts("fixedActions.redo")}
+					aria-disabled={!canRedo || undefined}
+					onClick={canRedo ? actions.redo : undefined}
+				>
+					<Redo2 size={16} />
+				</button>
+			</Tooltip>
 			<StylePresetsMenu />
 			<button
 				type="button"
 				className={styles.exportBtn}
-				title={t("topbar.export")}
 				aria-label={t("topbar.export")}
 				onClick={actions.export}
 				disabled={!canExport}
@@ -375,7 +388,6 @@ function AppMenu({ actions }: { actions: TopBarActions }) {
 				aria-haspopup="menu"
 				aria-expanded={open}
 				aria-label="OpenScreen"
-				title="OpenScreen"
 				onClick={() => setOpen((v) => !v)}
 			>
 				{/* Decorative: the wordmark beside it already names the app — and, being the

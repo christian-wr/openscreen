@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "新增縮放 (Z)",
-		"suggestZooms": "根據游標建議縮放",
-		"autoZoomOn": "自動縮放建議已開啟 — 點擊可移除建議的縮放",
-		"autoZoomOff": "自動縮放建議已關閉 — 點擊可根據游標建議縮放",
-		"autoFocusAllOn": "所有縮放的自動對焦已開啟 — 點擊可將全部切換為手動",
-		"autoFocusAllOff": "為所有縮放開啟自動對焦（攝影機跟隨游標）",
-		"addTrim": "新增剪輯 (T)",
-		"addAnnotation": "新增標註 (A)",
-		"addSpeed": "新增速度 (S)",
-		"addCameraFullscreen": "新增全螢幕攝影機 (C)"
+		"addZoom": "在目前時間新增縮放",
+		"autoFocusAll": "所有縮放的自動對焦",
+		"autoFocusAllTip": "所有縮放都跟隨游標。關：每個縮放的對焦由你選擇。",
+		"clearTimeline": "移除所有縮放、剪輯、速度、標註和全螢幕攝影機。片段、音訊和字幕會保留。",
+		"addTrim": "新增剪輯：在目前時間移除一段影片",
+		"addAnnotation": "在目前時間新增文字、箭頭、圖片或模糊",
+		"addSpeed": "在目前時間新增速度變化",
+		"addCameraFullscreen": "新增全螢幕攝影機：在目前時間全螢幕顯示攝影機"
 	},
 	"hints": {
 		"pressZoom": "按 Z 新增縮放",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "平移",
+		"panTip": "捲動時間軸",
 		"zoom": "縮放",
+		"zoomTip": "縮放時間軸",
 		"trim": "剪輯",
 		"speed": "速度",
 		"zoomItem": "縮放 {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "排列片段",
 		"arrangeClipsHint": "拖曳下方片段以重新排序，或拖曳新片段至此",
 		"newAnnotation": "註解",
-		"dragToReorderHint": "拖曳以重新排序 · 按兩下以編輯入點/出點",
+		"dragToReorderHint": "拖曳可重新排序。按兩下可變更起點和終點。",
 		"editInOutPoints": "編輯入點/出點",
 		"deleteClip": "刪除片段",
 		"dropToAdd": "拖放以新增至時間軸",

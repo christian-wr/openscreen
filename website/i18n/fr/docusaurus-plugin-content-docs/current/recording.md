@@ -80,7 +80,7 @@ Vous n'êtes pas obligé de partir du HUD. Dans l'éditeur, choisissez **Enregis
 
 - **Source** : le même sélecteur d'écran ou de fenêtre, dans une fenêtre modale, ou le sélecteur du système d'Apple sous macOS 15.2 et ultérieur. Sous Linux, cette ligne affiche aussi *Le système vous demandera quoi partager*, et c'est la boîte de dialogue du portail qui fait le choix.
 - **Audio système**, **Microphone**, **Caméra** : chacun sur une ligne avec un interrupteur ; le micro et la caméra se déplient en liste de périphériques, et la caméra montre un aperçu en direct pour vous cadrer avant de commencer.
-- **Curseur en surbrillance** : activé, c'est le curseur éditable ; désactivé, le simple curseur du système.
+- **Curseur éditable** : activé, c'est le curseur éditable ; désactivé, le simple curseur du système.
 
 **Démarrer l'enregistrement** ouvre le widget d'enregistrement et ferme la fenêtre de l'éditeur ; annuler vous ramène en mode Édition. C'est aussi là que mène **Nouveau projet → Enregistrement d'écran**.
 

@@ -144,9 +144,45 @@ endif()
 
 FetchContent_MakeAvailable(whisper httplib json)
 
-add_executable(whisper-stt-server src/main.cpp)
+# Character-level DTW (issue #948): whisper.cpp's word-timing pass,
+# whisper_exp_compute_token_level_timestamps_dtw, and the median filter only it
+# used, are replaced by whisper-patches/char-dtw.cpp. The whisper target
+# compiles that copy of whisper.cpp from the build tree, so the fetched source
+# is never modified: a shared FETCHCONTENT_SOURCE_DIR_WHISPER and the Nix build
+# get the same result. Bumping WHISPER_REF fails here, loudly, if the code moved.
+set(OSC_DTW_FRAGMENT "${CMAKE_CURRENT_SOURCE_DIR}/whisper-patches/char-dtw.cpp")
+set(OSC_WHISPER_CPP "${whisper_SOURCE_DIR}/src/whisper.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${OSC_DTW_FRAGMENT}" "${OSC_WHISPER_CPP}")
+file(READ "${OSC_WHISPER_CPP}" osc_src)
+string(REPLACE "\r\n" "\n" osc_src "${osc_src}")
+string(FIND "${osc_src}" "\nstruct median_filter_user_data {" osc_begin)
+string(FIND "${osc_src}" "\nvoid whisper_log_set(" osc_end)
+if(osc_begin GREATER -1 AND osc_end GREATER osc_begin)
+  math(EXPR osc_len "${osc_end} - ${osc_begin}")
+  string(SUBSTRING "${osc_src}" ${osc_begin} ${osc_len} osc_old)
+  string(FIND "${osc_old}" "static void whisper_exp_compute_token_level_timestamps_dtw(" osc_fn)
+endif()
+if(osc_begin EQUAL -1 OR NOT osc_end GREATER osc_begin OR osc_fn EQUAL -1)
+  message(FATAL_ERROR "char-dtw: the DTW pass was not found where expected in ${OSC_WHISPER_CPP}")
+endif()
+string(SUBSTRING "${osc_src}" 0 ${osc_begin} osc_head)
+string(SUBSTRING "${osc_src}" ${osc_end} -1 osc_tail)
+file(READ "${OSC_DTW_FRAGMENT}" osc_fragment)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/whisper-patched/whisper.cpp.tmp"
+  "${osc_head}\n${osc_fragment}${osc_tail}")
+configure_file("${CMAKE_CURRENT_BINARY_DIR}/whisper-patched/whisper.cpp.tmp"
+  "${CMAKE_CURRENT_BINARY_DIR}/whisper-patched/whisper.cpp" COPYONLY)
+get_target_property(osc_whisper_srcs whisper SOURCES)
+list(TRANSFORM osc_whisper_srcs REPLACE "^whisper\\.cpp$" "${CMAKE_CURRENT_BINARY_DIR}/whisper-patched/whisper.cpp")
+if(NOT "${CMAKE_CURRENT_BINARY_DIR}/whisper-patched/whisper.cpp" IN_LIST osc_whisper_srcs)
+  message(FATAL_ERROR "char-dtw: the whisper target does not list whisper.cpp as expected (${osc_whisper_srcs})")
+endif()
+set_property(TARGET whisper PROPERTY SOURCES ${osc_whisper_srcs})
+
+add_executable(whisper-stt-server src/main.cpp src/ctc_aligner.cpp)
 target_link_libraries(whisper-stt-server PRIVATE
   whisper
+  ggml
   httplib::httplib
   nlohmann_json::nlohmann_json
 )

@@ -5,6 +5,7 @@
 #include <Windows.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -103,12 +104,14 @@ public:
 private:
     void append(
         std::vector<BYTE>& queue,
+        bool& starved,
         const BYTE* data,
         DWORD byteCount,
         const AudioInputFormat& sourceFormat,
         double gain,
         AudioDecimatorState& decimator);
-    bool pop(std::vector<BYTE>& queue, std::vector<BYTE>& chunk, size_t byteCount);
+    bool pop(std::vector<BYTE>& queue, bool& starved, std::vector<BYTE>& chunk, size_t byteCount);
+    void resetSources();
     void mixLoop();
 
     AudioInputFormat format_{};
@@ -124,10 +127,23 @@ private:
     std::vector<BYTE> microphoneQueue_;
     AudioDecimatorState systemDecimator_;
     AudioDecimatorState microphoneDecimator_;
+    // Set when pop() runs a source dry, cleared by its next packet (see append).
+    bool systemStarved_ = false;
+    bool microphoneStarved_ = false;
     std::vector<BYTE> gainBuffer_;
     std::thread thread_;
     std::atomic<bool> stopRequested_ = false;
     bool timelineStarted_ = false;
     bool paused_ = false;
+    std::chrono::steady_clock::time_point pausedAt_{};
+    // Set by mixLoop once it has written the cushion up to `pausedAt_`; a resume
+    // waits for it, or it would clear audio that belongs before the pause.
+    bool pauseFlushed_ = true;
+    // mixLoop's clock, shared so a source coming back after running dry can be
+    // placed at real time (see append). Written by mixLoop under `mutex_`.
+    std::chrono::steady_clock::time_point clockStart_{};
+    bool clockAnchored_ = false;
+    // Frames mixLoop has taken from the queues so far, under `mutex_`.
+    uint64_t mixedFrames_ = 0;
     uint64_t emittedFrames_ = 0;
 };

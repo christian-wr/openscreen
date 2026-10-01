@@ -66,6 +66,8 @@ export type NativeMacHelperRecordingStartedEvent = {
 export type NativeMacHelperRecordingStoppedEvent = {
 	event: "recording-stopped";
 	screenPath: string;
+	/** Frames the writer was not ready for or refused. Absent from helpers built before #937. */
+	droppedVideoFrames?: number;
 };
 
 export type NativeMacHelperWarningEvent = {

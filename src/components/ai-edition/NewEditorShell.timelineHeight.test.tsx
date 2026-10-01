@@ -26,6 +26,7 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: () => (key: string) => key,
 }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { EditorDialogsProvider } from "@/contexts/EditorDialogsContext";
 import { AUDIO_ROW_EXPANSION_PX } from "@/lib/ai-edition/document/audioTracks";
 import { createAudioTrack, createEmptyDocument } from "@/lib/ai-edition/schema";
@@ -39,9 +40,11 @@ import {
 
 function renderShell() {
 	return render(
-		<EditorDialogsProvider>
-			<NewEditorShell />
-		</EditorDialogsProvider>,
+		<TooltipProvider>
+			<EditorDialogsProvider>
+				<NewEditorShell />
+			</EditorDialogsProvider>
+		</TooltipProvider>,
 	);
 }
 

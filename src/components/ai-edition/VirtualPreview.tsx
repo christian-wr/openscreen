@@ -61,6 +61,123 @@ export interface VideoSource {
 	label: string;
 }
 
+/** Drift tolerated before an audio element that is NOT free-running gets placed
+ *  exactly. Nothing sustains a parked element's position, and placing it costs
+ *  nothing because it is not playing. */
+const AUDIO_PARKED_LEASH_SEC = 0.025;
+
+/** How a PLAYING audio element that rides the video's clock (the recording's own sound) is held
+ *  to the picture: by its `playbackRate`, not by seeks.
+ *
+ *  It used to be held by seeks, at `AUDIO_PARKED_LEASH_SEC`, on the grounds that the element
+ *  syncs to the `<video>`'s own authoritative clock and so could be kept that tight. Measured
+ *  in the shipped editor on a Snapdragon X Elite, during ordinary playback, it could not:
+ *  157 `seeking` events in 20 s against a single `seeked`, and 87 `currentTime` writes in
+ *  15 s — six a second, each stepping forward by ~0.1 s, which is exactly the time that had
+ *  passed. The element was being sent to where it was already heading, and every write
+ *  flushed its pipeline: the stutter.
+ *
+ *  The tight leash assumed the rAF tick runs close behind the video clock. It does not when
+ *  the renderer main thread is loaded (measured ~44 % blocked during playback): ticks land
+ *  100+ ms apart, the element has free-run past 25 ms by then, and gets yanked back. The
+ *  yank stalls it, so it falls behind again — which is why the drift sat at a steady ~100 ms
+ *  instead of decaying.
+ *
+ *  Widening the leash ends the storm and keeps the offset instead: a seek lands the audio
+ *  BEHIND the picture by its own latency (that ~100 ms), and both elements then run at the
+ *  same rate, so nothing ever closes it. Audio is noticed from about 45 ms when it leads and
+ *  about 125 ms when it lags (ITU-R BT.1359), so an offset that stays is a defect, not a
+ *  tolerance.
+ *
+ *  So the element is nudged. Once it drifts more than `AUDIO_NUDGE_START_SEC` its rate is
+ *  trimmed by `AUDIO_NUDGE_FRACTION` toward the picture, and it goes back to the video's own
+ *  rate within `AUDIO_NUDGE_STOP_SEC`; the gap between the two keeps an element at the edge
+ *  from flipping its rate every frame. A rate change flushes nothing, and with
+ *  `preservesPitch` (the default) it does not move the pitch. It closes ~50 ms a second, so a
+ *  seek's 100 ms is gone in ~2 s and a free-running clock skew never builds up. */
+export const AUDIO_NUDGE_START_SEC = 0.02;
+export const AUDIO_NUDGE_STOP_SEC = 0.005;
+export const AUDIO_NUDGE_FRACTION = 0.05;
+
+/** Past this a nudge would take seconds and something else is wrong (a stalled or starved
+ *  element): only then is a seek worth its flush. Kept above the ~100 ms a seek itself
+ *  leaves, or the seek would be the thing that triggers the next one. */
+export const AUDIO_SEEK_LEASH_SEC = 0.3;
+
+/** Drift tolerated on an imported track (issue #350) while it plays. It syncs to
+ *  `virtualTimeSec`, which is DERIVED from the video clock each frame and so is noisier than
+ *  the recording's own audio, and it carries BGM or voiceover rather than lip sync, so it is
+ *  left to free-run inside a wide leash. */
+export const IMPORTED_AUDIO_PLAYING_LEASH_SEC = 0.3;
+
+/** What the rAF tick should do to one of the recording's audio elements this frame. */
+export interface AudioSteer {
+	/** Write `currentTime`. */
+	seek: boolean;
+	/** `playbackRate` as a multiple of the video's own: 1 on target, nudged while catching up. */
+	rateFactor: number;
+}
+
+/** Decide how to hold an audio element that rides the video's clock to the picture.
+ *
+ *  `driftSec` is the element's position minus where the picture is: positive means the audio
+ *  is AHEAD. `freeRunning` means it is playing and is meant to be. `seeking` means a write is
+ *  already in flight: another one restarts that seek instead of finishing it, so the element
+ *  never arrives and the drift that triggered it never closes (issue #395, which the video
+ *  path took and the audio path had not). `jumped` means the picture was MOVED, on purpose,
+ *  since this element was last placed: a scrub, a skipped cut, a clip junction. That is
+ *  indistinguishable from clock drift by size, since a cut can be 50 ms, so the caller says
+ *  so, and the audio follows whatever the drift once it is not seeking. `nudged` is whether
+ *  its rate is off the video's now, which is what makes the stop threshold apply. */
+export function steerAudio(
+	driftSec: number,
+	freeRunning: boolean,
+	seeking: boolean,
+	jumped: boolean,
+	nudged: boolean,
+): AudioSteer {
+	if (seeking) {
+		return { seek: false, rateFactor: 1 };
+	}
+	if (jumped) {
+		return { seek: true, rateFactor: 1 };
+	}
+	if (!freeRunning) {
+		// Nothing sustains a parked element's position, and placing it costs nothing.
+		return { seek: Math.abs(driftSec) > AUDIO_PARKED_LEASH_SEC, rateFactor: 1 };
+	}
+	const off = Math.abs(driftSec);
+	if (off > AUDIO_SEEK_LEASH_SEC) {
+		return { seek: true, rateFactor: 1 };
+	}
+	if (off > (nudged ? AUDIO_NUDGE_STOP_SEC : AUDIO_NUDGE_START_SEC)) {
+		return { seek: false, rateFactor: 1 - Math.sign(driftSec) * AUDIO_NUDGE_FRACTION };
+	}
+	return { seek: false, rateFactor: 1 };
+}
+
+/** Whether an imported track's drift warrants a `currentTime` write.
+ *
+ *  `freeRunning` means the element is playing and is supposed to be: it holds its own
+ *  position, so only a real discontinuity — a scrub, a trim jump, a first play — is worth
+ *  the cost of a seek. See issue #395 and `VirtualPreview.seekStorm.test.tsx` for what
+ *  happens when writes are issued per frame instead.
+ *
+ *  `seeking` is the other half of that lesson: a write onto an element that is still
+ *  seeking restarts the seek rather than finishing it, so the element never arrives and
+ *  the drift that triggered the write never closes. */
+export function shouldResyncAudio(
+	driftSec: number,
+	freeRunning: boolean,
+	playingLeashSec: number,
+	seeking = false,
+): boolean {
+	if (seeking) {
+		return false;
+	}
+	return Math.abs(driftSec) > (freeRunning ? playingLeashSec : AUDIO_PARKED_LEASH_SEC);
+}
+
 /**
  * Where an audio element should sit to track the video, and whether it should be playing.
  *
@@ -192,12 +309,54 @@ export interface PreviewAudioGraph {
 	voice: GainNode;
 	/** Listens to the voice — the recording and every voiceover — to duck the music. */
 	analyser: AnalyserNode;
+	/** Between `gain` and the speakers: `headroom` scales the mix into `ceiling`'s input range,
+	 *  and `ceiling` keeps it under full scale (see `previewCeilingCurve`). */
+	headroom: GainNode;
+	ceiling: WaveShaperNode;
+}
+
+/** The export limiter's ceiling, `LIMITER_CEILING` in audio.rs: −1.5 dBFS. */
+export const PREVIEW_AUDIO_CEILING = 0.841_395_1;
+/** Loudest mix the ceiling stage reads, as a multiple of full scale: +24 dB, a full-scale file
+ *  under the largest loudness boost and the largest output trim. Louder lands on the curve's
+ *  flat end, which the curve has reached long before. */
+export const PREVIEW_AUDIO_HEADROOM = 16;
+
+/**
+ * The curve of the WaveShaperNode in front of the preview's speakers. Without it, the loudness
+ * boost (up to +12 dB) and the output trim push a loud take's peaks past full scale, and the
+ * audio device clips them: the preview saturates where the export, whose limiter holds them
+ * at −1.5 dBFS, does not (measured on a real take: a −7.1 dBFS peak raised 8.9 dB, 92 samples
+ * over).
+ *
+ * It is the identity up to the export's ceiling, then a tanh knee that leaves the identity
+ * with the same slope and rises towards full scale without reaching it. A curve, not a
+ * limiter, because a curve has no state (see `applyPreviewAudioSettings`): everything under
+ * the ceiling plays exactly as the export writes it, and only the peaks the export limits
+ * are shaped, here by their own level rather than by a gain riding over 5 ms. A WaveShaper
+ * reads its input on [−1, 1], so `headroom` divides the mix by `PREVIEW_AUDIO_HEADROOM` on
+ * the way in and the curve's values are real levels. The point count is odd so that silence
+ * is a point of its own.
+ */
+export function previewCeilingCurve(points = 8193): Float32Array<ArrayBuffer> {
+	const knee = PREVIEW_AUDIO_CEILING;
+	const curve = new Float32Array(points);
+	for (let index = 0; index < points; index += 1) {
+		const level = ((index / (points - 1)) * 2 - 1) * PREVIEW_AUDIO_HEADROOM;
+		const magnitude = Math.abs(level);
+		curve[index] =
+			Math.sign(level) *
+			(magnitude <= knee
+				? magnitude
+				: knee + (1 - knee) * Math.tanh((magnitude - knee) / (1 - knee)));
+	}
+	return curve;
 }
 
 /**
- * The preview's audio processing is static gains only, and that is deliberate: each is the
- * same `10 ** (dB / 20)` scalar the export applies natively, so what the editor plays is
- * what the export writes.
+ * The preview's gains are static, and that is deliberate: each is the same
+ * `10 ** (dB / 20)` scalar the export applies natively, so what the editor plays is what
+ * the export writes.
  *
  * - `gainDb` is the output trim, `finish_audio`'s gain.
  * - `voiceGainDb` is the loudness normalisation of the recording being played. The
@@ -207,7 +366,8 @@ export interface PreviewAudioGraph {
  * Nothing with state belongs here. The export runs on the assembled timeline (trimmed,
  * speed-adjusted, concatenated); the preview runs on the untouched source file, seeked. A
  * filter or a compressor would see a different signal on each side and drift. That is why
- * the export's peak limiter, which only acts above −1.5 dBFS, has no counterpart here.
+ * the export's peak limiter has a stateless stand-in here, `previewCeilingCurve`, rather
+ * than a compressor.
  */
 export function applyPreviewAudioSettings(
 	graph: PreviewAudioGraph | null,
@@ -333,6 +493,9 @@ export function VirtualPreview({
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 	const primaryAudioRef = useRef<HTMLAudioElement | null>(null);
 	const supplementalAudioRef = useRef<HTMLAudioElement | null>(null);
+	// The audio elements that have not yet followed the last explicit move of the picture (see
+	// `applySourceTime` and `steerAudio`).
+	const audioJumpedRef = useRef(new WeakSet<HTMLAudioElement>());
 	const [primaryAudioEl, setPrimaryAudioEl] = useState<HTMLAudioElement | null>(null);
 	const [supplementalAudioEl, setSupplementalAudioEl] = useState<HTMLAudioElement | null>(null);
 	const [supplementalAudioSrc, setSupplementalAudioSrc] = useState<string | null>(null);
@@ -501,15 +664,21 @@ export function VirtualPreview({
 					audioContextRef.current = context;
 					audioSourceNodesRef.current = new WeakMap();
 				}
+				const ceiling = context.createWaveShaper();
+				ceiling.curve = previewCeilingCurve();
+				ceiling.connect(context.destination);
+				const headroom = context.createGain();
+				headroom.gain.value = 1 / PREVIEW_AUDIO_HEADROOM;
+				headroom.connect(ceiling);
 				const gain = context.createGain();
-				gain.connect(context.destination);
+				gain.connect(headroom);
 				const voice = context.createGain();
 				voice.connect(gain);
 				// 1024 samples: about 21 ms of voice per reading, one reading per frame.
 				const analyser = context.createAnalyser();
 				analyser.fftSize = 1024;
 				voice.connect(analyser);
-				return { context, gain, voice, analyser };
+				return { context, gain, voice, analyser, headroom, ceiling };
 			} catch {
 				return null;
 			}
@@ -579,6 +748,8 @@ export function VirtualPreview({
 			graph.voice.disconnect();
 			graph.analyser.disconnect();
 			graph.gain.disconnect();
+			graph.headroom.disconnect();
+			graph.ceiling.disconnect();
 		};
 	}, [
 		primaryAudioEl,
@@ -762,10 +933,23 @@ export function VirtualPreview({
 			for (const audio of [primaryAudioRef.current, supplementalAudioRef.current]) {
 				if (!audio) continue;
 				const target = resolveAudioTrackPlayback(v.currentTime, audio.duration);
-				if (audio.playbackRate !== v.playbackRate) audio.playbackRate = v.playbackRate;
-				if (Math.abs(audio.currentTime - target.targetTimeSec) > 0.025) {
+				// A paused video is not a clock to free-run against: the audio is about to be
+				// paused with it, and is placed exactly where the picture stopped.
+				const steer = steerAudio(
+					audio.currentTime - target.targetTimeSec,
+					!v.paused && !audio.paused && target.shouldPlay,
+					audio.seeking,
+					audioJumpedRef.current.has(audio),
+					audio.playbackRate !== v.playbackRate,
+				);
+				// Capped where the browser stops accepting it (it throws above 16, and that
+				// would end this frame): a video already at the cap has nothing left to nudge.
+				const rate = Math.min(v.playbackRate * steer.rateFactor, MAX_NATIVE_PLAYBACK_RATE);
+				if (audio.playbackRate !== rate) audio.playbackRate = rate;
+				if (steer.seek) {
 					try {
 						audio.currentTime = target.targetTimeSec;
+						audioJumpedRef.current.delete(audio);
 					} catch {
 						// media metadata not ready yet
 					}
@@ -899,17 +1083,20 @@ export function VirtualPreview({
 				} else {
 					el.volume = Math.min(1, audioGainScalar(trackGainDb) * globalGain * fade);
 				}
-				// Only re-seek on a real discontinuity (a scrub, a trim jump, a first
-				// play), NOT on the sub-frame drift of normal playback. The primary audio
-				// can afford a 25 ms leash because it syncs to the <video>'s own
-				// authoritative clock; an imported track syncs to `virtualTimeSec`, which is
-				// DERIVED from that clock each frame and so is slightly noisy — at a 25 ms
-				// leash it re-seeks most frames, and each seek briefly stalls the element:
-				// the jitter. A started element already plays at the right rate from the
-				// right offset, so it free-runs in sync; this wide leash just catches the
-				// jumps. BGM/voiceover tolerates it; frame-tight sync is the video's job.
-				const leashSec = !el.paused && trackTarget.shouldPlay ? 0.3 : 0.025;
-				if (Math.abs(el.currentTime - trackTarget.targetTimeSec) > leashSec) {
+				// Only re-seek on a real discontinuity (a scrub, a trim jump, a first play),
+				// NOT on the sub-frame drift of normal playback: at a tight leash this
+				// re-seeks most frames, and each seek briefly stalls the element — the
+				// jitter. A started element already plays at the right rate from the right
+				// offset, so it free-runs in sync; the wide leash just catches the jumps.
+				// BGM/voiceover tolerates it; frame-tight sync is the video's job.
+				if (
+					shouldResyncAudio(
+						el.currentTime - trackTarget.targetTimeSec,
+						!el.paused && trackTarget.shouldPlay,
+						IMPORTED_AUDIO_PLAYING_LEASH_SEC,
+						el.seeking,
+					)
+				) {
 					try {
 						el.currentTime = trackTarget.targetTimeSec;
 					} catch {
@@ -1131,7 +1318,16 @@ export function VirtualPreview({
 				// Clamp to the browser's 16× playbackRate ceiling; >16× is rendered at
 				// its true speed only on the offline export path, not the live preview.
 				const rate = Math.min(activeRegion?.speed ?? 1, MAX_NATIVE_PLAYBACK_RATE);
-				if (v.playbackRate !== rate) v.playbackRate = rate;
+				if (v.playbackRate !== rate) {
+					v.playbackRate = rate;
+					// The recording's audio rides this clock, so it takes the new rate in the same
+					// breath. Left to the next tick it plays one whole frame gap at the old one,
+					// 150 ms under load: the audio that far behind entering a 2x region, and
+					// that far ahead leaving it.
+					for (const audio of [primaryAudioRef.current, supplementalAudioRef.current]) {
+						if (audio) audio.playbackRate = rate;
+					}
+				}
 			}
 		},
 		[onTimeChange],
@@ -1188,6 +1384,13 @@ export function VirtualPreview({
 		// have its flag consumed by a frame on which no seek happened.
 		isProgrammaticSeekRef.current = true;
 		video.currentTime = sourceTimeSec;
+		// The audio elements keep their own position, so a scrub, a skipped cut or a clip
+		// junction moves the picture out from under them. The rAF tick cannot tell that from
+		// clock drift by its size (a cut can be 50 ms), so it is told: each element follows
+		// once it is not seeking, whatever the drift.
+		for (const audio of [primaryAudioRef.current, supplementalAudioRef.current]) {
+			if (audio) audioJumpedRef.current.add(audio);
+		}
 	}, []);
 
 	const seekToVirtualTime = useCallback(

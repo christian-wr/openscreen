@@ -2,6 +2,7 @@ import {
 	AudioLines,
 	Clock,
 	Crosshair,
+	Eraser,
 	Loader2,
 	Maximize2,
 	MessageSquare,
@@ -542,7 +543,7 @@ const AudioLanePill = memo(function AudioLanePill({
 					e.nativeEvent.stopPropagation();
 					onSelect(track.id);
 				}}
-				title={`${label} — ${slipHint}`}
+				title={`${label}\n${slipHint}`}
 			>
 				<span
 					className={styles.lanePillHandle}
@@ -1526,10 +1527,27 @@ export function V4Timeline({
 		[clips, tl],
 	);
 
-	const tools: Array<{ id: ToolId; label: string; icon: React.ReactNode }> = [
-		{ id: "cut", label: t("buttons.addTrim"), icon: <SplitSquareHorizontal size={16} /> },
-		{ id: "comment", label: t("buttons.addAnnotation"), icon: <MessageSquare size={16} /> },
-		{ id: "speed", label: t("buttons.addSpeed"), icon: <Clock size={16} /> },
+	// `shortcut` is the user's live binding, shown as the tooltip's chip. The strings carry no key:
+	// these actions can be remapped, and a key written into a translation would then lie.
+	const tools: Array<{ id: ToolId; label: string; shortcut: string; icon: React.ReactNode }> = [
+		{
+			id: "cut",
+			label: t("buttons.addTrim"),
+			shortcut: formatBinding(shortcuts.addTrim, isMac),
+			icon: <SplitSquareHorizontal size={16} />,
+		},
+		{
+			id: "comment",
+			label: t("buttons.addAnnotation"),
+			shortcut: formatBinding(shortcuts.addAnnotation, isMac),
+			icon: <MessageSquare size={16} />,
+		},
+		{
+			id: "speed",
+			label: t("buttons.addSpeed"),
+			shortcut: formatBinding(shortcuts.addSpeed, isMac),
+			icon: <Clock size={16} />,
+		},
 	];
 
 	// Auto-enhance option 1 — the deterministic cursor-telemetry auto-zoom
@@ -1682,7 +1700,9 @@ export function V4Timeline({
 							}
 						: undefined
 				}
-				title={p.label}
+				// The name on hover only where the pill cannot show it: a pill that draws its own
+				// label would repeat it.
+				title={seg.showContent && roomForLabel ? undefined : p.label}
 			>
 				{seg.interactive ? (
 					<span
@@ -1808,7 +1828,12 @@ export function V4Timeline({
 											type="button"
 											className={styles.tlToolBtn}
 											aria-label={t("toolbar.autoEnhance")}
-											disabled={autoBusy}
+											// `aria-disabled`, not `disabled`, so the tooltip still opens while a pass runs; the
+											// click must not open the menu meanwhile (Radix skips a prevented click).
+											aria-disabled={autoBusy || undefined}
+											onClick={(e) => {
+												if (autoBusy) e.preventDefault();
+											}}
 										>
 											{autoBusy ? (
 												<Loader2 className="animate-spin" size={16} />
@@ -1869,7 +1894,7 @@ export function V4Timeline({
 							<span className={styles.tlToolSep} aria-hidden />
 							{tools.map((tool) => (
 								<Fragment key={tool.id}>
-									<Tooltip content={tool.label}>
+									<Tooltip content={tool.label} shortcut={tool.shortcut}>
 										<button
 											type="button"
 											className={styles.tlToolBtn}
@@ -1959,7 +1984,10 @@ export function V4Timeline({
 									) : null}
 								</Fragment>
 							))}
-							<Tooltip content={t("buttons.addZoom")}>
+							<Tooltip
+								content={t("buttons.addZoom")}
+								shortcut={formatBinding(shortcuts.addZoom, isMac)}
+							>
 								<button
 									type="button"
 									className={styles.tlToolBtn}
@@ -1969,35 +1997,53 @@ export function V4Timeline({
 									<ZoomIn size={16} />
 								</button>
 							</Tooltip>
-							<Tooltip
-								content={t(
-									settings.autoFocusAll ? "buttons.autoFocusAllOn" : "buttons.autoFocusAllOff",
-								)}
-							>
+							{/* One name and one tip for both states: `aria-pressed` carries which one it is. */}
+							<Tooltip content={t("buttons.autoFocusAllTip")}>
 								<button
 									type="button"
 									className={styles.tlToolBtn}
 									aria-pressed={settings.autoFocusAll}
-									aria-label={t(
-										settings.autoFocusAll ? "buttons.autoFocusAllOn" : "buttons.autoFocusAllOff",
-									)}
+									aria-label={t("buttons.autoFocusAll")}
 									onClick={() => void setSettings({ autoFocusAll: !settings.autoFocusAll })}
 								>
 									<Crosshair size={16} />
 								</button>
 							</Tooltip>
-							<Tooltip content={t("buttons.addCameraFullscreen")}>
-								<button
-									type="button"
-									className={styles.tlToolBtn}
-									aria-label={t("buttons.addCameraFullscreen")}
-									disabled={!hasAnyCamera}
-									style={!hasAnyCamera ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
-									onClick={() => void tl.addCameraFullscreen(newRegionDurationSec())}
+							{/* Absent, not greyed out, in a project with no camera: nothing to show full screen. */}
+							{hasAnyCamera ? (
+								<Tooltip
+									content={t("buttons.addCameraFullscreen")}
+									shortcut={formatBinding(shortcuts.addCameraFullscreen, isMac)}
 								>
-									<Maximize2 size={16} />
-								</button>
-							</Tooltip>
+									<button
+										type="button"
+										className={styles.tlToolBtn}
+										aria-label={t("buttons.addCameraFullscreen")}
+										onClick={() => void tl.addCameraFullscreen(newRegionDurationSec())}
+									>
+										<Maximize2 size={16} />
+									</button>
+								</Tooltip>
+							) : null}
+							{/* Last, behind a divider: every button before it adds a region, this one
+							    clears them. Absent with its divider, not greyed out, when there is
+							    nothing to clear. One write in the store, so one Ctrl+Z restores every
+							    region. */}
+							{tl.hasEditRegions ? (
+								<>
+									<span className={styles.tlToolSep} aria-hidden />
+									<Tooltip content={t("buttons.clearTimeline")}>
+										<button
+											type="button"
+											className={styles.tlToolBtn}
+											aria-label={t("buttons.clearTimeline")}
+											onClick={() => void tl.clearTimeline()}
+										>
+											<Eraser size={16} />
+										</button>
+									</Tooltip>
+								</>
+							) : null}
 						</div>
 					</TooltipProvider>
 				) : (
@@ -2024,12 +2070,15 @@ export function V4Timeline({
 				)}
 				{showLanes ? (
 					<>
-						<TransportBar
-							playing={playing}
-							overrideTimeSec={scrubbingTimeSec}
-							clips={clips}
-							onTogglePlay={onTogglePlay}
-						/>
+						{/* Its own provider, like the tool strip above: TransportBar has a tooltip too. */}
+						<TooltipProvider>
+							<TransportBar
+								playing={playing}
+								overrideTimeSec={scrubbingTimeSec}
+								clips={clips}
+								onTogglePlay={onTogglePlay}
+							/>
+						</TooltipProvider>
 						<div className={styles.tlHints}>
 							<span className={styles.tlHint}>
 								<span className={styles.tlKbd}>Shift+Scroll</span> {t("labels.pan")}
@@ -2157,7 +2206,9 @@ export function V4Timeline({
 													onStartDrag={startAudioDrag}
 													onSelect={tl.selectAudioTrack}
 													label={track.label || asset?.label || ts("audioTrack.defaultLabel")}
-													slipHint={ts("audioTrack.slipHint")}
+													slipHint={ts("audioTrack.slipHint", {
+														modifier: isMac ? "Option" : "Alt",
+													})}
 													slipArmed={slipArmed}
 													outputGain={audioGainScalar(settings.audioGainDb)}
 													ghost={((g) =>
@@ -2361,7 +2412,7 @@ export function V4Timeline({
 						className={styles.tlNavWindow}
 						// Whole timeline in view: the thumb goes quiet (see .tlNavWindow[data-full]).
 						data-full={navSpan >= 0.999 || undefined}
-						title={t("labels.pan")}
+						title={t("labels.panTip")}
 						style={{
 							left: `${(nav.start * 100).toFixed(2)}%`,
 							width: `${((nav.end - nav.start) * 100).toFixed(2)}%`,
@@ -2373,13 +2424,13 @@ export function V4Timeline({
 						<span
 							className={styles.tlNavGrip}
 							data-edge="start"
-							title={t("labels.zoom")}
+							title={t("labels.zoomTip")}
 							onPointerDown={(e) => startNavDrag("left", e)}
 						/>
 						<span
 							className={styles.tlNavGrip}
 							data-edge="end"
-							title={t("labels.zoom")}
+							title={t("labels.zoomTip")}
 							onPointerDown={(e) => startNavDrag("right", e)}
 						/>
 					</div>

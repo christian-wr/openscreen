@@ -3,8 +3,9 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/contexts/I18nContext";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
+import { type RegionKind, readSpeedRegions } from "../document/timeline";
 import type { AxcutDocument } from "../schema";
-import { axcutSchemaVersion } from "../schema";
+import { axcutSchemaVersion, parseDocumentFile } from "../schema";
 import { useProjectStore } from "./projectStore";
 import { clearHistory, redo, undo } from "./undo";
 import { future, past } from "./undoStack";
@@ -731,6 +732,272 @@ describe("useTimeline.addAnnotation", () => {
 		};
 		expect([position.x + size.width / 2, position.y + size.height / 2]).toEqual([50, 50]);
 		expect(annotation.style.backgroundColor).toBe(DEFAULT_TEXT_PLATE);
+	});
+});
+
+// The Clear timeline button. Every edit region on every clip, one write; the content stays.
+describe("useTimeline.clearTimeline", () => {
+	type Timeline = ReturnType<typeof useTimeline>;
+	type EditKind = Exclude<RegionKind, "audio">;
+
+	// A Record rather than a list: a new region kind fails to compile here until this suite
+	// decides whether "Clear timeline" takes it. Each adder goes through the real hook, so
+	// every region is schema-valid by construction.
+	const addOf: Record<EditKind, (tl: Timeline) => Promise<unknown>> = {
+		zoom: (tl) => tl.addZoom(),
+		trim: (tl) => tl.addTrim(),
+		annotation: (tl) => tl.addAnnotation(),
+		speed: (tl) => tl.addSpeed(),
+		cameraFullscreen: (tl) => tl.addCameraFullscreen(),
+	};
+	const editKinds = Object.keys(addOf) as EditKind[];
+
+	const regionCounts = (doc: AxcutDocument | null | undefined): Record<EditKind, number> => {
+		const legacy = (doc?.legacyEditor ?? {}) as { cameraFullscreenRegions?: unknown[] };
+		return {
+			zoom: doc?.zoomRanges.length ?? 0,
+			trim: doc?.timeline.trimRanges.length ?? 0,
+			annotation: doc?.annotations.length ?? 0,
+			speed: doc ? readSpeedRegions(doc).length : 0,
+			cameraFullscreen: legacy.cameraFullscreenRegions?.length ?? 0,
+		};
+	};
+	const noRegions: Record<EditKind, number> = {
+		zoom: 0,
+		trim: 0,
+		annotation: 0,
+		speed: 0,
+		cameraFullscreen: 0,
+	};
+
+	// A project holding everything that is NOT an edit: two clips, a webcam, an imported
+	// audio track, a transcript, captions, a pause, and settings in the legacy envelope.
+	const clipA = sampleDoc.timeline.clips[0];
+	const contentDoc: AxcutDocument = {
+		...sampleDoc,
+		assets: [
+			{
+				...sampleDoc.assets[0],
+				// Dimensions filled in so the hook's backfill probe has nothing to do.
+				cameraTrack: {
+					sourcePath: "/tmp/camera.webm",
+					startMs: 0,
+					offsetMs: 0,
+					visible: true,
+					width: 1280,
+					height: 720,
+				},
+			},
+			{
+				id: "audio_1",
+				kind: "audio",
+				label: "vo.mp3",
+				originalPath: "/tmp/vo.mp3",
+				durationSec: 30,
+				cameraTrack: null,
+			},
+		],
+		transcripts: [{ assetId: "asset_1", language: "en", segments: [], words: [] }],
+		timeline: {
+			...sampleDoc.timeline,
+			clips: [
+				clipA,
+				{
+					...clipA,
+					id: "clip_b",
+					sourceStartSec: 10,
+					sourceEndSec: 20,
+					timelineStartSec: 10,
+					timelineEndSec: 20,
+				},
+			],
+			muteRanges: [{ startSec: 3, endSec: 4, reason: "pause" }],
+			captionRanges: [{ startSec: 1, endSec: 2, reason: "caption" }],
+		},
+		audioTracks: [
+			{
+				id: "trk_1",
+				assetId: "audio_1",
+				kind: "voiceover",
+				startMs: 0,
+				endMs: 5000,
+				durationSec: 30,
+				offsetMs: 0,
+				gainDb: 0,
+				loop: false,
+				fadeInMs: 0,
+				fadeOutMs: 0,
+				muted: false,
+				label: "vo.mp3",
+				origin: "user",
+			},
+		],
+		legacyEditor: { aspectRatio: "16:9" },
+	};
+
+	beforeEach(() => {
+		useProjectStore.getState().clear();
+		for (const mock of Object.values(bridgeMocks)) mock.mockReset();
+		bridgeMocks.save.mockImplementation(async (doc: typeof sampleDoc) => ({
+			success: true,
+			document: doc,
+		}));
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: contentDoc,
+			currentTimeSec: 1,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+	});
+
+	afterEach(() => {
+		vi.clearAllMocks();
+	});
+
+	const addEveryKind = async (result: { current: Timeline }) => {
+		for (const kind of editKinds) {
+			await act(async () => {
+				await addOf[kind](result.current);
+			});
+		}
+	};
+
+	it.each(editKinds)("clears a timeline holding only a %s region", async (kind) => {
+		const { result } = renderTimeline();
+		await act(async () => {
+			await addOf[kind](result.current);
+		});
+		expect(regionCounts(useProjectStore.getState().document)).toEqual({
+			...noRegions,
+			[kind]: 1,
+		});
+		// What the button's visibility reads: the stored regions, the same ones it clears.
+		expect(result.current.hasEditRegions).toBe(true);
+
+		await act(async () => {
+			await result.current.clearTimeline();
+		});
+		expect(regionCounts(useProjectStore.getState().document)).toEqual(noRegions);
+		expect(result.current.hasEditRegions).toBe(false);
+	});
+
+	// A trim whose carrying clip is gone is stored but not drawn: `coalescedTrimGroups` drops
+	// it from the lane, and loading accepts it (no schema rule ties `clipId` to a clip). The
+	// button follows the STORED regions, or it would hide while the action still had one to clear.
+	it("counts and clears a stored trim whose clip no longer exists, though no pill shows it", async () => {
+		const orphanDoc: AxcutDocument = {
+			...contentDoc,
+			timeline: {
+				...contentDoc.timeline,
+				trimRanges: [
+					{
+						id: "trim_orphan",
+						assetId: "asset_1",
+						clipId: "clip_gone",
+						startSec: 1,
+						endSec: 3,
+						reason: "",
+						origin: "user",
+					},
+				],
+			},
+		};
+		// Loading keeps it: the schema does not tie a trim's `clipId` to an existing clip.
+		expect(parseDocumentFile(orphanDoc).timeline.trimRanges).toHaveLength(1);
+		useProjectStore.setState({ document: orphanDoc });
+		const { result } = renderTimeline();
+		expect(result.current.hasEditRegions).toBe(true);
+
+		await act(async () => {
+			await result.current.clearTimeline();
+		});
+		expect(useProjectStore.getState().document?.timeline.trimRanges).toEqual([]);
+		expect(result.current.hasEditRegions).toBe(false);
+	});
+
+	it("clears every region kind at once and keeps clips, media, audio, captions and transcript", async () => {
+		const { result } = renderTimeline();
+		await addEveryKind(result);
+		const before = useProjectStore.getState().document;
+		expect(regionCounts(before)).toEqual({
+			zoom: 1,
+			trim: 1,
+			annotation: 1,
+			speed: 1,
+			cameraFullscreen: 1,
+		});
+
+		await act(async () => {
+			await result.current.clearTimeline();
+		});
+		const after = useProjectStore.getState().document;
+		expect(regionCounts(after)).toEqual(noRegions);
+		expect(after?.timeline.clips).toEqual(before?.timeline.clips);
+		expect(after?.timeline.clips).toHaveLength(2);
+		expect(after?.assets).toEqual(before?.assets);
+		expect(after?.audioTracks).toEqual(before?.audioTracks);
+		expect(after?.audioTracks).toHaveLength(1);
+		expect(after?.transcripts).toEqual(before?.transcripts);
+		expect(after?.timeline.captionRanges).toEqual(before?.timeline.captionRanges);
+		expect(after?.timeline.muteRanges).toEqual(before?.timeline.muteRanges);
+		expect((after?.legacyEditor as { aspectRatio?: string }).aspectRatio).toBe("16:9");
+	});
+
+	it("is one undo step: a single Ctrl+Z restores every region, redo clears them again", async () => {
+		const { result } = renderTimeline();
+		await addEveryKind(result);
+		const before = useProjectStore.getState().document;
+		const stepsBefore = past.length;
+
+		await act(async () => {
+			await result.current.clearTimeline();
+		});
+		expect(past).toHaveLength(stepsBefore + 1);
+
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(useProjectStore.getState().document).toEqual(before);
+		expect(regionCounts(useProjectStore.getState().document)).toEqual({
+			zoom: 1,
+			trim: 1,
+			annotation: 1,
+			speed: 1,
+			cameraFullscreen: 1,
+		});
+
+		act(() => {
+			expect(redo()).toBe(true);
+		});
+		expect(regionCounts(useProjectStore.getState().document)).toEqual(noRegions);
+	});
+
+	it("lets go of a selection that pointed at a region it just removed", async () => {
+		const { result } = renderTimeline();
+		// A fresh annotation is auto-selected.
+		await act(async () => {
+			await result.current.addAnnotation();
+		});
+		expect(result.current.selection?.kind).toBe("annotation");
+
+		await act(async () => {
+			await result.current.clearTimeline();
+		});
+		expect(result.current.selection).toBeNull();
+		expect(result.current.multiSelection).toEqual([]);
+	});
+
+	it("writes nothing when the timeline holds no edit region, whatever else it holds", async () => {
+		const { result } = renderTimeline();
+		// Audio track, captions and clips are all there, and none of them is an edit.
+		expect(result.current.hasEditRegions).toBe(false);
+		await act(async () => {
+			await result.current.clearTimeline();
+		});
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		expect(past).toHaveLength(0);
 	});
 });
 

@@ -1,76 +1,98 @@
 import { describe, expect, it } from "vitest";
-import { snapWordBoundariesToAudio } from "./snapWordBoundaries";
+import { anchorWordsOnSpeech, type HelperWord } from "./snapWordBoundaries";
 import type { SttWordSegment } from "./transcriptionContract";
 
-const SAMPLE_RATE = 16_000;
-
-/** Mono 16 kHz buffer that is loud everywhere except the given silent spans. */
-function audioWithSilences(durationSec: number, silences: Array<[number, number]>): Float32Array {
-	const samples = new Float32Array(Math.round(durationSec * SAMPLE_RATE));
-	for (let i = 0; i < samples.length; i++) {
-		const t = i / SAMPLE_RATE;
-		const silent = silences.some(([from, to]) => t >= from && t < to);
-		// Alternating ±0.5 gives a flat, non-zero RMS without needing a real tone.
-		samples[i] = silent ? 0 : i % 2 === 0 ? 0.5 : -0.5;
-	}
-	return samples;
-}
-
-const word = (w: Partial<SttWordSegment> = {}): SttWordSegment => ({
-	word: "w",
-	startSec: 0,
-	endSec: 0.1,
-	...w,
+/** A helper word; its anchor defaults to its start, as for a request's first word. */
+const word = (
+	text: string,
+	startSec: number,
+	endSec: number,
+	anchorSec = startSec,
+): HelperWord => ({
+	word: text,
+	startSec,
+	endSec,
+	anchorSec,
 });
+const ms = (sec: number) => Math.round(sec * 1000) / 1000;
+const times = (words: SttWordSegment[]) => words.map((w) => [w.word, ms(w.startSec), ms(w.endSec)]);
 
-describe("snapWordBoundariesToAudio", () => {
-	it("pulls a late boundary back into the silence that precedes it", () => {
-		// Speech stops at 1.0 and resumes at 1.2; whisper reports the next word
-		// starting at 1.3 — 100 ms after the audio actually resumed.
-		const samples = audioWithSilences(3, [[1.0, 1.2]]);
-		const [snapped] = snapWordBoundariesToAudio([word({ startSec: 1.3, endSec: 1.8 })], samples);
-		expect(snapped.startSec).toBeGreaterThanOrEqual(1.0);
-		expect(snapped.startSec).toBeLessThan(1.2);
+describe("anchorWordsOnSpeech", () => {
+	it("returns the helper's times without speech intervals, minus the anchor", () => {
+		const out = anchorWordsOnSpeech([word("a", 1, 1.4, 1.2), word("b", 1.4, 1.4, 1.4)]);
+		expect(out).toEqual([
+			{ word: "a", startSec: 1, endSec: 1.4 },
+			{ word: "b", startSec: 1.4, endSec: 1.42 },
+		]);
 	});
 
-	it("leaves a boundary alone when nothing quieter precedes it", () => {
-		// A word ending a phrase: whisper is already right, the frames before the
-		// boundary are all speech, so the quietest frame in the window is the
-		// boundary itself and it must not drift.
-		const samples = audioWithSilences(3, [[1.5, 2.0]]);
-		const [snapped] = snapWordBoundariesToAudio([word({ startSec: 1.0, endSec: 1.5 })], samples);
-		expect(snapped.endSec).toBeCloseTo(1.5, 2);
+	it("puts a phrase's first word on its onset whether DTW put it late or early", () => {
+		// "Salut" opens the request, so it has no previous token and starts late,
+		// on its own first token. "Bah" starts where the previous token ended, at
+		// the end of the first phrase: in the pause, before its own speech.
+		const words = [
+			word("Salut", 2.15, 2.5),
+			word("!", 2.5, 2.6, 2.6),
+			word("Bah", 2.6, 3.8, 3.61),
+			word("voilà", 3.8, 4.35, 4.01),
+		];
+		const speech = [
+			{ startSec: 1.57, endSec: 2.56 },
+			{ startSec: 3.36, endSec: 4.35 },
+		];
+		expect(times(anchorWordsOnSpeech(words, speech))).toEqual([
+			["Salut", 1.57, 2.56],
+			["!", 2.56, 2.56],
+			["Bah", 3.36, 3.8],
+			["voilà", 3.8, 4.35],
+		]);
 	});
 
-	it("never moves a boundary more than the lookback window", () => {
-		const samples = audioWithSilences(3, [[0.0, 1.0]]);
-		const [snapped] = snapWordBoundariesToAudio([word({ startSec: 2.0, endSec: 2.5 })], samples);
-		expect(snapped.startSec).toBeGreaterThanOrEqual(2.0 - 0.15);
+	it("ends each phrase's last word where its speech stops, stretched or cut back", () => {
+		const words = [
+			word("tic,", 1.95, 2.59),
+			word("tac", 2.59, 2.79, 2.7),
+			word("!", 2.79, 2.9, 2.9),
+		];
+		const speech = [
+			{ startSec: 1.95, endSec: 2.37 },
+			{ startSec: 2.59, endSec: 3.04 },
+		];
+		expect(times(anchorWordsOnSpeech(words, speech))).toEqual([
+			["tic,", 1.95, 2.37],
+			["tac", 2.59, 3.04],
+			["!", 3.04, 3.04],
+		]);
 	});
 
-	it("keeps a boundary shared by two words shared", () => {
-		const samples = audioWithSilences(3, [[1.0, 1.2]]);
-		const [first, second] = snapWordBoundariesToAudio(
-			[word({ startSec: 0.5, endSec: 1.3 }), word({ startSec: 1.3, endSec: 1.8 })],
-			samples,
+	it("leaves an edge alone when the word is too far past it to be that edge", () => {
+		// 1.2 s after the onset and 1.1 s before the offset: more likely a neighbour
+		// of words whisper dropped than the phrase's own edges.
+		const tooFar = [word("w", 2.2, 2.5)];
+		expect(times(anchorWordsOnSpeech(tooFar, [{ startSec: 1, endSec: 3.6 }]))).toEqual(
+			times(tooFar),
 		);
-		expect(first.endSec).toBeCloseTo(second.startSec, 6);
 	});
 
-	it("leaves boundaries that fall outside the decoded audio alone", () => {
-		// Clamping these into range would collapse every boundary onto the end of
-		// the buffer instead of leaving the unmeasurable ones untouched.
-		const samples = audioWithSilences(0.1, []);
-		const words = [word({ startSec: 5.51, endSec: 6.85 })];
-		expect(snapWordBoundariesToAudio(words, samples)).toEqual(words);
-	});
-
-	it("keeps degenerate words non-empty and passes words through without audio", () => {
-		const samples = audioWithSilences(3, [[1.0, 1.2]]);
-		const [degenerate] = snapWordBoundariesToAudio([word({ startSec: 1.3, endSec: 1.3 })], samples);
-		expect(degenerate.endSec).toBeGreaterThan(degenerate.startSec);
-
-		const untouched = [word({ startSec: 1.3, endSec: 1.8 })];
-		expect(snapWordBoundariesToAudio(untouched, new Float32Array(0))).toEqual(untouched);
+	it("gives a word to the stretch its anchor falls in, the kept tail included", () => {
+		// "b" is anchored in the first stretch's 0.1 s tail: it closes that phrase.
+		// "c" starts in the first stretch (the previous token's end) but is
+		// anchored in the second, so it opens the second.
+		const words = [
+			word("a", 1, 1.9, 1.5),
+			word("b", 1.9, 2.05, 2.05),
+			word("c", 2.05, 3.5, 3.2),
+			word("d", 3.5, 4, 3.8),
+		];
+		const speech = [
+			{ startSec: 1, endSec: 2 },
+			{ startSec: 3, endSec: 4 },
+		];
+		expect(times(anchorWordsOnSpeech(words, speech))).toEqual([
+			["a", 1, 1.9],
+			["b", 1.9, 2],
+			["c", 3, 3.5],
+			["d", 3.5, 4],
+		]);
 	});
 });

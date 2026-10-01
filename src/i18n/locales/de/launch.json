@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "HUD ausblenden",
+		"hideHUDTip": "Aufnahmeleiste ausblenden. Über das Symbol im Infobereich wieder einblenden.",
 		"closeApp": "App schließen",
-		"restartRecording": "Aufnahme neu starten",
-		"cancelRecording": "Aufnahme abbrechen",
+		"restartRecording": "Diese Aufnahme löschen und eine neue starten",
+		"cancelRecording": "Stoppen und diese Aufnahme löschen",
 		"pauseRecording": "Aufnahme pausieren",
 		"resumeRecording": "Aufnahme fortsetzen",
 		"useVerticalTray": "Vertikale Leiste verwenden",
 		"useHorizontalTray": "Horizontale Leiste verwenden",
-		"openStudio": "Studio öffnen",
-		"openNotes": "Notizen öffnen",
+		"changeSource": "Anderen Bildschirm oder anderes Fenster wählen",
+		"systemAudio": "Systemton: nimmt den Ton auf, den dein Computer wiedergibt",
+		"microphone": "Mikrofon: nimmt deine Stimme auf",
+		"camera": "Kamera: nimmt dich als getrennte Ebene auf, die du im Editor verschieben kannst",
+		"openStudio": "Studio öffnen: der Editor für deine Aufnahmen",
+		"openNotes": "Notizen öffnen: Text zum Ablesen während der Aufnahme",
 		"openNotesPlaceholder": "Hier Notizen schreiben…",
 		"notesToolbar": {
 			"bold": "Fett",
@@ -27,34 +32,30 @@
 			"fontSize": "Schriftgröße",
 			"decreaseFontSize": "Schrift verkleinern",
 			"increaseFontSize": "Schrift vergrößern",
-			"mirror": "Horizontal spiegeln"
+			"mirror": "Horizontal spiegeln",
+			"mirrorTip": "Spiegelt den Text, damit er im Spiegel lesbar ist"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "Systemton aktivieren",
-		"disableSystemAudio": "Systemton deaktivieren",
-		"enableMicrophone": "Mikrofon aktivieren",
-		"disableMicrophone": "Mikrofon deaktivieren",
-		"defaultMicrophone": "Standardmikrofon",
 		"systemAudio": "Systemton",
 		"microphone": "Mikrofon",
-		"on": "An",
-		"off": "Aus",
 		"inputDevice": "Eingabegerät"
 	},
 	"webcam": {
-		"enableWebcam": "Webcam aktivieren",
-		"disableWebcam": "Webcam deaktivieren",
-		"defaultCamera": "Standardkamera",
 		"searching": "Suche läuft…",
 		"noneFound": "Keine Kamera gefunden",
 		"unavailable": "Kamera nicht verfügbar",
 		"camera": "Kamera",
-		"cameraDevice": "Kameragerät"
+		"cameraDevice": "Kameragerät",
+		"quality": "Kameraqualität",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "Bearbeitbaren Cursor verwenden: schaltet Auto-Zoom und Cursor-Effekte wieder ein",
-		"useSystemCursorHint": "System-Cursor verwenden: schaltet Auto-Zoom und Cursor-Effekte aus"
+		"name": "Bearbeitbarer Cursor",
+		"editableTip": "Bearbeitbarer Cursor: wird getrennt aufgenommen, damit du im Editor sein Aussehen ändern und Auto-Zoom nutzen kannst",
+		"systemTip": "System-Cursor: dein echter Cursor, im Video aufgenommen. Aussehen nicht änderbar, kein Auto-Zoom."
 	},
 	"sourceSelector": {
 		"loading": "Quellen werden geladen…",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "Bitte wähle eine Quelle für die Aufnahme",
 		"systemPicker": "Dein System fragt gleich, was du teilen möchtest",
-		"inProgress": "Aufnahme läuft",
+		"start": "Aufnahme starten",
+		"stop": "Aufnahme stoppen und speichern",
 		"saving": "Wird gespeichert…"
 	},
 	"language": "Sprache",
+	"languageWithName": "Sprache: {{language}}",
 	"systemLanguagePrompt": {
 		"title": "Systemsprache verwenden?",
 		"description": "{{language}} wurde als deine Systemsprache erkannt. Soll OpenScreen auf {{language}} umgestellt werden?",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "Geräteeinstellungen",
-		"done": "Fertig",
+		"close": "Schließen",
 		"micLevel": "Eingangspegel",
 		"micHint": "Sprich, um dein Mikrofon zu prüfen",
 		"noMicrophones": "Kein Mikrofon gefunden",

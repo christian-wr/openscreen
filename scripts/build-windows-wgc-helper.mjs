@@ -133,3 +133,43 @@ if (!fs.existsSync(audioUtilsTestPath)) {
 // Pack) instead of failing this packaging command.
 await run(audioUtilsTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${audioUtilsTestPath}`);
+
+const webcamFormatTestPath = path.join(BUILD_DIR, "webcam_format_test.exe");
+if (!fs.existsSync(webcamFormatTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamFormatTestPath} was not found.`);
+}
+// Guards the capture resolution the camera is driven at. Left unpinned, both
+// backends fall back to the device default -- 640x480 on hardware that offers
+// far more -- and the overlay upscales it.
+await run(webcamFormatTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamFormatTestPath}`);
+
+const frameVisibilityTestPath = path.join(BUILD_DIR, "frame_visibility_test.exe");
+if (!fs.existsSync(frameVisibilityTestPath)) {
+	throw new Error(`WGC helper build completed but ${frameVisibilityTestPath} was not found.`);
+}
+// Guards the warm-up probe that decides whether the camera has produced a
+// picture yet. Studio-range black is 16, not 0, so an unnormalised average
+// reads every black frame as content.
+await run(frameVisibilityTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${frameVisibilityTestPath}`);
+
+const webcamSnapshotTestPath = path.join(BUILD_DIR, "webcam_snapshot_test.exe");
+if (!fs.existsSync(webcamSnapshotTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamSnapshotTestPath} was not found.`);
+}
+// Guards the per-tick webcam poll. The writer asks at the screen's rate, twice
+// the camera's, so a frame it already holds must not be copied again.
+await run(webcamSnapshotTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamSnapshotTestPath}`);
+
+const encoderColorTestPath = path.join(BUILD_DIR, "mf_encoder_color_test.exe");
+if (!fs.existsSync(encoderColorTestPath)) {
+	throw new Error(`WGC helper build completed but ${encoderColorTestPath} was not found.`);
+}
+// Guards what the H.264 track is and says: High profile, BT.709 studio range
+// in the samples and in the tags, which is what the compositor decodes. Media
+// Foundation's own colour converter wrote BT.601. Skips its file checks when
+// ffprobe/ffmpeg are not on PATH.
+await run(encoderColorTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${encoderColorTestPath}`);

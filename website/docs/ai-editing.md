@@ -58,3 +58,13 @@ The **Smart cuts** entry (marked *With AI*) in the timeline's auto-enhance menu 
 ## What else uses your provider
 
 [Caption translation](./captions.md#translation) is a single text-transform call against the same model — it doesn't run the agent loop and can't touch your document. Transcription and caption rendering stay entirely on-device either way.
+
+## Using Claude Code, Codex or another MCP client
+
+If you already use an AI coding agent such as Claude Code or Codex, it can drive the same editing tools, signed in with its own account. Nothing about that account passes through OpenScreen.
+
+1. **AI settings** → **MCP server** → turn it on. It listens only on your own machine (`127.0.0.1`), on the port shown.
+2. Copy the **Claude Code** or **Codex** command shown there and run it in a terminal. The Claude Code command carries the access token. Codex reads it from the `OPENSCREEN_MCP_TOKEN` environment variable instead: set that in the shell you start Codex from.
+3. Keep a project open in the OpenScreen editor, then ask your agent for the edit.
+
+The tools are the ones the built-in agent uses, and they act on the project open in the editor. MCP clients can only **read** the project until you also turn on **Project edits** in the MCP server section; this switch is separate from the built-in agent's, and it starts off. Once on, each edit is saved as it lands and undone with `Ctrl/Cmd + Z`. **Regenerate** the token to disconnect every client set up with the old one.

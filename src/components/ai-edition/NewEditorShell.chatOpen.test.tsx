@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { EditorDialogsProvider } from "@/contexts/EditorDialogsContext";
 import { useChatPromptBus } from "@/lib/ai-edition/store/useChatPromptBus";
 
@@ -48,9 +49,11 @@ import { NewEditorShell } from "./NewEditorShell";
 
 function renderShell() {
 	return render(
-		<EditorDialogsProvider>
-			<NewEditorShell />
-		</EditorDialogsProvider>,
+		<TooltipProvider>
+			<EditorDialogsProvider>
+				<NewEditorShell />
+			</EditorDialogsProvider>
+		</TooltipProvider>,
 	);
 }
 

@@ -34,16 +34,21 @@ struct Layer {
 }
 
 @group(0) @binding(0) var<uniform> layer: Layer;
-@group(0) @binding(1) var texY:  texture_2d<f32>;   // R8Unorm, sample .r ; modes 7, 13 et 15 : le sprite RGBA
-@group(0) @binding(2) var texU:  texture_2d<f32>;   // R8Unorm, sample .r ; mode 15 : le champ R16F du sprite
+@group(0) @binding(1) var texY:  texture_2d<f32>;   // R8Unorm, sample .r ; modes 7 et 13 : le sprite RGBA ; mode 15 : la copie de l'image composee
+@group(0) @binding(2) var texU:  texture_2d<f32>;   // R8Unorm, sample .r
 @group(0) @binding(3) var samp:  sampler;
 // Masque de segmentation du sujet webcam, R8. Une vue 1x1 est liee quand aucun masque
 // n'existe : la branche n'est de toute facon prise que si layer.fx.z > 0.5.
-// Mode 18 : ce binding porte a la place le rendu isole de l'ecran cadre.
+// Mode 18 : ce binding porte a la place le rendu isole de l'ecran cadre ; mode 15, le champ R16F
+// du sprite.
 @group(0) @binding(4) var texMask: texture_2d<f32>;
 // Pyramide RGBA de profondeur de champ (`tilted_sample`), lue par le mode 8 et par le repli du
-// mode 18, qui garde le binding 4 pour son rendu isole : d'ou un binding a elle. Vue 1x1 ailleurs.
+// mode 18, qui garde le binding 4 pour son rendu isole : d'ou un binding a elle. Mode 15 : le
+// sprite RGBA. Vue 1x1 ailleurs.
 @group(0) @binding(6) var texDof: texture_2d<f32>;
+// Le maillage de Prism Glow (mode 15), rempli de `prism_mesh.rs` : un uniform et non des tables
+// dans le shader, que lavapipe recopierait a chaque pixel de chaque calque (cf. `PrismMesh`).
+@group(0) @binding(7) var<uniform> prism: PrismMesh;
 
 // Plafond de la profondeur de champ du mode 8, en niveau de la pyramide demi-resolution.
 // Meme valeur que `DOF_MAX_LOD` du HLSL.
@@ -568,9 +573,10 @@ fn blur_webcam_bg(uv: vec2<f32>, intensity: f32, qpx: vec2<f32>, local_px: vec2<
 // propres et occlusion, et qui porte une ombre douce et une ombre de contact sur le plan de
 // l'ecran. Constantes : miroir exact de `frame_geometry.rs` (MODEL_*) et de `sculpt.rs`
 // (SCULPT_*), emplacements du cbuffer : `cursor_model_cb`.
-// Textures : le sprite RGBA (alpha droit) au binding 1 (`texY`, comme aux modes 7 et 13), son
-// champ R16F au binding 2 (`texU`), sur le meme rect ; `color.rg` = coin du sprite dans le repere
-// du modele, `sprite_size()` = sa taille (w/h dans `radius_px`), `color.b` = l'ecrasement au clic.
+// Textures : la copie de l'image composee au binding 1 (`texY`), que refracte le cristal de Prism
+// Glow ; le sprite RGBA (alpha droit) est au binding 6 (`texDof`), son champ R16F au
+// binding 4 (`texMask`), sur le meme rect ; `color.rg` = coin du sprite dans le repere du modele,
+// `sprite_size()` = sa taille (w/h dans `radius_px`), `color.b` = l'ecrasement au clic.
 const MODEL_BEVEL: f32 = 0.045;
 const MODEL_LIGHT = vec3<f32>(-0.4194, -0.5792, 0.6990);
 const MODEL_FILL = vec3<f32>(0.7557, 0.2519, 0.6046);
@@ -592,7 +598,7 @@ fn sprite_size() -> vec2<f32> {
 // Un texel du sprite, en unites du modele : le champ est le sprite surechantillonne x4.
 const CURSOR_SDF_UPSAMPLE: f32 = 4.0;
 fn sprite_texel() -> f32 {
-    let d = vec2<f32>(textureDimensions(texU));
+    let d = vec2<f32>(textureDimensions(texMask));
     return CURSOR_SDF_UPSAMPLE / max(d.x, d.y);
 }
 
@@ -610,8 +616,6 @@ fn sculpt_id() -> i32 {
 const SCULPT_SCALE: f32 = 0.85;
 const SCULPT_HOVER: f32 = 0.05;
 const SCULPT_VOX: f32 = 0.0625;
-const SCULPT_AR_ROUND: f32 = 0.03;
-const SCULPT_HAND_ZC: f32 = 0.185;
 const SCULPT_ZREF_ARROW: f32 = 0.2;
 const SCULPT_ZREF_HAND: f32 = 0.185;
 const SCULPT_LAMP_DIST: f32 = 1.9;
@@ -628,13 +632,6 @@ fn s_smin(a: f32, b: f32, k: f32) -> f32 {
 
 fn s_opu(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
     return select(b, a, a.x < b.x);
-}
-
-fn s_capsule(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, r: f32) -> f32 {
-    let pa = p - a;
-    let ba = b - a;
-    let h = saturate(dot(pa, ba) / dot(ba, ba));
-    return length(pa - ba * h) - r;
 }
 
 fn s_round_box(p: vec3<f32>, b: vec3<f32>, r: f32) -> f32 {
@@ -660,31 +657,6 @@ fn s_rot(v: vec2<f32>, a: f32) -> vec2<f32> {
     return vec2<f32>(c * v.x - s * v.y, s * v.x + c * v.y);
 }
 
-const SCULPT_ARROW = array<vec2<f32>, 7>(
-    vec2<f32>(0.0, 0.0), vec2<f32>(0.0, -0.86), vec2<f32>(0.215, -0.665), vec2<f32>(0.37, -1.0),
-    vec2<f32>(0.53, -0.93), vec2<f32>(0.38, -0.60), vec2<f32>(0.64, -0.60)
-);
-
-fn s_arrow2(p: vec2<f32>) -> f32 {
-    var d = dot(p - SCULPT_ARROW[0], p - SCULPT_ARROW[0]);
-    var s = 1.0;
-    var j = 6;
-    for (var i = 0; i < 7; i++) {
-        let e = SCULPT_ARROW[j] - SCULPT_ARROW[i];
-        let w = p - SCULPT_ARROW[i];
-        let b = w - e * saturate(dot(w, e) / dot(e, e));
-        d = min(d, dot(b, b));
-        let c0 = p.y >= SCULPT_ARROW[i].y;
-        let c1 = p.y < SCULPT_ARROW[j].y;
-        let c2 = e.x * w.y > e.y * w.x;
-        if (c0 && c1 && c2) || (!c0 && !c1 && !c2) {
-            s = -s;
-        }
-        j = i;
-    }
-    return s * sqrt(d);
-}
-
 fn s_star5(p0: vec2<f32>, r: f32, rf: f32) -> f32 {
     let k1 = vec2<f32>(0.809016994375, -0.587785252292);
     let k2 = vec2<f32>(-0.809016994375, -0.587785252292);
@@ -698,233 +670,426 @@ fn s_star5(p0: vec2<f32>, r: f32, rf: f32) -> f32 {
     return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
 }
 
-fn s_arrow_solid(p: vec3<f32>, h: f32, re: f32, dome: f32) -> f32 {
-    let d2 = s_arrow2(p.xy) - SCULPT_AR_ROUND;
-    let hh = h + dome * smoothstep(0.0, 0.07, -d2);
-    return s_extrude(d2, p.z - (SCULPT_HOVER + h + dome), hh, re);
+fn s_vesica(p0: vec2<f32>, r: f32, d: f32) -> f32 {
+    let p = abs(p0);
+    let b = sqrt(r * r - d * d);
+    return select(length(p + vec2<f32>(d, 0.0)) - r, length(p - vec2<f32>(0.0, b)), (p.y - b) * d > p.x * b);
 }
 
-fn s_piping(p: vec3<f32>, ztop: f32) -> f32 {
-    let d2 = s_arrow2(p.xy) - SCULPT_AR_ROUND;
-    return length(vec2<f32>(d2 + 0.075, p.z - ztop)) - 0.017;
-}
-
-fn s_glove(p: vec3<f32>, zc: f32) -> f32 {
-    let index = s_capsule(p, vec3<f32>(0.0, -0.10, zc), vec3<f32>(0.0, -0.52, zc), 0.098);
-    let palm = s_round_box(p - vec3<f32>(0.185, -0.70, zc), vec3<f32>(0.255, 0.19, 0.105), 0.1);
-    let f1 = s_capsule(p, vec3<f32>(0.17, -0.57, zc + 0.012), vec3<f32>(0.17, -0.41, zc + 0.045), 0.086);
-    let f2 = s_capsule(p, vec3<f32>(0.31, -0.59, zc + 0.01), vec3<f32>(0.31, -0.45, zc + 0.04), 0.08);
-    let f3 = s_capsule(p, vec3<f32>(0.435, -0.625, zc + 0.005), vec3<f32>(0.435, -0.52, zc + 0.03), 0.07);
-    let thumb = s_capsule(p, vec3<f32>(0.03, -0.77, zc + 0.03), vec3<f32>(-0.165, -0.60, zc + 0.065), 0.082);
-    var d = s_smin(palm, min(f1, min(f2, f3)), 0.035);
-    d = s_smin(d, index, 0.05);
-    return s_smin(d, thumb, 0.05);
-}
-
-fn s_cuff(p: vec3<f32>, zc: f32) -> f32 {
-    let q = p - vec3<f32>(0.185, -0.925, zc);
-    let ab = vec2<f32>(0.272, 0.12);
-    let e = (length(q.xz / ab) - 1.0) * min(ab.x, ab.y);
-    return s_extrude(e, q.y, 0.07, 0.06);
-}
-
-fn s_sprout(p: vec3<f32>, c: vec3<f32>) -> vec2<f32> {
-    let q = p - c;
-    let st2 = s_star5(q.xy, 0.125, 0.52) - 0.022;
-    var r = vec2<f32>(s_extrude(st2, q.z, 0.038, 0.034), 3.0);
-    let e = vec3<f32>(abs(q.x) - 0.032, q.y + 0.005, q.z - 0.036);
-    r = s_opu(r, vec2<f32>(length(e) - 0.0135, 5.0));
-    let l1 = vec3<f32>(s_rot(q.xy - vec2<f32>(-0.04, 0.15), -0.6), q.z);
-    let l2 = vec3<f32>(s_rot(q.xy - vec2<f32>(0.045, 0.155), 0.7), q.z);
-    let leaves = min(s_ellipsoid(l1, vec3<f32>(0.03, 0.058, 0.02)), s_ellipsoid(l2, vec3<f32>(0.03, 0.058, 0.02)));
-    return s_opu(r, vec2<f32>(leaves, 4.0));
-}
-
-// Pixel Candy : une ligne par entier, bit c = colonne c (cf. HLSL et `sculpt.rs`).
-const SCULPT_ARROWPIX = array<i32, 16>(0, 1, 3, 7, 31, 63, 127, 255, 511, 63, 55, 115, 113, 224, 224, 64);
-const SCULPT_ARROWBACK = array<i32, 18>(
-    3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 255, 511, 511, 999, 995, 960, 192
-);
-const SCULPT_HANDPIX = array<i32, 15>(4, 14, 14, 14, 110, 878, 7022, 7022, 8190, 8191, 8191, 8191, 8190, 4092, 4092);
-const SCULPT_HANDBACK = array<i32, 17>(
-    28, 62, 62, 62, 510, 4094, 32766, 32766, 32766, 32767, 32767, 32767, 32767, 32767, 32766, 16380, 16380
-);
-const SCULPT_HANDSPAN = array<vec2<f32>, 17>(
-    vec2<f32>(2.0, 4.0), vec2<f32>(1.0, 5.0), vec2<f32>(1.0, 5.0), vec2<f32>(1.0, 5.0), vec2<f32>(1.0, 8.0),
-    vec2<f32>(1.0, 11.0), vec2<f32>(1.0, 14.0), vec2<f32>(1.0, 14.0), vec2<f32>(1.0, 14.0), vec2<f32>(0.0, 14.0),
-    vec2<f32>(0.0, 14.0), vec2<f32>(0.0, 14.0), vec2<f32>(0.0, 14.0), vec2<f32>(0.0, 14.0), vec2<f32>(1.0, 14.0),
-    vec2<f32>(2.0, 13.0), vec2<f32>(2.0, 13.0)
+// Curseurs cercles (cf. HLSL) : Studio Ink, Pop Coral, Star Sprout.
+const RIM_POLY = array<vec2<f32>, 28>(
+    vec2<f32>(0.0, -0.06), vec2<f32>(0.0, -0.7712), vec2<f32>(0.165, -0.6325), vec2<f32>(0.313, -0.9318),
+    vec2<f32>(0.4234, -0.8557), vec2<f32>(0.2672, -0.5686), vec2<f32>(0.456, -0.5393),
+    vec2<f32>(-0.173, -0.5237), vec2<f32>(-0.016, -0.75), vec2<f32>(0.329, -0.75), vec2<f32>(0.411, -0.592),
+    vec2<f32>(0.411, -0.43), vec2<f32>(0.19, -0.435), vec2<f32>(-0.03, -0.44),
+    vec2<f32>(-0.1825, -0.6215), vec2<f32>(0.0037, -0.9195), vec2<f32>(0.3462, -0.9195), vec2<f32>(0.467, -0.6906),
+    vec2<f32>(0.467, -0.49), vec2<f32>(0.2, -0.49), vec2<f32>(-0.03, -0.49),
+    vec2<f32>(-0.1807, -0.5534), vec2<f32>(0.0194, -0.872), vec2<f32>(0.3485, -0.872), vec2<f32>(0.47, -0.6795),
+    vec2<f32>(0.47, -0.49), vec2<f32>(0.2, -0.49), vec2<f32>(-0.03, -0.49)
 );
 
-fn s_grid_origin(shape: i32) -> vec2<f32> {
-    return select(vec2<f32>(-2.5 * SCULPT_VOX, 0.0), vec2<f32>(0.0), shape == 0);
-}
+const RIM_GLOVE = array<vec4<f32>, 27>(
+    vec4<f32>(0.0, -0.1077, 0.0, -0.6), vec4<f32>(0.1493, -0.3279, 0.1493, -0.6),
+    vec4<f32>(0.2863, -0.3654, 0.2863, -0.6), vec4<f32>(0.4193, -0.4043, 0.4193, -0.6),
+    vec4<f32>(-0.2, -0.478, -0.075, -0.625), vec4<f32>(0.0788, -0.25, 0.0788, -0.3992),
+    vec4<f32>(0.2188, -0.3, 0.2188, -0.4234), vec4<f32>(0.3552, -0.33, 0.3552, -0.4534),
+    vec4<f32>(-0.0845, -0.5386, 0.762, 0.648),
+    vec4<f32>(0.0, -0.1186, 0.0, -0.65), vec4<f32>(0.1614, -0.3838, 0.1614, -0.65),
+    vec4<f32>(0.3177, -0.427, 0.3177, -0.65), vec4<f32>(0.4645, -0.4848, 0.4645, -0.65),
+    vec4<f32>(-0.215, -0.535, -0.1208, -0.6864), vec4<f32>(0.0832, -0.3, 0.0832, -0.48),
+    vec4<f32>(0.2414, -0.35, 0.2414, -0.482), vec4<f32>(0.3959, -0.41, 0.3959, -0.533),
+    vec4<f32>(-0.122, -0.5718, 0.867, 0.498),
+    vec4<f32>(0.0, -0.122, 0.0, -0.65), vec4<f32>(0.172, -0.387, 0.172, -0.65),
+    vec4<f32>(0.3267, -0.427, 0.3267, -0.65), vec4<f32>(0.4727, -0.4867, 0.4727, -0.65),
+    vec4<f32>(-0.199, -0.483, -0.102, -0.645), vec4<f32>(0.0927, -0.3, 0.0927, -0.476),
+    vec4<f32>(0.2493, -0.35, 0.2493, -0.478), vec4<f32>(0.402, -0.41, 0.402, -0.52),
+    vec4<f32>(-0.0993, -0.5267, 0.858, 0.514)
+);
 
-fn s_bit(row: i32, r: i32, c: i32, rows: i32, cols: i32) -> bool {
-    return r >= 0 && r < rows && c >= 0 && c < cols && ((row >> u32(clamp(c, 0, 31))) & 1) == 1;
-}
+const RIM_GLOVE_R = array<vec4<f32>, 9>(
+    vec4<f32>(0.0552, 0.047, 0.045, 0.0375), vec4<f32>(0.052, 0.0235, 0.0225, 0.0225), vec4<f32>(0.0552, -0.548, 0.0525, 0.0),
+    vec4<f32>(0.064, 0.0585, 0.0585, 0.0515), vec4<f32>(0.06, 0.0197, 0.0178, 0.0172), vec4<f32>(0.0648, -0.6, 0.058, 0.0),
+    vec4<f32>(0.066, 0.0553, 0.0553, 0.0507), vec4<f32>(0.063, 0.024, 0.022, 0.02), vec4<f32>(0.0647, -0.555, 0.056, 0.0)
+);
 
-fn s_occ(id: vec2<f32>, shape: i32) -> bool {
-    let c = i32(id.x);
-    let r = -i32(id.y) - 1;
-    if shape == 0 {
-        return s_bit(SCULPT_ARROWPIX[clamp(r, 0, 15)], r, c, 16, 16);
+fn s_rim_poly(p: vec2<f32>, base: i32) -> f32 {
+    var d = dot(p - RIM_POLY[base], p - RIM_POLY[base]);
+    var s = 1.0;
+    var j = base + 6;
+    for (var i = base; i < base + 7; i++) {
+        let e = RIM_POLY[j] - RIM_POLY[i];
+        let w = p - RIM_POLY[i];
+        let b = w - e * saturate(dot(w, e) / dot(e, e));
+        d = min(d, dot(b, b));
+        let c0 = p.y >= RIM_POLY[i].y;
+        let c1 = p.y < RIM_POLY[j].y;
+        let c2 = e.x * w.y > e.y * w.x;
+        if (c0 && c1 && c2) || (!c0 && !c1 && !c2) {
+            s = -s;
+        }
+        j = i;
     }
-    return s_bit(SCULPT_HANDPIX[clamp(r, 0, 14)], r, c, 15, 13);
+    return s * sqrt(d);
 }
 
-fn s_occ_back(id: vec2<f32>, shape: i32) -> bool {
-    let c = i32(id.x) + 1;
-    let r = -i32(id.y);
-    if shape == 0 {
-        return s_bit(SCULPT_ARROWBACK[clamp(r, 0, 17)], r, c, 18, 17);
+fn s_rim_glove(p: vec2<f32>, g: i32, palm: f32) -> vec2<f32> {
+    let r0 = RIM_GLOVE_R[3 * g];
+    let r1 = RIM_GLOVE_R[3 * g + 1];
+    let r2 = RIM_GLOVE_R[3 * g + 2];
+    let i = 9 * g;
+    var f = min(sd_segment(p, RIM_GLOVE[i].xy, RIM_GLOVE[i].zw) - r0.x,
+                sd_segment(p, RIM_GLOVE[i + 1].xy, RIM_GLOVE[i + 1].zw) - r0.y);
+    f = min(f, sd_segment(p, RIM_GLOVE[i + 2].xy, RIM_GLOVE[i + 2].zw) - r0.z);
+    f = min(f, sd_segment(p, RIM_GLOVE[i + 3].xy, RIM_GLOVE[i + 3].zw) - r0.w);
+    f = min(f, sd_segment(p, RIM_GLOVE[i + 4].xy, RIM_GLOVE[i + 4].zw) - r1.x);
+    var grooves = min(sd_segment(p, RIM_GLOVE[i + 5].xy, RIM_GLOVE[i + 5].zw) - r1.y,
+                      sd_segment(p, RIM_GLOVE[i + 6].xy, RIM_GLOVE[i + 6].zw) - r1.z);
+    grooves = min(grooves, sd_segment(p, RIM_GLOVE[i + 7].xy, RIM_GLOVE[i + 7].zw) - r1.w);
+    let sil = s_smin(palm, f, 0.03);
+    let v = RIM_GLOVE[i + 8];
+    let wedge = max(max(-dot(p - v.xy, v.zw), p.x + r2.x), r2.y - p.y);
+    return vec2<f32>(sil, max(sil, -min(grooves, wedge)));
+}
+
+fn s_piece(d: f32, dc: f32, sil: f32, z: f32, w: f32, zt: f32, h: f32, bump: f32, mat: f32) -> vec2<f32> {
+    let tray = s_extrude(sil - w, z - 0.5 * (SCULPT_HOVER + zt), 0.5 * (zt - SCULPT_HOVER), 0.012);
+    let bead = length(vec2<f32>(d - 0.5 * w, z - zt)) - 0.5 * w;
+    let u = saturate(-dc / 0.045);
+    let cushion = 0.8 * s_extrude(dc, z - zt, h + 0.022 * u * (2.0 - u) + bump, 0.75 * h);
+    return s_opu(vec2<f32>(min(tray, bead), 5.0), vec2<f32>(cushion, mat));
+}
+
+fn s_paper(d: f32, sil: f32, z: f32, w: f32) -> vec2<f32> {
+    let navy = s_extrude(sil - w, z - 0.5 * (SCULPT_HOVER + 0.15), 0.5 * (0.15 - SCULPT_HOVER), 0.006);
+    let sheet = s_extrude(d, z - 0.16, 0.01, 0.004);
+    return s_opu(vec2<f32>(navy, 5.0), vec2<f32>(sheet, 1.0));
+}
+
+fn s_bump(p: vec2<f32>, c: vec2<f32>, r: f32) -> f32 {
+    let k = saturate(1.0 - dot(p - c, p - c) / (r * r));
+    return k * k;
+}
+
+fn s_dash(p: vec2<f32>, a: vec2<f32>, b0: vec2<f32>, ra: f32, rb: f32) -> f32 {
+    let q0 = p - a;
+    let b = b0 - a;
+    let hb = dot(b, b);
+    let q = vec2<f32>(abs(dot(q0, vec2<f32>(b.y, -b.x))), dot(q0, b)) / hb;
+    let c = vec2<f32>(sqrt(hb - (ra - rb) * (ra - rb)), ra - rb);
+    let k = c.x * q.y - c.y * q.x;
+    if k < 0.0 {
+        return sqrt(hb * dot(q, q)) - ra;
     }
-    return s_bit(SCULPT_HANDBACK[clamp(r, 0, 16)], r, c, 17, 15);
+    if k > c.x {
+        return sqrt(hb * (dot(q, q) + 1.0 - 2.0 * q.y)) - rb;
+    }
+    return dot(c, q) - ra;
+}
+
+fn s_rimmed(p: vec3<f32>, theme: i32, shape: i32) -> vec2<f32> {
+    let arrow = shape == 0;
+    let g = select(select(2, 1, theme == 0), 0, theme == 4);
+    let poly = s_rim_poly(p.xy, select(7 * g + 7, 0, arrow));
+    var body = vec2<f32>(poly, poly);
+    var w = 0.06;
+    var zt = 0.17;
+    var h = 0.03;
+    var bump = 0.022 * s_bump(p.xy, vec2<f32>(0.15, -0.45), 0.3);
+    var back = 1e9;
+    if !arrow {
+        w = RIM_GLOVE_R[3 * g + 2].z;
+        for (var i = 0; i < 2; i++) {
+            let q = p.xy + select(vec2<f32>(0.0), vec2<f32>(0.03, 0.04), i == 1);
+            let v = s_rim_glove(q, g, select(poly, s_rim_poly(q, 7 * g + 7), i == 1) - 0.05);
+            if i == 1 {
+                back = v.x - w;
+            } else {
+                body = v;
+                if theme != 2 || v.x - w <= 0.0 {
+                    break;
+                }
+            }
+        }
+        zt = 0.185;
+        h = 0.028;
+        bump = 0.03 * s_bump(p.xy, vec2<f32>(0.19, -0.62), 0.28);
+    }
+    var dc = body.y;
+    if arrow && theme == 0 {
+        body = body - vec2<f32>(0.015);
+        w = 0.045;
+        dc = 1.0;
+    }
+    var r: vec2<f32>;
+    if theme == 2 {
+        r = s_paper(body.y, body.x, p.z, w);
+    } else {
+        r = s_piece(body.y, dc, body.x, p.z, w, zt, h, bump, 1.0);
+    }
+    if theme == 0 {
+        if arrow {
+            let band = s_extrude(abs(poly + 0.0075) - 0.0225, p.z - zt, 0.028, 0.012);
+            r = s_opu(r, vec2<f32>(band, 2.0));
+        }
+        return r;
+    }
+    if theme == 2 {
+        var dash: f32;
+        if arrow {
+            let back = s_rim_poly(p.xy + vec2<f32>(0.025, 0.05), 0) - 0.06;
+            r = s_opu(r, vec2<f32>(s_extrude(back, p.z - 0.08, 0.03, 0.006), 2.0));
+            dash = min(s_dash(p.xy, vec2<f32>(-0.1179, -0.1374), vec2<f32>(-0.1799, -0.0443), 0.028, 0.045),
+                       s_dash(p.xy, vec2<f32>(-0.1347, -0.2493), vec2<f32>(-0.248, -0.2056), 0.026, 0.042));
+        } else {
+            r = s_opu(r, vec2<f32>(s_extrude(back, p.z - 0.08, 0.03, 0.006), 3.0));
+            dash = min(s_dash(p.xy, vec2<f32>(0.216, -0.1695), vec2<f32>(0.2593, -0.0685), 0.028, 0.042),
+                       s_dash(p.xy, vec2<f32>(0.3054, -0.2339), vec2<f32>(0.3949, -0.1652), 0.0275, 0.041));
+        }
+        return s_opu(r, vec2<f32>(s_extrude(dash, p.z - 0.11, 0.06, 0.006), 3.0));
+    }
+    if !arrow {
+        let cq = p.xy - vec2<f32>(0.1541, -0.9047);
+        let bq = abs(vec2<f32>(cq.x, cq.y - 0.2066 * cq.x * cq.x)) - vec2<f32>(0.214, 0.0361);
+        let cuff = length(max(bq, vec2<f32>(0.0))) + min(max(bq.x, bq.y), 0.0) - 0.03;
+        r = s_opu(r, s_piece(cuff, cuff, cuff, p.z, 0.0477, 0.225, 0.025, 0.0, 2.0));
+    }
+    let c = select(vec2<f32>(0.15, -0.885), vec2<f32>(0.6118, -0.8079), arrow);
+    let rs = select(0.128, 0.1678, arrow);
+    let zs = select(0.285, 0.23, arrow);
+    let q = s_rot(p.xy - c, select(0.0, 0.2443, arrow)) / rs;
+    let star = (s_star5(q, 0.82, 0.55) - 0.18) * rs;
+    let l1 = s_rot(q - vec2<f32>(-0.33, 1.38), -0.925);
+    let l2 = s_rot(q - vec2<f32>(0.53, 1.37), 0.873);
+    let leaves = min(s_vesica(l1, 0.4296, 0.2626), s_vesica(l2, 0.4296, 0.2626)) * rs;
+    r = s_opu(r, s_piece(leaves, leaves, leaves, p.z, 0.038, zs - 0.02, 0.018, 0.0, 4.0));
+    r = s_opu(r, s_piece(star, star, star, p.z, 0.038, zs, 0.022, 0.018 * s_bump(q, vec2<f32>(0.0), 1.0), 3.0));
+    let e = vec3<f32>(abs(q.x) - 0.25, q.y - 0.08, (p.z - zs - 0.056) / rs);
+    return s_opu(r, vec2<f32>(s_ellipsoid(e, vec3<f32>(0.075, 0.13, 0.1)) * rs, 5.0));
+}
+
+// Pixel Candy : tables générées par scripts/generate-pixel-candy-voxels.mjs (cf. HLSL).
+// <pixel-candy-voxels>
+const PIX_BODY = array<i32, 32>(1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 127, 247, 243, 480, 192, 48, 120, 120, 120, 504, 4088, 32760, 65534, 65535, 65535, 65534, 32766, 32764, 16380, 16376, 16376);
+const PIX_LINE = array<i32, 32>(1, 3, 5, 9, 17, 33, 65, 129, 257, 513, 1985, 73, 149, 147, 288, 192, 48, 72, 72, 72, 456, 3656, 29256, 37454, 32777, 32769, 32770, 16386, 16388, 8196, 8200, 16376);
+const PIX_HI = array<i32, 32>(0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 18, 34, 32, 64, 0, 0, 16, 16, 16, 16, 16, 16, 16, 22, 18, 4, 4, 8, 8, 16, 0);
+const PIX_SHADE = array<i32, 32>(0, 0, 0, 4, 8, 16, 32, 64, 128, 448, 40, 36, 64, 64, 128, 0, 0, 32, 32, 32, 32, 288, 2336, 18720, 16384, 16384, 16384, 8192, 8192, 4096, 8160, 0);
+const PIX_RECT_N = array<i32, 3>(0, 17, 29);
+const PIX_GRID = array<vec4<i32>, 2>(
+    vec4<i32>(11, 16, 0, 0),
+    vec4<i32>(16, 16, 16, 0)
+);
+const PIX_ORIGIN = array<vec2<f32>, 2>(
+    vec2<f32>(0.0, 0.0),
+    vec2<f32>(-0.3125, 0.0)
+);
+const PIX_BOX = array<vec4<f32>, 2>(
+    vec4<f32>(0.3438, -0.5, 0.3438, 0.5),
+    vec4<f32>(0.1875, -0.5, 0.5, 0.5)
+);
+const PIX_RECT = array<vec4<f32>, 29>(
+    vec4<f32>(0.0313, -0.0313, 0.0313, 0.0313),
+    vec4<f32>(0.0625, -0.0938, 0.0625, 0.0313),
+    vec4<f32>(0.0938, -0.1563, 0.0938, 0.0313),
+    vec4<f32>(0.125, -0.2188, 0.125, 0.0313),
+    vec4<f32>(0.1563, -0.2813, 0.1563, 0.0313),
+    vec4<f32>(0.1875, -0.3438, 0.1875, 0.0313),
+    vec4<f32>(0.2188, -0.4063, 0.2188, 0.0313),
+    vec4<f32>(0.25, -0.4688, 0.25, 0.0313),
+    vec4<f32>(0.2813, -0.5313, 0.2813, 0.0313),
+    vec4<f32>(0.3125, -0.5938, 0.3125, 0.0313),
+    vec4<f32>(0.3438, -0.6563, 0.3438, 0.0313),
+    vec4<f32>(0.2188, -0.7188, 0.2188, 0.0313),
+    vec4<f32>(0.0938, -0.7813, 0.0938, 0.0313),
+    vec4<f32>(0.375, -0.8125, 0.125, 0.0625),
+    vec4<f32>(0.0625, -0.8438, 0.0625, 0.0313),
+    vec4<f32>(0.4375, -0.9063, 0.125, 0.0313),
+    vec4<f32>(0.4375, -0.9688, 0.0625, 0.0313),
+    vec4<f32>(0.0, -0.0313, 0.0625, 0.0313),
+    vec4<f32>(0.0, -0.1563, 0.125, 0.0938),
+    vec4<f32>(0.0625, -0.2813, 0.1875, 0.0313),
+    vec4<f32>(0.1563, -0.3438, 0.2813, 0.0313),
+    vec4<f32>(0.25, -0.4063, 0.375, 0.0313),
+    vec4<f32>(0.2188, -0.4688, 0.4688, 0.0313),
+    vec4<f32>(0.1875, -0.5625, 0.5, 0.0625),
+    vec4<f32>(0.2188, -0.6563, 0.4688, 0.0313),
+    vec4<f32>(0.1875, -0.7188, 0.4375, 0.0313),
+    vec4<f32>(0.2188, -0.7813, 0.4063, 0.0313),
+    vec4<f32>(0.1875, -0.8438, 0.375, 0.0313),
+    vec4<f32>(0.2188, -0.9375, 0.3438, 0.0625)
+);
+// </pixel-candy-voxels>
+
+fn s_pix_bit(m: i32, c: i32) -> bool {
+    return ((m >> u32(clamp(c, 0, 31))) & 1) == 1;
+}
+
+fn s_pix_body(shape: i32, c: i32, r: i32) -> bool {
+    let g = PIX_GRID[shape];
+    return c >= 0 && c < g.x && r >= 0 && r < g.y && s_pix_bit(PIX_BODY[g.z + clamp(r, 0, g.y - 1)], c);
+}
+
+fn s_pix_cell(p: vec2<f32>, shape: i32) -> vec2<i32> {
+    let o = PIX_ORIGIN[shape];
+    return vec2<i32>(i32(floor((p.x - o.x) / SCULPT_VOX)), i32(floor((o.y - p.y) / SCULPT_VOX)));
 }
 
 fn s_voxels(p: vec3<f32>, shape: i32) -> vec2<f32> {
-    let o = s_grid_origin(shape);
-    let cell = floor((p.xy - o) / SCULPT_VOX);
-    let bc = select(vec2<f32>(0.25, -0.47), vec2<f32>(0.33, -0.5), shape == 0);
-    let bh = select(vec2<f32>(0.48, 0.55), vec2<f32>(0.44, 0.61), shape == 0);
-    let bq = max(abs(p.xy - bc) - bh, vec2<f32>(0.0));
+    let b = PIX_BOX[shape];
+    let bq = max(abs(p.xy - b.xy) - b.zw, vec2<f32>(0.0));
     let bz = max(abs(p.z - (SCULPT_HOVER + 0.07)) - 0.07, 0.0);
-    let far = max(SCULPT_VOX, sqrt(dot(bq, bq) + bz * bz));
-    var dF = far;
-    var dB = far;
-    let half_cell = vec3<f32>(0.5 * SCULPT_VOX, 0.5 * SCULPT_VOX, 0.04);
+    var d = max(SCULPT_VOX, sqrt(dot(bq, bq) + bz * bz));
+    let o = PIX_ORIGIN[shape];
+    let cell = s_pix_cell(p.xy, shape);
+    let cube = vec3<f32>(0.5 * SCULPT_VOX, 0.5 * SCULPT_VOX, 0.07);
     for (var j = -1; j <= 1; j++) {
         for (var i = -1; i <= 1; i++) {
-            let id = cell + vec2<f32>(f32(i), f32(j));
-            let q = vec3<f32>(p.xy - (o + (id + vec2<f32>(0.5)) * SCULPT_VOX), p.z);
-            if s_occ(id, shape) {
-                dF = min(dF, s_round_box(q - vec3<f32>(0.0, 0.0, SCULPT_HOVER + 0.1), half_cell, 0.009));
-            }
-            if s_occ_back(id, shape) {
-                dB = min(dB, s_round_box(q - vec3<f32>(0.0, 0.0, SCULPT_HOVER + 0.04), half_cell, 0.009));
+            let c = cell.x + i;
+            let r = cell.y + j;
+            if s_pix_body(shape, c, r) {
+                let q = vec3<f32>(p.x - o.x - (f32(c) + 0.5) * SCULPT_VOX, p.y - o.y + (f32(r) + 0.5) * SCULPT_VOX,
+                                  p.z - SCULPT_HOVER - 0.07);
+                d = min(d, s_round_box(q, cube, 0.006));
             }
         }
     }
-    return select(vec2<f32>(dB, 7.0), vec2<f32>(dF, 6.0), dF < dB);
+    return vec2<f32>(d, 6.0);
 }
 
-fn s_pixel_hand_dist(p: vec2<f32>) -> f32 {
+fn s_pixel_outline(p: vec2<f32>, shape: i32) -> f32 {
     var d = 1e9;
-    for (var r = 0; r < 17; r++) {
-        let x = (SCULPT_HANDSPAN[r] + vec2<f32>(-3.5, -2.5)) * SCULPT_VOX;
-        let y = vec2<f32>(-f32(r), 1.0 - f32(r)) * SCULPT_VOX;
-        let q = max(max(vec2<f32>(x.x, y.x) - p, p - vec2<f32>(x.y, y.y)), vec2<f32>(0.0));
-        d = min(d, length(q));
+    for (var i = PIX_RECT_N[shape]; i < PIX_RECT_N[shape + 1]; i++) {
+        let q = abs(p - PIX_RECT[i].xy) - PIX_RECT[i].zw;
+        d = min(d, length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0));
     }
     return d;
 }
 
-fn s_gem_edge(p: vec3<f32>, a: vec2<f32>, b: vec2<f32>, z0: f32) -> f32 {
-    let e = b - a;
-    let len = length(e);
-    let d = e / len;
-    let q = p.xy - a;
-    let dist = dot(q, vec2<f32>(-d.y, d.x));
-    let along = abs(dot(q, d) - 0.5 * len);
-    let z = p.z - z0;
-    let girdle = (z - 0.035 - 2.2 * dist) * 0.4138;
-    let crown = (z - 0.07 - 0.6 * dist + 0.18 * along) * 0.8438;
-    return max(-dist, max(girdle, crown));
+// ---- Prism Glow : un cristal en MAILLAGE ---- (port du HLSL, dont les commentaires font foi)
+// Les facettes tracees sur son dessin, en triangles dans le repere du modele ; le serti est la
+// silhouette extrudee (champ de distance), le cristal est lance de rayons boite par boite.
+// prism mesh: generated by design/cursors/prism-glow/model/export_compositor.py
+var<private> PRISM_TRI_START = array<i32, 2>(0, 31);
+var<private> PRISM_TRI_COUNT = array<i32, 2>(31, 130);
+var<private> PRISM_SIL_START = array<i32, 2>(0, 25);
+var<private> PRISM_SIL_COUNT = array<i32, 2>(25, 42);
+var<private> PRISM_OUT_START = array<i32, 2>(67, 76);
+var<private> PRISM_OUT_COUNT = array<i32, 2>(9, 34);
+var<private> PRISM_BOX_START = array<i32, 2>(0, 4);
+var<private> PRISM_BOX_COUNT = array<i32, 2>(4, 18);
+struct PrismMesh {
+    tris: array<vec4<f32>, 644>,
+    poly: array<vec4<f32>, 110>,
+    boxes: array<vec4<f32>, 44>,
 }
+const PRISM_BEVEL: f32 = 0.012883;
+// end of the prism mesh
 
-fn s_gem_arrow(p: vec3<f32>) -> f32 {
-    let z0 = SCULPT_HOVER + 0.03;
-    let slab = max(p.z - z0 - 0.2, z0 - 0.03 - p.z);
-    let head = max(slab, max(s_gem_edge(p, vec2<f32>(-0.02, 0.03), vec2<f32>(-0.02, -0.88), z0),
-                         max(s_gem_edge(p, vec2<f32>(-0.02, -0.88), vec2<f32>(0.66, -0.61), z0),
-                             s_gem_edge(p, vec2<f32>(0.66, -0.61), vec2<f32>(-0.02, 0.03), z0))));
-    let tail = max(slab, max(max(s_gem_edge(p, vec2<f32>(0.215, -0.665), vec2<f32>(0.37, -1.0), z0),
-                                 s_gem_edge(p, vec2<f32>(0.37, -1.0), vec2<f32>(0.53, -0.93), z0)),
-                             max(s_gem_edge(p, vec2<f32>(0.53, -0.93), vec2<f32>(0.38, -0.60), z0),
-                                 s_gem_edge(p, vec2<f32>(0.38, -0.60), vec2<f32>(0.215, -0.665), z0))));
-    return min(head, tail);
-}
+const PRISM_IOR: f32 = 1.61;
+const PRISM_DISPERSION: f32 = 0.035;
+const PRISM_GLOW: f32 = 0.45;
+const PRISM_FOLD: f32 = 0.35;
+const PRISM_BOUNCES: i32 = 6;
+const PRISM_MAT: f32 = 9.0;
 
-fn s_facet_capsule(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>, r: f32, spin: f32) -> f32 {
-    let u = normalize(b - a);
-    let v = normalize(cross(u, vec3<f32>(0.0, 0.0, 1.0)));
-    let w = cross(u, v);
-    let q = p - b;
-    let h = dot(q, u);
-    let rad = vec2<f32>(dot(q, v), dot(q, w));
-    var d = max(h - r, -dot(p - a, u) - r);
-    for (var k = 0; k < 6; k++) {
-        let an = spin + f32(k) * 1.0471976;
-        let s = dot(rad, vec2<f32>(cos(an), sin(an)));
-        d = max(d, s - r);
-        d = max(d, dot(rad, vec2<f32>(cos(an + 0.5236), sin(an + 0.5236))) * 0.8660 + h * 0.5 - r);
-        d = max(d, s * 0.5 + h * 0.8660 - r);
+fn prism_shape() -> i32 {
+    let id = sculpt_id();
+    if id == 3 || id == 4 {
+        return id - 3;
     }
-    return d;
+    return -1;
 }
 
-const SCULPT_FACETS = array<vec3<f32>, 10>(
-    vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0),
-    vec3<f32>(0.7071, 0.7071, 0.0), vec3<f32>(0.7071, 0.0, 0.7071), vec3<f32>(0.0, 0.7071, 0.7071),
-    vec3<f32>(0.5774, 0.5774, 0.5774), vec3<f32>(0.4472, 0.0, 0.8944), vec3<f32>(0.0, 0.4472, 0.8944),
-    vec3<f32>(0.3015, 0.3015, 0.9045)
-);
+// Drapeaux d'un triangle : paroi (bit 0), aretes reelles (bits 1 a 3).
+fn prism_flags(k: i32) -> i32 {
+    return i32(prism.tris[4 * k].w + 0.5);
+}
 
-fn s_facet_ellipsoid(p: vec3<f32>, r: vec3<f32>) -> f32 {
-    let q = abs(p);
-    var d = -1e9;
-    for (var i = 0; i < 10; i++) {
-        d = max(d, dot(q, SCULPT_FACETS[i]) - length(r * SCULPT_FACETS[i]));
+fn prism_poly_dist(p: vec2<f32>, i0: i32, n: i32) -> f32 {
+    var vj = prism.poly[i0 + n - 1].xy;
+    var d = 1e9;
+    var sgn = 1.0;
+    for (var i = 0; i < n; i++) {
+        let vi = prism.poly[i0 + i].xy;
+        let e = vj - vi;
+        let w = p - vi;
+        let b = w - e * saturate(dot(w, e) / dot(e, e));
+        d = min(d, dot(b, b));
+        let c0 = p.y >= vi.y;
+        let c1 = p.y < vj.y;
+        let c2 = e.x * w.y > e.y * w.x;
+        if (c0 && c1 && c2) || (!c0 && !c1 && !c2) {
+            sgn = -sgn;
+        }
+        vj = vi;
     }
-    return d;
+    return sgn * sqrt(d);
 }
 
-fn s_crystal_hand(p: vec3<f32>) -> f32 {
-    let zc = SCULPT_HAND_ZC;
-    var d = s_facet_ellipsoid(p - vec3<f32>(0.185, -0.70, zc), vec3<f32>(0.3, 0.235, 0.125));
-    d = min(d, s_facet_capsule(p, vec3<f32>(0.0, -0.52, zc), vec3<f32>(0.0, -0.10, zc), 0.098, 0.3));
-    d = min(d, s_facet_capsule(p, vec3<f32>(0.17, -0.57, zc + 0.012), vec3<f32>(0.17, -0.41, zc + 0.045), 0.086, 0.1));
-    d = min(d, s_facet_capsule(p, vec3<f32>(0.31, -0.59, zc + 0.01), vec3<f32>(0.31, -0.45, zc + 0.04), 0.08, 0.5));
-    d = min(d, s_facet_capsule(p, vec3<f32>(0.435, -0.625, zc + 0.005), vec3<f32>(0.435, -0.52, zc + 0.03), 0.07, 0.2));
-    return min(d, s_facet_capsule(p, vec3<f32>(0.03, -0.77, zc + 0.03), vec3<f32>(-0.165, -0.60, zc + 0.065), 0.082, 0.7));
+fn prism_rim(p: vec3<f32>, shape: i32) -> f32 {
+    let half_t = model_thick() * 0.5;
+    let sil = prism_poly_dist(p.xy, PRISM_SIL_START[shape], PRISM_SIL_COUNT[shape]);
+    let w = vec2<f32>(sil + PRISM_BEVEL, abs(p.z + half_t) - (half_t - PRISM_BEVEL));
+    return min(max(w.x, w.y), 0.0) + length(max(w, vec2<f32>(0.0))) - PRISM_BEVEL;
+}
+
+fn prism_tri(ro: vec3<f32>, rd: vec3<f32>, k: i32) -> f32 {
+    let v0 = prism.tris[4 * k].xyz;
+    let e1 = prism.tris[4 * k + 1].xyz;
+    let e2 = prism.tris[4 * k + 2].xyz;
+    let pv = cross(rd, e2);
+    let det = dot(e1, pv);
+    if abs(det) < 1e-10 {
+        return -1.0;
+    }
+    let inv = 1.0 / det;
+    let sv = ro - v0;
+    let u = dot(sv, pv) * inv;
+    let qv = cross(sv, e1);
+    let v = dot(rd, qv) * inv;
+    if u < -2e-4 || v < -2e-4 || u + v > 1.0004 {
+        return -1.0;
+    }
+    return dot(e2, qv) * inv;
+}
+
+// (distance, indice) du triangle du cristal `shape` le plus proche devant (ro, rd) ; (1e9, -1)
+// s'il n'y en a pas. Les triangles sont parcourus boîte par boîte (cf. HLSL).
+fn prism_trace(ro: vec3<f32>, rd: vec3<f32>, shape: i32) -> vec2<f32> {
+    let inv = vec3<f32>(1.0) / select(vec3<f32>(1e-6), rd, abs(rd) > vec3<f32>(1e-6));
+    let b0 = PRISM_BOX_START[shape];
+    let nb = PRISM_BOX_COUNT[shape];
+    var best = 1e9;
+    var hit = -1;
+    for (var j = b0; j < b0 + nb; j++) {
+        let lo = prism.boxes[2 * j];
+        let hi = prism.boxes[2 * j + 1];
+        let t0 = (lo.xyz - ro) * inv;
+        let t1 = (hi.xyz - ro) * inv;
+        let tn = min(t0, t1);
+        let tf = max(t0, t1);
+        let tmin = max(max(tn.x, tn.y), tn.z);
+        let tmax = min(min(tf.x, tf.y), tf.z);
+        if tmax < max(tmin, 1e-5) || tmin > best {
+            continue;
+        }
+        let k0 = i32(lo.w + 0.5);
+        let n = i32(hi.w + 0.5);
+        for (var i = k0; i < k0 + n; i++) {
+            let t = prism_tri(ro, rd, i);
+            if t > 1e-5 && t < best {
+                best = t;
+                hit = i;
+            }
+        }
+    }
+    return vec2<f32>(best, f32(hit));
 }
 
 fn sculpt_proto(p: vec3<f32>, theme: i32, shape: i32) -> vec2<f32> {
     if theme == 3 {
         return s_voxels(p, shape);
     }
-    if theme == 1 {
-        return vec2<f32>(select(s_crystal_hand(p), s_gem_arrow(p), shape == 0), 8.0);
-    }
-    var body: vec2<f32>;
-    var star: vec3<f32>;
-    if shape == 0 {
-        var h = 0.075;
-        var re = 0.03;
-        var dome = 0.0;
-        if theme == 2 {
-            h = 0.07;
-            re = 0.06;
-            dome = 0.035;
-        }
-        if theme == 4 {
-            h = 0.07;
-            re = 0.055;
-            dome = 0.025;
-        }
-        body = vec2<f32>(s_arrow_solid(p, h, re, dome), 1.0);
-        if theme == 0 {
-            body = s_opu(body, vec2<f32>(s_piping(p, SCULPT_HOVER + 2.0 * h - 0.004), 2.0));
-        }
-        star = vec3<f32>(0.57, -0.86, SCULPT_HOVER + 2.0 * h + dome);
-    } else {
-        body = s_opu(vec2<f32>(s_glove(p, SCULPT_HAND_ZC), 1.0), vec2<f32>(s_cuff(p, SCULPT_HAND_ZC), 2.0));
-        star = vec3<f32>(0.185, -0.93, SCULPT_HAND_ZC + 0.15);
-    }
-    if theme == 4 {
-        return s_opu(body, s_sprout(p, star));
-    }
-    return body;
+    return s_rimmed(p, theme, shape);
 }
 
 fn sculpt_point(q: vec3<f32>) -> vec3<f32> {
@@ -940,14 +1105,18 @@ fn sculpt_eval(q: vec3<f32>, occ: bool) -> vec2<f32> {
     let id = sculpt_id() - 1;
     let theme = id / 2;
     let shape = id % 2;
+    if theme == 1 {
+        // Prism Glow : son serti seul, dans le repere du modele (le cristal est trace a part).
+        return vec2<f32>(prism_rim(q, shape), 8.0);
+    }
     let p = sculpt_point(q);
     var r: vec2<f32>;
     if occ && theme == 3 {
-        let d2 = select(s_pixel_hand_dist(p.xy), s_arrow2(p.xy) - 1.2 * SCULPT_VOX, shape == 0);
+        let d2 = s_pixel_outline(p.xy, shape);
         let dz = abs(p.z - (SCULPT_HOVER + 0.07)) - 0.07;
         r = vec2<f32>(length(max(vec2<f32>(d2, dz), vec2<f32>(0.0))) + min(max(d2, dz), 0.0), 7.0);
     } else {
-        r = sculpt_proto(p, select(theme, 2, occ && theme == 1), shape);
+        r = sculpt_proto(p, theme, shape);
     }
     return vec2<f32>(r.x * sculpt_units(), r.y);
 }
@@ -956,7 +1125,7 @@ fn sd_sprite2(p: vec2<f32>) -> f32 {
     let lo = layer.color.rg;
     let c = clamp(p, lo, lo + sprite_size());
     // Niveau 0 explicite : la marche est une boucle a sortie anticipee (pas de derivees).
-    let d = textureSampleLevel(texU, samp, (c - lo) / sprite_size(), 0.0).r;
+    let d = textureSampleLevel(texMask, samp, (c - lo) / sprite_size(), 0.0).r;
     let o = p - c;
     let out2 = dot(o, o);
     let e = max(d, 0.0);
@@ -1016,7 +1185,7 @@ fn model_albedo(p: vec2<f32>) -> vec3<f32> {
     let g = vec2<f32>(sd_sprite2(p + vec2<f32>(e, 0.0)) - sd_sprite2(p - vec2<f32>(e, 0.0)),
                       sd_sprite2(p + vec2<f32>(0.0, e)) - sd_sprite2(p - vec2<f32>(0.0, e)));
     let q = p - g / max(length(g), 1e-6) * max(sd_sprite2(p) + MODEL_RIM_INSET * texel, 0.0);
-    return textureSampleLevel(texY, samp, (q - layer.color.rg) / sprite_size(), 0.0).rgb;
+    return textureSampleLevel(texDof, samp, (q - layer.color.rg) / sprite_size(), 0.0).rgb;
 }
 
 struct SculptMat {
@@ -1028,61 +1197,60 @@ struct SculptMat {
 }
 
 fn s_pixel_colour(p: vec3<f32>, shape: i32) -> vec3<f32> {
-    let id = floor((p.xy - s_grid_origin(shape)) / SCULPT_VOX);
-    if !s_occ(id + vec2<f32>(-1.0, 0.0), shape) || !s_occ(id + vec2<f32>(0.0, -1.0), shape) {
-        return s_lin(0.52, 0.91, 0.77);
+    let cell = s_pix_cell(p.xy, shape);
+    let g = PIX_GRID[shape];
+    let row = g.z + clamp(cell.y, 0, g.y - 1);
+    if s_pix_bit(PIX_LINE[row], cell.x) {
+        return s_lin(0.29, 0.12, 0.36);
     }
-    if !s_occ(id + vec2<f32>(1.0, 0.0), shape) || !s_occ(id + vec2<f32>(0.0, 1.0), shape) {
+    if s_pix_bit(PIX_HI[row], cell.x) {
         return s_lin(1.0, 0.78, 0.87);
     }
-    return s_lin(1.0, 0.50, 0.71);
+    if s_pix_bit(PIX_SHADE[row], cell.x) {
+        return s_lin(0.87, 0.27, 0.51);
+    }
+    return s_lin(1.0, 0.435, 0.66);
 }
 
 fn sculpt_material(mat: f32, p: vec3<f32>, theme: i32, shape: i32) -> SculptMat {
     let primary = mat < 1.5;
     if theme == 0 {
-        if shape == 0 && primary {
-            return SculptMat(s_lin(0.10, 0.10, 0.115), 0.3, 0.2, 0.0, 0.9);
+        if mat < 2.5 {
+            return SculptMat(s_lin(0.95, 0.92, 0.85), 0.3, 0.6, 0.35, 0.25);
         }
-        if shape == 0 {
-            return SculptMat(s_lin(0.94, 0.91, 0.84), 0.45, 0.4, 0.2, 0.3);
-        }
-        if primary {
-            return SculptMat(s_lin(0.95, 0.92, 0.85), 0.55, 0.35, 0.35, 0.25);
-        }
-        return SculptMat(s_lin(0.17, 0.18, 0.22), 0.35, 0.6, 0.0, 0.6);
+        return SculptMat(s_lin(0.1, 0.1, 0.11), 0.55, 0.05, 0.0, 0.1);
+    }
+    if theme == 1 {
+        return SculptMat(s_lin(0.02, 0.05, 0.33), 0.35, 0.5, 0.05, 0.3);
     }
     if theme == 2 {
-        if shape == 0 {
-            return SculptMat(s_lin(1.0, 0.40, 0.30), 0.5, 0.45, 0.4, 0.25);
+        if (primary && shape == 0) || (mat > 2.5 && mat < 3.5 && shape == 1) {
+            return SculptMat(s_lin(1.0, 0.40, 0.30), 0.85, 0.08, 0.15, 0.03);
         }
-        if primary {
-            return SculptMat(s_lin(1.0, 0.79, 0.16), 0.5, 0.45, 0.4, 0.25);
+        if mat < 3.5 {
+            return SculptMat(s_lin(1.0, 0.80, 0.10), 0.85, 0.08, 0.15, 0.03);
         }
-        return SculptMat(s_lin(0.18, 0.20, 0.29), 0.4, 0.5, 0.0, 0.4);
+        return SculptMat(s_lin(0.09, 0.13, 0.45), 0.9, 0.05, 0.05, 0.02);
     }
     if theme == 4 {
         if primary && shape == 0 {
-            return SculptMat(s_lin(0.62, 0.91, 0.78), 0.22, 0.8, 0.25, 0.6);
+            return SculptMat(s_lin(0.68, 0.93, 0.80), 0.25, 0.7, 0.3, 0.3);
         }
         if primary {
-            return SculptMat(s_lin(0.96, 0.94, 0.88), 0.5, 0.35, 0.35, 0.25);
+            return SculptMat(s_lin(0.97, 0.95, 0.90), 0.3, 0.6, 0.35, 0.25);
         }
         if mat < 2.5 {
-            return SculptMat(s_lin(0.62, 0.91, 0.78), 0.25, 0.7, 0.25, 0.5);
+            return SculptMat(s_lin(0.52, 0.87, 0.78), 0.25, 0.7, 0.3, 0.3);
         }
         if mat < 3.5 {
-            return SculptMat(s_lin(1.0, 0.80, 0.20), 0.3, 0.6, 0.3, 0.4);
+            return SculptMat(s_lin(1.0, 0.75, 0.25), 0.25, 0.7, 0.3, 0.3);
         }
         if mat < 4.5 {
-            return SculptMat(s_lin(0.38, 0.80, 0.55), 0.35, 0.5, 0.35, 0.3);
+            return SculptMat(s_lin(0.62, 0.92, 0.72), 0.3, 0.6, 0.3, 0.35);
         }
-        return SculptMat(s_lin(0.16, 0.12, 0.10), 0.2, 0.8, 0.0, 0.5);
+        return SculptMat(s_lin(0.07, 0.15, 0.33), 0.7, 0.15, 0.05, 0.08);
     }
-    if mat < 6.5 {
-        return SculptMat(s_pixel_colour(p, shape), 0.45, 0.35, 0.15, 0.2);
-    }
-    return SculptMat(s_lin(0.36, 0.18, 0.54), 0.45, 0.35, 0.1, 0.2);
+    return SculptMat(s_pixel_colour(p, shape), 0.65, 0.1, 0.12, 0.04);
 }
 
 fn model_env(d: vec3<f32>, rough: f32, l: vec3<f32>, fill: vec3<f32>) -> vec3<f32> {
@@ -1091,36 +1259,6 @@ fn model_env(d: vec3<f32>, rough: f32, l: vec3<f32>, fill: vec3<f32>) -> vec3<f3
     let k = 1.0 - rough * 0.6;
     col = col + s_lin(1.0, 0.97, 0.92) * 5.0 * k * smoothstep(0.90 - w, 0.97, dot(d, l));
     col = col + s_lin(0.85, 0.9, 1.0) * 1.6 * k * smoothstep(0.93 - w, 0.98, dot(d, fill));
-    return col;
-}
-
-fn s_gem(k0: f32) -> vec3<f32> {
-    let k = saturate(k0) * 3.0;
-    let a = s_lin(0.20, 0.95, 1.0);
-    let b = s_lin(0.15, 0.42, 1.0);
-    let c = s_lin(0.45, 0.25, 0.95);
-    let d = s_lin(0.88, 0.50, 1.0);
-    if k < 1.0 {
-        return mix(a, b, k);
-    }
-    if k < 2.0 {
-        return mix(b, c, k - 1.0);
-    }
-    return mix(c, d, k - 2.0);
-}
-
-fn model_shade_crystal(n: vec3<f32>, rd: vec3<f32>, L: vec3<f32>, fall: f32, l: vec3<f32>, fill: vec3<f32>) -> vec3<f32> {
-    let cosi = saturate(dot(-rd, n));
-    let F = 0.04 + 0.96 * pow(1.0 - cosi, 5.0);
-    let t = refract(rd, n, 1.0 / 1.6);
-    let k = 0.42 + 0.9 * dot(vec2<f32>(n.x, -n.y), vec2<f32>(0.7557, -0.6549))
-          + 0.6 * dot(vec2<f32>(t.x, -t.y), vec2<f32>(0.6, -0.8));
-    let body = vec3<f32>(s_gem(k - 0.08).r, s_gem(k).g, s_gem(k + 0.08).b);
-    var col = body * (0.1 + 1.8 * fall * pow(max(dot(n, L), 0.0), 2.5));
-    col = col + body * model_env(reflect(t, vec3<f32>(0.0, 0.0, 1.0)) * vec3<f32>(1.0, 1.0, -1.0), 0.15, l, fill) * 0.5;
-    col = col + vec3<f32>(pow(max(dot(reflect(rd, n), L), 0.0), 30.0) * 2.0);
-    col = col + model_env(reflect(rd, n), 0.05, l, fill) * F;
-    col = col + s_lin(0.5, 0.9, 1.0) * pow(1.0 - cosi, 4.0) * 0.6;
     return col;
 }
 
@@ -1142,14 +1280,15 @@ fn model_tonemap(c0: vec3<f32>) -> vec3<f32> {
 fn model_shade(q: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, L: vec3<f32>, fall: f32, sh: f32, ao: f32, mat: f32,
                l: vec3<f32>, fill: vec3<f32>) -> vec3<f32> {
     let id = sculpt_id();
-    if id > 0 && (id - 1) / 2 == 1 {
-        return model_tonemap(model_shade_crystal(n, rd, L, fall, l, fill));
-    }
     var m: SculptMat;
     var gloss = 1.0;
     if id > 0 {
         let p = sculpt_point(q) - vec3<f32>(n.x, -n.y, n.z) * 0.01;
         m = sculpt_material(mat, p, (id - 1) / 2, (id - 1) % 2);
+        if id == 3 || id == 4 {
+            // Le serti de Prism Glow, comme un sprite : brillant sur son arrondi seulement.
+            gloss = 1.0 - smoothstep(0.97, 0.995, abs(n.z));
+        }
     } else {
         m = SculptMat(pow(model_albedo(q.xy), vec3<f32>(2.2)), 0.45, 0.35, 0.2, 0.3);
         gloss = 1.0 - smoothstep(0.97, 0.995, abs(n.z));
@@ -1171,13 +1310,160 @@ fn model_shade(q: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, L: vec3<f32>, fall: f3
     return model_tonemap(col);
 }
 
+// ---- Le cristal de Prism Glow ----
+
+fn prism_fresnel(c: f32, ior: f32) -> f32 {
+    var f0 = (ior - 1.0) / (ior + 1.0);
+    f0 = f0 * f0;
+    return f0 + (1.0 - f0) * pow(1.0 - c, 5.0);
+}
+
+// (distance, facette) du cristal sur le rayon ; (1e9, -1) si rate, hors de Prism Glow, ou sur une
+// paroi sous le dessus du serti (le rayon a traverse le serti avant).
+fn prism_primary(ro: vec3<f32>, rd: vec3<f32>) -> vec2<f32> {
+    let shape = prism_shape();
+    if shape < 0 {
+        return vec2<f32>(1e9, -1.0);
+    }
+    let r = prism_trace(ro, rd, shape);
+    let h = i32(r.y);
+    if h >= 0 && (prism_flags(h) & 1) == 1 && ro.z + rd.z * r.x < 0.0 {
+        return vec2<f32>(1e9, -1.0);
+    }
+    return r;
+}
+
+fn prism_normal(h: i32, rd: vec3<f32>) -> vec3<f32> {
+    let n = prism.tris[4 * h + 3].xyz;
+    return select(n, -n, dot(n, rd) > 0.0);
+}
+
+fn prism_seg(p: vec3<f32>, a: vec3<f32>, b: vec3<f32>) -> f32 {
+    let pa = p - a;
+    let ba = b - a;
+    return length(pa - ba * saturate(dot(pa, ba) / dot(ba, ba)));
+}
+
+// Distance, en pixels, de `p` aux aretes reelles de la facette `h` (plis et bord du serti).
+fn prism_edge_px(p: vec3<f32>, h: i32, px: f32) -> f32 {
+    let a = prism.tris[4 * h].xyz;
+    let b = a + prism.tris[4 * h + 1].xyz;
+    let c = a + prism.tris[4 * h + 2].xyz;
+    let bits = prism_flags(h) >> 1u;
+    var d = 1e9;
+    if (bits & 1) != 0 {
+        d = min(d, prism_seg(p, b, c));
+    }
+    if (bits & 2) != 0 {
+        d = min(d, prism_seg(p, c, a));
+    }
+    if (bits & 4) != 0 {
+        d = min(d, prism_seg(p, a, b));
+    }
+    return d / px;
+}
+
+// La rotation inverse de `world_to_plane` : du repere du plan a celui de la camera.
+fn plane_to_world(v: vec3<f32>, f: ModelFrame) -> vec3<f32> {
+    let x = v.x * f.c.z - v.y * f.s.z;
+    let y = v.x * f.s.z + v.y * f.c.z;
+    let z = -x * f.s.y + v.z * f.c.y;
+    return vec3<f32>(x * f.c.y + v.z * f.s.y, y * f.c.x - z * f.s.x, y * f.s.x + z * f.c.x);
+}
+
+// L'image composee la ou le rayon retombe sur le plan (cf. HLSL) : sa copie au binding 1.
+fn prism_screen(q: vec3<f32>, d: vec3<f32>, nz: vec3<f32>, hz: f32, tip: vec3<f32>, unit: f32, f: ModelFrame) -> vec3<f32> {
+    let denom = dot(d, nz);
+    if denom > -1e-4 {
+        return SCULPT_SCREEN * 0.2;
+    }
+    let g = q + d * ((hz - dot(q, nz)) / denom);
+    let w = plane_to_world(tip + unit * model_to_plane(g, f), f);
+    let k = 1.0 - w.z / layer.src.z;
+    if k < 1e-3 {
+        return SCULPT_SCREEN * 0.2;
+    }
+    let uv = layer.dst.xy + ((w.xy + layer.mb.zw) / k - layer.src.xy) / layer.quad_px * layer.dst.zw;
+    if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) {
+        return SCULPT_SCREEN * 0.2;
+    }
+    return pow(textureSampleLevel(texY, samp, uv, 0.0).rgb, vec3<f32>(2.2));
+}
+
+fn prism_shade(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, h: i32, px: f32, l: vec3<f32>, fill: vec3<f32>,
+               nz: vec3<f32>, hz: f32, tip: vec3<f32>, unit: f32, f: ModelFrame) -> vec3<f32> {
+    let shape = prism_shape();
+    let facet = vec3<f32>(prism.tris[4 * h + 1].w, prism.tris[4 * h + 2].w, prism.tris[4 * h + 3].w);
+    let F = prism_fresnel(saturate(-dot(rd, n)), PRISM_IOR);
+    let zb = -model_thick();
+    var trans = vec3<f32>(0.0);
+    for (var ch = 0; ch < 3; ch++) {
+        // Le rouge plie le moins, le bleu le plus ; le canal passe par un masque (comme au HLSL).
+        let mask = vec3<f32>(f32(ch == 0), f32(ch == 1), f32(ch == 2));
+        let ior = PRISM_IOR + PRISM_DISPERSION * f32(ch - 1);
+        var d = refract(rd, n, 1.0 / ior);
+        var pos = p;
+        var thr = 1.0;
+        var acc = 0.0;
+        for (var b = 0; b < PRISM_BOUNCES; b++) {
+            let hit = prism_trace(pos, d, shape);
+            let hh = i32(hit.y);
+            let th = hit.x;
+            var tb = 1e9;
+            if d.z < -1e-6 {
+                tb = (zb - pos.z) / d.z;
+            }
+            if tb <= th {
+                let qb = pos + d * tb;
+                let d2 = refract(d, vec3<f32>(0.0, 0.0, 1.0), ior);
+                if dot(d2, d2) < 1e-8 {
+                    pos = qb;
+                    d = reflect(d, vec3<f32>(0.0, 0.0, 1.0));
+                    continue;
+                }
+                acc = acc + thr * dot(prism_screen(qb, d2, nz, hz, tip, unit, f), mask);
+                thr = 0.0;
+                break;
+            }
+            if hh < 0 {
+                break;
+            }
+            pos = pos + d * th;
+            let rn = prism.tris[4 * hh + 3].xyz;
+            if (prism_flags(hh) & 1) == 1 && pos.z < 0.0 {
+                acc = acc + thr * dot(s_lin(0.03, 0.06, 0.37) * 0.35, mask);
+                thr = 0.0;
+                break;
+            }
+            let dout = refract(d, -rn, ior);
+            if dot(dout, dout) < 1e-8 {
+                d = reflect(d, -rn);
+                continue;
+            }
+            let fi = prism_fresnel(saturate(dot(dout, rn)), ior);
+            acc = acc + thr * (1.0 - fi) * dot(model_env(dout, 0.05, l, fill), mask);
+            thr = thr * fi;
+            d = reflect(d, -rn);
+        }
+        trans = trans + acc * mask;
+    }
+    var col = F * model_env(reflect(rd, n), 0.05, l, fill) + (1.0 - F) * trans + facet * PRISM_GLOW;
+    let fold = 1.0 - smoothstep(0.2, 1.0, prism_edge_px(p, h, px));
+    col = mix(col, s_lin(0.96, 0.99, 1.0) * 1.3, PRISM_FOLD * fold * (0.35 + 0.65 * saturate(dot(n, l))));
+    return model_tonemap(col);
+}
+
 // Les passes de la boucle unique de `cursor_model` (cf. HLSL : un seul appel de `model_eval`).
 const STAGE_MARCH: i32 = 0;
 const STAGE_NORMAL: i32 = 1;
 const STAGE_AO: i32 = 2;
 const STAGE_SELF: i32 = 3;
 const STAGE_PLANE: i32 = 4;
-const STAGE_DONE: i32 = 5;
+const STAGE_EDGE: i32 = 5;
+const STAGE_SHADE: i32 = 6;
+const STAGE_DONE: i32 = 7;
+
+const MODEL_SUBPIXEL = array<vec2<f32>, 3>(vec2<f32>(0.35, 0.2), vec2<f32>(-0.35, 0.2), vec2<f32>(0.0, -0.4));
 
 fn model_tetra(k: i32) -> vec3<f32> {
     let b = vec3<f32>(f32(((k + 3) >> 1u) & 1), f32((k >> 1u) & 1), f32(k & 1));
@@ -1199,7 +1485,7 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
     let hi = vec3<f32>(layer.color.rg + sprite_size(), layer.trail_a.z);
 
     let dw = vec3<f32>(local + layer.src.xy, -persp);
-    let dlen = length(dw);
+    var dlen = length(dw);
     // Plan translate de mb.zw dans le repere camera (camera reelle ; 0 sous un angle fixe).
     let ro = plane_to_model((world_to_plane(vec3<f32>(-layer.mb.z, -layer.mb.w, persp), f) - tip) / unit, f);
     let rd = plane_to_model(world_to_plane(dw / dlen, f), f);
@@ -1210,15 +1496,22 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
     let stride = select(1.0, 0.85, sculpt_id() > 0);
     let lamp = vec3<f32>(layer.color.rg + sprite_size() * 0.5, 0.0) + l * SCULPT_LAMP_DIST;
 
-    let tb = ray_box(ro, rd, lo - vec3<f32>(0.02), hi + vec3<f32>(0.02));
+    var ray = rd;
+    var tb = ray_box(ro, ray, lo - vec3<f32>(0.02), hi + vec3<f32>(0.02));
     var stage = select(STAGE_DONE, STAGE_MARCH, tb.x < tb.y && tb.y > 0.0);
     var plane_next = stage == STAGE_DONE;
+    // Prism Glow : le cristal, trace au depart de chaque rayon (`tc` son point, `hc` sa facette).
+    var need_tc = stage == STAGE_MARCH;
+    var tc = 1e9;
+    var hc = -1;
     var k = 0;
     var t = max(tb.x, 0.0);
     var best = 1e9;
     var t_best = t;
+    var d_best = 0.0;
     var mat = 0.0;
     var cov = 0.0;
+    var cov_s = 0.0;
     var q = vec3<f32>(0.0);
     var n = vec3<f32>(0.0);
     var L = vec3<f32>(0.0);
@@ -1230,10 +1523,19 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
     var inside = 0.0;
     var contact = 0.0;
     var dropped = 0.0;
-    for (var it = 0; it < 180; it++) {
+    var sub = 0;
+    var shaded = 0;
+    var acc = vec4<f32>(0.0);
+    for (var it = 0; it < 500; it++) {
+        if need_tc {
+            need_tc = false;
+            let pr = prism_primary(ro, ray);
+            tc = pr.x;
+            hc = i32(pr.y);
+        }
         if plane_next {
             plane_next = false;
-            stage = STAGE_DONE;
+            stage = select(STAGE_DONE, STAGE_SHADE, cov > 0.0);
             let denom = dot(rd, nz);
             if cov < 1.0 && denom < -1e-4 {
                 g = ro + rd * ((hz - dot(ro, nz)) / denom);
@@ -1246,11 +1548,48 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
                 }
             }
         }
+        if stage == STAGE_SHADE {
+            if cov_s > 0.0 {
+                var c: vec3<f32>;
+                if mat > PRISM_MAT - 0.5 {
+                    c = prism_shade(q, n, ray, hc, t_best / dlen, l, fill, nz, hz, tip, unit, f);
+                } else {
+                    let tl = lamp - q;
+                    let fall = SCULPT_LAMP_DIST * SCULPT_LAMP_DIST / dot(tl, tl);
+                    c = model_shade(q, n, ray, normalize(tl), fall, sh, ao, mat, l, fill);
+                }
+                acc = acc + vec4<f32>(c * cov_s, cov_s);
+            }
+            shaded++;
+            stage = STAGE_DONE;
+            if sub > 0 {
+                let dws = vec3<f32>(local + MODEL_SUBPIXEL[3 - sub] + layer.src.xy, -persp);
+                sub--;
+                dlen = length(dws);
+                ray = plane_to_model(world_to_plane(dws / dlen, f), f);
+                tb = ray_box(ro, ray, lo - vec3<f32>(0.02), hi + vec3<f32>(0.02));
+                cov_s = 0.0;
+                stage = STAGE_SHADE;
+                if tb.x < tb.y && tb.y > 0.0 {
+                    stage = STAGE_MARCH;
+                    k = 0;
+                    t = max(tb.x, 0.0);
+                    best = 1e9;
+                    t_best = t;
+                    need_tc = true;
+                }
+            }
+            continue;
+        }
         var pos: vec3<f32>;
         if stage == STAGE_MARCH {
-            pos = ro + rd * t;
+            pos = ro + ray * t;
         } else if stage == STAGE_NORMAL {
             pos = q + 0.002 * model_tetra(k);
+        } else if stage == STAGE_EDGE {
+            let side = normalize(cross(n, ray));
+            let e = select(side, cross(n, side), k >= 2) * select(1.0, -1.0, k % 2 == 1);
+            pos = q + e * 0.5 * t_best / dlen;
         } else if stage == STAGE_AO {
             pos = q + (0.01 + 0.0175 * f32(k)) * SCULPT_SCALE * n;
         } else if stage == STAGE_SELF {
@@ -1264,22 +1603,57 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
         let d = m.x;
         if stage == STAGE_MARCH {
             let fp = t / dlen;
-            let hit = d < 0.1 * fp;
+            var hit = d < 0.1 * fp;
             if hit || d / fp < best {
                 best = select(d / fp, 0.0, hit);
                 t_best = t;
+                d_best = d;
                 mat = m.y;
             }
             t = t + d * stride;
             k++;
+            if !hit && t >= tc {
+                // Le pas depasse le cristal : c'est lui que le rayon touche, avant le serti.
+                hit = true;
+                best = 0.0;
+                t_best = tc;
+                d_best = 0.0;
+                mat = PRISM_MAT;
+            }
             if hit || t > tb.y || k == 96 {
-                cov = saturate(1.0 - best);
-                if cov > 0.0 {
-                    q = ro + rd * t_best;
-                    stage = STAGE_NORMAL;
-                    k = 0;
+                cov_s = saturate(1.0 - best);
+                if shaded > 0 {
+                    stage = STAGE_SHADE;
+                    if cov_s > 0.0 {
+                        q = ro + ray * t_best;
+                        n = vec3<f32>(0.0);
+                        stage = STAGE_NORMAL;
+                        k = 0;
+                    }
                 } else {
-                    plane_next = true;
+                    cov = cov_s;
+                    if cov > 0.0 {
+                        q = ro + ray * t_best;
+                        stage = STAGE_NORMAL;
+                        k = 0;
+                    } else {
+                        plane_next = true;
+                    }
+                }
+                if stage == STAGE_NORMAL && mat > PRISM_MAT - 0.5 {
+                    // Le cristal : la normale de sa facette, ni occlusion ni ombre propre ; un bord
+                    // reel a moins d'un pixel appelle les trois rayons de plus.
+                    n = prism_normal(hc, ray);
+                    k = 0;
+                    if shaded > 0 {
+                        stage = STAGE_SHADE;
+                    } else {
+                        if prism_edge_px(q, hc, t_best / dlen) < 0.75 {
+                            sub = 3;
+                        }
+                        stage = STAGE_DONE;
+                        plane_next = true;
+                    }
                 }
             }
         } else if stage == STAGE_NORMAL {
@@ -1287,6 +1661,25 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
             k++;
             if k == 4 {
                 n = normalize(n);
+                k = 0;
+                stage = select(STAGE_EDGE, STAGE_SHADE, shaded > 0);
+            }
+        } else if stage == STAGE_EDGE {
+            if m.y != mat || abs(d - d_best) > 0.02 * t_best / dlen {
+                sub = 3;
+            }
+            if k == 0 && mat > 7.5 {
+                // Le serti de Prism Glow au bord du cristal : son contour a moins d'un pixel.
+                let ps = prism_shape();
+                if ps >= 0 {
+                    let dout = prism_poly_dist(q.xy, PRISM_OUT_START[ps], PRISM_OUT_COUNT[ps]);
+                    if abs(dout) < 0.75 * t_best / dlen {
+                        sub = 3;
+                    }
+                }
+            }
+            k++;
+            if k == 4 {
                 stage = STAGE_AO;
                 k = 0;
                 ao = 0.0;
@@ -1323,7 +1716,7 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
             res = 1.0;
             k = 1;
             if !(tbp.x < tbp.y && tbp.y > 0.0) {
-                stage = STAGE_DONE;
+                stage = select(STAGE_DONE, STAGE_SHADE, cov > 0.0);
             }
         } else {
             res = min(res, MODEL_SOFTNESS * d / ts.x);
@@ -1332,20 +1725,15 @@ fn cursor_model(local: vec2<f32>) -> vec4<f32> {
             if res < 0.002 || ts.x > ts.y || k == 33 {
                 res = saturate(res);
                 dropped = 1.0 - res * res * (3.0 - 2.0 * res);
-                stage = STAGE_DONE;
+                stage = select(STAGE_DONE, STAGE_SHADE, cov > 0.0);
             }
         }
     }
 
-    var rgb = vec3<f32>(0.0);
-    if cov > 0.0 {
-        let tl = lamp - q;
-        let fall = SCULPT_LAMP_DIST * SCULPT_LAMP_DIST / dot(tl, tl);
-        rgb = model_shade(q, n, rd, normalize(tl), fall, sh, ao, mat, l, fill);
-    }
+    let w = 1.0 / f32(max(shaded, 1));
     let shadow = inside * max(dropped * MODEL_SHADOW_ALPHA, contact * MODEL_CONTACT_ALPHA);
-    let a = cov * layer.color.a;
-    return vec4<f32>(rgb * a, a + (1.0 - a) * shadow * layer.color.a); // premultiplie, ombre noire
+    let a = acc.a * w * layer.color.a;
+    return vec4<f32>(acc.rgb * w * layer.color.a, a + (1.0 - a) * shadow * layer.color.a); // premultiplie, ombre noire
 }
 
 // ---- Impact du clic (mode 16) ----

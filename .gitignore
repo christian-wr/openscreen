@@ -95,6 +95,9 @@ result-*
 /tools/stt-eval/whispercpp-dtw-poc/fixtures/*.wav
 /tools/stt-eval/whispercpp-dtw-poc/results/
 
+# Word-timing harness (tools/stt-eval/word-timing): TTS corpus and results.
+/tools/stt-eval/word-timing/data/
+
 opencode.json
 opencode.json
 

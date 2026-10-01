@@ -4,6 +4,8 @@ import { useAudioLevelMeter } from "../../hooks/useAudioLevelMeter";
 import type { CameraDevice } from "../../hooks/useCameraDevices";
 import { useCameraPreviewStream } from "../../hooks/useCameraPreviewStream";
 import type { MicrophoneDevice } from "../../hooks/useMicrophoneDevices";
+import { WEBCAM_QUALITY_IDS, type WebcamQualityId } from "../../hooks/webcamCaptureTarget";
+import { Tooltip } from "../ui/tooltip";
 import styles from "./LaunchWindow.module.css";
 
 const LEVEL_SEGMENTS = 12;
@@ -11,7 +13,7 @@ const LEVEL_SEGMENT_KEYS = Array.from({ length: LEVEL_SEGMENTS }, (_, i) => `seg
 
 export interface HudDeviceSettingsLabels {
 	title: string;
-	done: string;
+	close: string;
 	microphone: string;
 	camera: string;
 	micLevel: string;
@@ -25,6 +27,8 @@ export interface HudDeviceSettingsLabels {
 	about: string;
 	checkForUpdates: string;
 	checkingForUpdates: string;
+	cameraQuality: string;
+	cameraQualityOptions: Record<WebcamQualityId, string>;
 }
 
 /** Segmented input-level bar, driven by the live analyser. */
@@ -96,6 +100,8 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 	versionLabel,
 	canCheckForUpdates,
 	checkingForUpdates,
+	cameraQuality,
+	onSelectCameraQuality,
 	onSelectMic,
 	onSelectCamera,
 	onCheckForUpdates,
@@ -116,6 +122,8 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 	versionLabel: string | null;
 	canCheckForUpdates: boolean;
 	checkingForUpdates: boolean;
+	cameraQuality: WebcamQualityId;
+	onSelectCameraQuality: (quality: WebcamQualityId) => void;
 	onSelectMic: (device: MicrophoneDevice) => void;
 	onSelectCamera: (device: CameraDevice) => void;
 	onCheckForUpdates: () => void;
@@ -145,15 +153,18 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 		>
 			<div className={styles.hudModalHeader}>
 				<span className={styles.hudModalTitle}>{labels.title}</span>
-				<button
-					type="button"
-					aria-label={labels.done}
-					title={labels.done}
-					onClick={onClose}
-					className={styles.hudModalClose}
-				>
-					<X size={16} />
-				</button>
+				{/* Beside the X, not above it: the panel is the tallest thing the window reserves
+				    room for, so there may be little left over its header. */}
+				<Tooltip content={labels.close} side="left">
+					<button
+						type="button"
+						aria-label={labels.close}
+						onClick={onClose}
+						className={styles.hudModalClose}
+					>
+						<X size={16} />
+					</button>
+				</Tooltip>
 			</div>
 
 			{showMicrophone ? (
@@ -214,6 +225,29 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 			)}
 			{hasCamera ? (
 				<>
+					{/* Below the device list, because it qualifies the camera picked
+					    above. Hidden with no camera present -- a resolution control
+					    over "No camera found" cannot do anything. */}
+					<div className={styles.hudModalMeterRow}>
+						<span className={styles.hudModalMeterLabel}>{labels.cameraQuality}</span>
+					</div>
+					{WEBCAM_QUALITY_IDS.map((quality) => {
+						const isActive = quality === cameraQuality;
+						return (
+							<button
+								key={quality}
+								type="button"
+								role="menuitemradio"
+								aria-checked={isActive}
+								data-testid={`camera-quality-${quality}`}
+								onClick={() => onSelectCameraQuality(quality)}
+								className={`${styles.languageMenuItem} ${isActive ? styles.languageMenuItemActive : ""}`}
+							>
+								<span className="truncate">{labels.cameraQualityOptions[quality]}</span>
+								{isActive ? <Check size={11} className="text-white/85" /> : null}
+							</button>
+						);
+					})}
 					<div className={styles.hudModalMeterRow}>
 						<span className={styles.hudModalMeterLabel}>{labels.preview}</span>
 					</div>

@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "隐藏控制面板",
+		"hideHUDTip": "隐藏控制面板。可从托盘图标重新显示。",
 		"closeApp": "关闭应用",
-		"restartRecording": "重新开始录制",
-		"cancelRecording": "取消录制",
+		"restartRecording": "删除此录制并重新开始",
+		"cancelRecording": "停止并删除此录制",
 		"pauseRecording": "暂停录制",
 		"resumeRecording": "继续录制",
 		"useVerticalTray": "使用竖向托盘",
 		"useHorizontalTray": "使用横向托盘",
-		"openStudio": "打开工作室",
-		"openNotes": "打开笔记",
+		"changeSource": "选择其他屏幕或窗口",
+		"systemAudio": "系统音频：录制电脑播放的声音",
+		"microphone": "麦克风：录制语音",
+		"camera": "摄像头：录制为单独图层，可在编辑器中移动",
+		"openStudio": "打开工作室：录制内容的编辑器",
+		"openNotes": "打开笔记：录制时阅读的文字",
 		"openNotesPlaceholder": "在此输入笔记...",
 		"notesToolbar": {
 			"bold": "加粗",
@@ -27,34 +32,30 @@
 			"fontSize": "字体大小",
 			"decreaseFontSize": "减小字体",
 			"increaseFontSize": "增大字体",
-			"mirror": "水平镜像"
+			"mirror": "水平镜像",
+			"mirrorTip": "水平翻转文字，以便在镜子中阅读"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "启用系统音频",
-		"disableSystemAudio": "禁用系统音频",
-		"enableMicrophone": "启用麦克风",
-		"disableMicrophone": "禁用麦克风",
-		"defaultMicrophone": "默认麦克风",
 		"systemAudio": "系统音频",
 		"microphone": "麦克风",
-		"on": "开",
-		"off": "关",
 		"inputDevice": "输入设备"
 	},
 	"webcam": {
-		"enableWebcam": "启用摄像头",
-		"disableWebcam": "禁用摄像头",
-		"defaultCamera": "默认摄像头",
 		"searching": "正在搜索...",
 		"noneFound": "未找到摄像头",
 		"unavailable": "摄像头不可用",
 		"camera": "摄像头",
-		"cameraDevice": "摄像头设备"
+		"cameraDevice": "摄像头设备",
+		"quality": "摄像头画质",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "使用可编辑光标：将重新开启自动缩放和光标效果",
-		"useSystemCursorHint": "使用系统光标：将关闭自动缩放和光标效果"
+		"name": "可编辑光标",
+		"editableTip": "可编辑光标：单独录制，可在编辑器中修改样式并使用自动缩放",
+		"systemTip": "系统光标：真实光标，直接录进视频。无法修改样式，没有自动缩放。"
 	},
 	"sourceSelector": {
 		"loading": "正在加载源...",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "请选择要录制的源",
 		"systemPicker": "系统将询问要共享的内容",
-		"inProgress": "正在录制",
+		"start": "开始录制",
+		"stop": "停止并保存录制",
 		"saving": "正在保存..."
 	},
 	"language": "语言",
+	"languageWithName": "语言：{{language}}",
 	"systemLanguagePrompt": {
 		"title": "使用系统语言吗？",
 		"description": "我们检测到你的系统语言是{{language}}。是否将 OpenScreen 切换为{{language}}？",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "设备设置",
-		"done": "完成",
+		"close": "关闭",
 		"micLevel": "输入音量",
 		"micHint": "说话以测试麦克风",
 		"noMicrophones": "未找到麦克风",

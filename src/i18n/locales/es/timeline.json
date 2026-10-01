@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "Agregar zoom (Z)",
-		"suggestZooms": "Sugerir zooms desde el cursor",
-		"autoZoomOn": "Sugerencias de zoom automático activadas — haz clic para quitar los zooms sugeridos",
-		"autoZoomOff": "Sugerencias de zoom automático desactivadas — haz clic para sugerir zooms desde el cursor",
-		"autoFocusAllOn": "Enfoque automático activado para todos los zooms — haz clic para pasar todos a manual",
-		"autoFocusAllOff": "Activar enfoque automático para todos los zooms (la cámara sigue el cursor)",
-		"addTrim": "Agregar recorte (T)",
-		"addAnnotation": "Agregar anotación (A)",
-		"addSpeed": "Agregar velocidad (S)",
-		"addCameraFullscreen": "Agregar cámara a pantalla completa (C)"
+		"addZoom": "Agregar un zoom en el momento actual",
+		"autoFocusAll": "Enfoque automático de todos los zooms",
+		"autoFocusAllTip": "Todos los zooms siguen el cursor. Desactivado: tú eliges el enfoque de cada zoom.",
+		"clearTimeline": "Quitar todos los zooms, recortes, velocidades, anotaciones y Cámara a pantalla completa. Se conservan clips, audio y subtítulos.",
+		"addTrim": "Agregar un recorte: quita una parte del video en el momento actual",
+		"addAnnotation": "Agregar texto, una flecha, una imagen o un desenfoque en el momento actual",
+		"addSpeed": "Agregar un cambio de velocidad en el momento actual",
+		"addCameraFullscreen": "Agregar Cámara a pantalla completa: muestra la cámara a pantalla completa en el momento actual"
 	},
 	"hints": {
 		"pressZoom": "Presiona Z para agregar zoom",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "Desplazar",
+		"panTip": "Desplazar la línea de tiempo",
 		"zoom": "Zoom",
+		"zoomTip": "Ampliar la línea de tiempo",
 		"trim": "Recortar",
 		"speed": "Velocidad",
 		"zoomItem": "Zoom {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "Organizar clips",
 		"arrangeClipsHint": "Arrastra los clips de abajo para reordenarlos o suelta otros nuevos",
 		"newAnnotation": "Anotación",
-		"dragToReorderHint": "Arrastra para reordenar · doble clic para editar los puntos de entrada/salida",
+		"dragToReorderHint": "Arrastra para reordenar. Haz doble clic para cambiar el inicio y el final.",
 		"editInOutPoints": "Editar puntos de entrada/salida",
 		"deleteClip": "Eliminar clip",
 		"dropToAdd": "Suelta para añadir a la línea de tiempo",

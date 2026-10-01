@@ -117,7 +117,8 @@ export function CameraIcon({ off, className }: { off: boolean; className?: strin
 	);
 }
 
-export function CursorIcon({ className }: { className?: string }) {
+/** `off` slashes the arrow, like the mic and camera, so the state is not carried by colour alone. */
+export function CursorIcon({ off = false, className }: { off?: boolean; className?: string }) {
 	return (
 		<svg
 			width={ICON_SIZE}
@@ -129,6 +130,15 @@ export function CursorIcon({ className }: { className?: string }) {
 			aria-hidden="true"
 		>
 			<path d="M6.7 3.3 6.7 18.3 10.3 14.8 12.7 20.7 15.1 19.7 12.7 13.8 17.3 13.8Z" />
+			{off ? (
+				<path
+					d="M4 4l16 16"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth={2.25}
+					strokeLinecap="round"
+				/>
+			) : null}
 		</svg>
 	);
 }

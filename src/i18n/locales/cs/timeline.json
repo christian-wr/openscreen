@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "Přidat přiblížení (Z)",
-		"suggestZooms": "Navrhnout přiblížení podle kurzoru",
-		"autoZoomOn": "Automatické návrhy přiblížení zapnuty, klikněte pro odstranění navržených přiblížení",
-		"autoZoomOff": "Automatické návrhy přiblížení vypnuty, klikněte pro návrh přiblížení podle kurzoru",
-		"autoFocusAllOn": "Automatické zaostření zapnuto pro všechna přiblížení, klikněte pro přepnutí všech na ruční",
-		"autoFocusAllOff": "Automaticky zaostřit všechna přiblížení (kamera sleduje kurzor)",
-		"addTrim": "Přidat oříznutí (T)",
-		"addAnnotation": "Přidat anotaci (A)",
-		"addSpeed": "Přidat rychlost (S)",
-		"addCameraFullscreen": "Přidat celou kameru (C)"
+		"addZoom": "Přidat přiblížení v aktuálním čase",
+		"autoFocusAll": "Automatické zaostření všech přiblížení",
+		"autoFocusAllTip": "Všechna přiblížení sledují kurzor. Vypnuto: zaostření každého přiblížení volíte sami.",
+		"clearTimeline": "Odstranit všechna přiblížení, oříznutí, změny rychlosti, anotace a Celou kameru. Klipy, zvuk a titulky zůstanou.",
+		"addTrim": "Přidat oříznutí: odstraní část videa v aktuálním čase",
+		"addAnnotation": "Přidat text, šipku, obrázek nebo rozmazání v aktuálním čase",
+		"addSpeed": "Přidat změnu rychlosti v aktuálním čase",
+		"addCameraFullscreen": "Přidat Celou kameru: zobrazí kameru na celou obrazovku v aktuálním čase"
 	},
 	"hints": {
 		"pressZoom": "Stiskněte Z pro přidání přiblížení",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "Posun",
+		"panTip": "Posun časové osy",
 		"zoom": "Přiblížení",
+		"zoomTip": "Přiblížení časové osy",
 		"trim": "Oříznutí",
 		"speed": "Rychlost",
 		"zoomItem": "Přiblížení {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "Uspořádat klipy",
 		"arrangeClipsHint": "Přetáhněte klipy níže pro změnu pořadí nebo přidejte nové",
 		"newAnnotation": "Anotace",
-		"dragToReorderHint": "Přetáhněte pro změnu pořadí · dvojklik pro úpravu vstupních/výstupních bodů",
+		"dragToReorderHint": "Přetažením změníte pořadí. Dvojklikem upravíte začátek a konec.",
 		"editInOutPoints": "Upravit vstupní/výstupní body",
 		"deleteClip": "Smazat klip",
 		"dropToAdd": "Přetáhněte pro přidání na časovou osu",

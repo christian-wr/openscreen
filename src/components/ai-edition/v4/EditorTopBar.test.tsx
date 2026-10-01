@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 // ProjectNameField is a private helper inside EditorTopBar, so reach it through
 // the public topbar instead. The translator echoes keys; assertions read better
@@ -10,6 +11,22 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useI18n: () => ({ locale: "en", setLocale: () => {} }),
 	useScopedT: () => (key: string) => key,
 }));
+
+// The platform decides whether the chips read Ctrl or ⌘.
+const platform = vi.hoisted(() => ({ isMac: false }));
+vi.mock("@/contexts/ShortcutsContext", () => ({
+	useShortcuts: () => ({ isMac: platform.isMac }),
+}));
+
+class StubResizeObserver {
+	observe = vi.fn();
+	unobserve = vi.fn();
+	disconnect = vi.fn();
+}
+beforeEach(() => {
+	platform.isMac = false;
+	vi.stubGlobal("ResizeObserver", StubResizeObserver);
+});
 
 const { toggleTheme } = vi.hoisted(() => ({ toggleTheme: vi.fn() }));
 vi.mock("@/hooks/useTheme", () => ({
@@ -35,30 +52,32 @@ function renderTopBar(
 	const onUndo = vi.fn();
 	const onRedo = vi.fn();
 	render(
-		<EditorTopBar
-			mode="edit"
-			onModeChange={noop}
-			projectTitle={projectTitle}
-			dirty={false}
-			canExport={false}
-			canUndo={history.canUndo ?? false}
-			canRedo={history.canRedo ?? false}
-			chatOpen={false}
-			actions={{
-				openProject: onOpenProject,
-				newProject: onNewProject,
-				save: onSave,
-				export: noop,
-				openSettings: onOpenSettings,
-				renameProject: onRename,
-				toggleChat: noop,
-				openProviderSettings: onOpenProviderSettings,
-				showAbout: onShowAbout,
-				checkForUpdates: onCheckForUpdates,
-				undo: onUndo,
-				redo: onRedo,
-			}}
-		/>,
+		<TooltipProvider>
+			<EditorTopBar
+				mode="edit"
+				onModeChange={noop}
+				projectTitle={projectTitle}
+				dirty={false}
+				canExport={false}
+				canUndo={history.canUndo ?? false}
+				canRedo={history.canRedo ?? false}
+				chatOpen={false}
+				actions={{
+					openProject: onOpenProject,
+					newProject: onNewProject,
+					save: onSave,
+					export: noop,
+					openSettings: onOpenSettings,
+					renameProject: onRename,
+					toggleChat: noop,
+					openProviderSettings: onOpenProviderSettings,
+					showAbout: onShowAbout,
+					checkForUpdates: onCheckForUpdates,
+					undo: onUndo,
+					redo: onRedo,
+				}}
+			/>
+		</TooltipProvider>,
 	);
 	return {
 		onRename,
@@ -324,20 +343,20 @@ describe("AppMenu", () => {
 });
 
 describe("EditorTopBar responsive affordances and tooltips", () => {
-	it("provides accessible name and title on the export button", () => {
+	// The visible text is the label, so a tooltip that repeats it says nothing (and a native
+	// `title` on top of it is a second, slower tooltip).
+	it("names the export button by its text, with no title repeating it", () => {
 		renderTopBar("Demo Project");
 		const exportBtn = screen.getByRole("button", { name: "topbar.export" });
 		expect(exportBtn).toBeInTheDocument();
-		expect(exportBtn).toHaveAttribute("title", "topbar.export");
+		expect(exportBtn).not.toHaveAttribute("title");
 	});
 
-	it("provides title tooltips for mode switch tabs", () => {
+	it("gives the mode tabs no tooltip: their text is the label", () => {
 		renderTopBar("Demo Project");
 		const tabs = screen.getAllByRole("tab");
 		expect(tabs).toHaveLength(3);
-		expect(tabs[0]).toHaveAttribute("title", "topbar.modes.media");
-		expect(tabs[1]).toHaveAttribute("title", "topbar.modes.edit");
-		expect(tabs[2]).toHaveAttribute("title", "topbar.modes.rec");
+		for (const tab of tabs) expect(tab).not.toHaveAttribute("title");
 	});
 
 	it("says the saved state beside the project name, to the eye and to a screen reader", () => {
@@ -352,16 +371,75 @@ describe("EditorTopBar responsive affordances and tooltips", () => {
 		fireEvent.click(screen.getByRole("button", { name: "fixedActions.undo" }));
 		expect(onUndo).toHaveBeenCalledTimes(1);
 		const redo = screen.getByRole("button", { name: "fixedActions.redo" });
-		expect(redo).toBeDisabled();
+		// `aria-disabled`, not `disabled`: a natively disabled button takes no pointer events, so
+		// its tooltip could never open. It stays reachable, and doing nothing.
+		expect(redo).toHaveAttribute("aria-disabled", "true");
+		expect(redo).not.toBeDisabled();
 		fireEvent.click(redo);
 		expect(onRedo).not.toHaveBeenCalled();
+		expect(screen.getByRole("button", { name: "fixedActions.undo" })).not.toHaveAttribute(
+			"aria-disabled",
+		);
 	});
 
-	it("keeps the brand trigger accessible by label and title even when text collapses", () => {
+	it("keeps the brand trigger named by its label, with no title repeating it", () => {
 		renderTopBar("Demo Project");
 		const brandBtn = screen.getByRole("button", { name: "OpenScreen" });
-		expect(brandBtn).toHaveAttribute("title", "OpenScreen");
+		expect(brandBtn).not.toHaveAttribute("title");
 		expect(brandBtn).toHaveAttribute("aria-label", "OpenScreen");
+	});
+
+	it("leaves a native title only on text that can be cut short", () => {
+		renderTopBar("Demo Project");
+		// The project name is truncated, so the full name is revealed on hover.
+		expect(screen.getByRole("button", { name: "topbar.renameProject" })).toHaveAttribute(
+			"title",
+			"Demo Project",
+		);
+		// The icon-only controls use the shared tooltip instead.
+		for (const name of ["topbar.toggleChatPanel", "fixedActions.undo", "fixedActions.redo"]) {
+			expect(screen.getByRole("button", { name })).not.toHaveAttribute("title");
+		}
+	});
+
+	// Every icon-only control names itself in a tooltip; undo and redo also show the key.
+	async function tooltipOn(name: string) {
+		const control = screen.getByRole("button", { name });
+		act(() => control.focus());
+		const tooltip = await screen.findByRole("tooltip");
+		const visible = document.querySelector('[data-slot="tooltip-content"]');
+		const result = { text: tooltip.textContent, chip: visible?.querySelector("kbd")?.textContent };
+		act(() => control.blur());
+		await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+		return result;
+	}
+
+	it("shows the live shortcut as a chip on undo and redo, with ⌘ on macOS", async () => {
+		renderTopBar("Demo Project", { canUndo: true, canRedo: true });
+		expect((await tooltipOn("fixedActions.undo")).chip).toBe("Ctrl + Z");
+		// One chip, the first binding: redo is also on Ctrl + Y.
+		expect((await tooltipOn("fixedActions.redo")).chip).toBe("Ctrl + Shift + Z");
+	});
+
+	it("reads ⌘ and ⇧ from the platform", async () => {
+		platform.isMac = true;
+		renderTopBar("Demo Project", { canUndo: true, canRedo: true });
+		expect((await tooltipOn("fixedActions.undo")).chip).toBe("⌘ + Z");
+		expect((await tooltipOn("fixedActions.redo")).chip).toBe("⌘ + ⇧ + Z");
+	});
+
+	it("still opens the undo tooltip when there is nothing to undo", async () => {
+		renderTopBar("Demo Project", { canUndo: false, canRedo: false });
+		const undo = await tooltipOn("fixedActions.undo");
+		expect(undo.text).toContain("fixedActions.undo");
+		expect(undo.chip).toBe("Ctrl + Z");
+	});
+
+	it("names the chat panel toggle with a noun and no chip", async () => {
+		renderTopBar("Demo Project");
+		const toggle = await tooltipOn("topbar.toggleChatPanel");
+		expect(toggle.text).toBe("topbar.toggleChatPanel");
+		expect(toggle.chip).toBeUndefined();
 	});
 
 	it("leaves the language to the menu, out of the bar", () => {

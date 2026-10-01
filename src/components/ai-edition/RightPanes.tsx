@@ -48,6 +48,7 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { toFileUrl } from "@/components/video-editor/projectPersistence";
 import {
 	WALLPAPER_MOTIONS,
@@ -2497,7 +2498,7 @@ export function VideoEffectsPane() {
 			    they name. */}
 			<div className={`${styles.field} ${styles.fieldStack}`}>
 				{/* The tiles only draw their frame, so the label names the current one. */}
-				<span className={styles.fieldLabel} title={ts("effects.windowHelp")}>
+				<span className={styles.fieldLabel}>
 					{ts("effects.frameStyle")}
 					<span className={styles.sectionLabelValue}>
 						{ts(RECORDING_FRAME_LABEL_KEYS[settings.frame])}
@@ -2523,9 +2524,7 @@ export function VideoEffectsPane() {
 			    appears next to the frame it recolours rather than sitting there inert. */}
 			{settings.frame !== "none" ? (
 				<div className={`${styles.field} ${styles.fieldStack}`}>
-					<span className={styles.fieldLabel} title={ts("effects.frameThemeHelp")}>
-						{ts("effects.frameTheme")}
-					</span>
+					<span className={styles.fieldLabel}>{ts("effects.frameTheme")}</span>
 					<ChoiceRow<FrameTheme>
 						label={ts("effects.frameTheme")}
 						options={FRAME_THEMES.map((frameTheme) => ({
@@ -2631,6 +2630,7 @@ export function VideoEffectsPane() {
 					<Toggle
 						checked={settings.depthOfField}
 						ariaLabel={ts("effects.depthOfField")}
+						tooltip={ts("effects.depthOfFieldTip")}
 						disabled={!hasDocument}
 						onChange={(v) => void set({ depthOfField: v })}
 					/>
@@ -2907,6 +2907,8 @@ export function LayoutPane() {
 					<span className={styles.label}>{ts("layout.reactiveWebcam")}</span>
 					<Toggle
 						checked={settings.webcamReactiveZoom}
+						ariaLabel={ts("layout.reactiveWebcam")}
+						tooltip={ts("layout.reactiveWebcamTip")}
 						disabled={layoutControlsDisabled}
 						onChange={(v) => void set({ webcamReactiveZoom: v })}
 					/>
@@ -3049,9 +3051,7 @@ export function LayoutPane() {
 									>
 										{mode.icon}
 									</svg>
-									<span title={ts(mode.labelKey)} style={{ font: "500 12px/1 var(--font-body)" }}>
-										{ts(mode.labelKey)}
-									</span>
+									<span style={{ font: "500 12px/1 var(--font-body)" }}>{ts(mode.labelKey)}</span>
 								</button>
 							);
 						})}
@@ -3090,7 +3090,6 @@ export function LayoutPane() {
 			<div className={styles.sectionLabel}>{ts("layout.webcamFraming")}</div>
 			<WebcamFraming
 				label={ts("layout.webcamFraming")}
-				zoomLabel={ts("layout.webcamCropZoom")}
 				src={cameraSrc}
 				crop={webcamCrop}
 				pan={cropPan}
@@ -3157,7 +3156,6 @@ async function cutOutSubject(
  *  écrivent en direct et enregistrent au relâchement, comme un curseur. */
 function WebcamFraming({
 	label,
-	zoomLabel,
 	src,
 	crop,
 	pan,
@@ -3168,7 +3166,6 @@ function WebcamFraming({
 	onCommit,
 }: {
 	label: string;
-	zoomLabel: string;
 	src: string | null;
 	crop: { x: number; y: number; width: number; height: number };
 	pan: { x: number; y: number };
@@ -3407,9 +3404,7 @@ function WebcamFraming({
 								/>
 							))}
 				</div>
-				<span className={styles.framingZoom} title={zoomLabel}>
-					{Math.round(100 / size)}%
-				</span>
+				<span className={styles.framingZoom}>{Math.round(100 / size)}%</span>
 			</div>
 			<p className={styles.framingHint}>{hint}</p>
 		</div>
@@ -3723,6 +3718,7 @@ export function CursorPane() {
 				<span className={styles.label}>{ts("cursor.autoHide")}</span>
 				<Toggle
 					ariaLabel={ts("cursor.autoHide")}
+					tooltip={ts("cursor.autoHideTip")}
 					checked={settings.cursorAutoHide}
 					disabled={!hasDocument || !settings.cursorShow}
 					onChange={(v) => {
@@ -3771,6 +3767,7 @@ export function CursorPane() {
 						<span className={styles.label}>{ts("cursor.model3d")}</span>
 						<Toggle
 							ariaLabel={ts("cursor.model3d")}
+							tooltip={ts("cursor.model3dTip")}
 							checked={settings.cursor.model3d}
 							disabled={!hasDocument}
 							onChange={(v) => {
@@ -3912,6 +3909,7 @@ export function CursorPane() {
 					<span className={styles.label}>{ts("cursor.clickImpact")}</span>
 					<Toggle
 						ariaLabel={ts("cursor.clickImpact")}
+						tooltip={ts("cursor.clickImpactTip")}
 						checked={settings.cursor.clickImpact}
 						disabled={!hasDocument}
 						onChange={(v) => void set({ cursor: { clickImpact: v } })}
@@ -3932,6 +3930,7 @@ export function Toggle({
 	checked,
 	disabled,
 	ariaLabel,
+	tooltip,
 	onChange,
 }: {
 	checked: boolean;
@@ -3939,9 +3938,12 @@ export function Toggle({
 	/** The switch renders no text of its own, so a screen reader has nothing to announce
 	 *  unless a caller names it. Optional only because the existing call sites predate it. */
 	ariaLabel?: string;
+	/** What the switch does, for a label that is jargon ("Click impact"). The trigger is the
+	 *  switch itself, so a keyboard user reaches it too. A label that is clear gets none. */
+	tooltip?: string;
 	onChange: (next: boolean) => void;
 }) {
-	return (
+	const button = (
 		<button
 			type="button"
 			className={`${styles.toggle} ${checked ? styles.isOn : ""}`}
@@ -3950,6 +3952,15 @@ export function Toggle({
 			disabled={disabled}
 			onClick={() => onChange(!checked)}
 		/>
+	);
+	// Its own provider, like the timeline toolbar: a pane renders without the app's root one in
+	// the tests, and a Radix tooltip throws without any.
+	return tooltip ? (
+		<TooltipProvider>
+			<Tooltip content={tooltip}>{button}</Tooltip>
+		</TooltipProvider>
+	) : (
+		button
 	);
 }
 
@@ -3974,13 +3985,16 @@ export function ChoiceRow<T extends string | number>({
 	label: string;
 	/** `null` leaves a hole in the grid: the middle of the camera's position grid. An option
 	 *  can be `disabled` on its own: a disabled button takes no focus, so its `title` is only a
-	 *  mouse hint, and the reason must also be visible text the row points at (`describedBy`). */
+	 *  mouse hint, and the reason must also be visible text the row points at (`describedBy`).
+	 *  `title` is a tooltip that adds to the label (a clip count). An icon-only option gets its
+	 *  label as its tooltip; one whose label is visible gets none. `null` is for an icon that
+	 *  already spells the label, a font drawn in its own face. */
 	options: ReadonlyArray<{
 		value: T;
 		label: string;
 		icon?: ReactNode;
 		disabled?: boolean;
-		title?: string;
+		title?: string | null;
 	} | null>;
 	value: T;
 	onChange: (next: T) => void;
@@ -4034,6 +4048,10 @@ export function ChoiceRow<T extends string | number>({
 			{options.map((option, i) => {
 				if (option === null) return <span key={`hole-${i}`} aria-hidden="true" />;
 				const pressed = option.value === value;
+				// A tooltip only where it tells something the button does not: the name of an
+				// icon-only option, or the text a caller passes. A visible label is never repeated
+				// (technical-documentation/engineering/tooltips.md, rule 3).
+				const tip = option.title === undefined && mode === "icon" ? option.label : option.title;
 				return (
 					<button
 						key={String(option.value)}
@@ -4044,8 +4062,7 @@ export function ChoiceRow<T extends string | number>({
 						className={`${styles.choiceBtn} ${pressed ? styles.isActive : ""}`}
 						aria-pressed={pressed}
 						aria-label={mode === "icon" ? option.label : undefined}
-						// Always: a label cut short by a narrow pane still reads in full on hover.
-						title={option.title ?? option.label}
+						title={tip ?? undefined}
 						disabled={disabled || option.disabled}
 						// Re-choisir la valeur en place n'est pas une modification : ni sauvegarde ni
 						// entrée d'annulation.

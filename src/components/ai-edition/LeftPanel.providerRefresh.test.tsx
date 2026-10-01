@@ -45,6 +45,7 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: () => (key: string) => key,
 }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { EditorDialogsProvider, useEditorDialogActions } from "@/contexts/EditorDialogsContext";
 import { ChatStripPanel } from "./LeftPanel";
 
@@ -80,10 +81,12 @@ afterEach(() => {
 describe("ChatStripPanel, against the lifted provider dialog", () => {
 	it("re-reads the LLM snapshot when the dialog closes, and not when it opens", async () => {
 		render(
-			<EditorDialogsProvider>
-				<CaptureDialogActions />
-				<ChatStripPanel />
-			</EditorDialogsProvider>,
+			<TooltipProvider>
+				<EditorDialogsProvider>
+					<CaptureDialogActions />
+					<ChatStripPanel />
+				</EditorDialogsProvider>
+			</TooltipProvider>,
 		);
 		// Mount: the dialog is closed, so the same effect that watches for a close seeds the
 		// composer's view of the provider config.

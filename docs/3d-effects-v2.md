@@ -233,12 +233,11 @@ inconnues sont ignorées).
 ### B.2 Le réglage
 
 **Un seul interrupteur**, `cursor.model3d` (« 3D cursor », **éteint par défaut**) : il passe
-**chaque état** du curseur en 3D. La flèche et la main des cinq thèmes d'origine deviennent leur
-modèle sculpté (B.3 bis) ; les autres états, et tous ceux du thème par défaut (les seize de
-`DEFAULT_CURSOR_SPRITES` : flèche, I, main, croix, mains ouverte et fermée, redimensionnements,
-déplacement, interdit, attente…), leur sprite extrudé. Curseur masqué, l'interrupteur est grisé et
-son info-bulle dit pourquoi. Éteint, la frame est celle d'avant **à l'octet** (vérifié à plat et
-incliné contre le commit de base).
+**chaque état** du curseur en 3D. La flèche et la main des cinq thèmes d'origine deviennent
+leur modèle (B.3 bis) ; les autres états, et tous ceux du thème par défaut (les seize de `DEFAULT_CURSOR_SPRITES` : flèche, I, main, croix, mains
+ouverte et fermée, redimensionnements, déplacement, interdit, attente…), leur sprite extrudé.
+Curseur masqué, l'interrupteur est grisé et son info-bulle dit pourquoi. Éteint, la frame est
+celle d'avant **à l'octet** (vérifié à plat et incliné contre le commit de base).
 
 Tuyauterie : `CursorVisualSettings.model3d`, clé legacy `cursorModel3d`, préréglages (absent →
 éteint), `SceneCursor.model3d` (`serde(default)`), `LiveParams.cursor_model3d`, paramètre live
@@ -287,24 +286,44 @@ du bord (0,48 au pire), sous 1 texel au-delà (le flou arrondit les crêtes).
 
 ### B.3 bis Les curseurs sculptés
 
-La flèche et la main des cinq thèmes d'origine sont **modélisées à la main**, en fonctions de
-distance signée écrites dans les trois shaders (`sculpt_proto`, `sculpt_material`) : capsules et
-unions lissées pour les gants, extrusion arrondie et bombée pour les flèches, voxels biseautés
-pour Pixel Candy, polyèdres taillés pour le cristal de Prism Glow. Le PNG du thème reste l'art en
-2D. En 3D, la scène nomme le modèle ; `sculpt.rs` en tient la boîte, qui pose le hotspot (pointe
-de la flèche, bout de l'index), règle la garde au sol et borne la boîte de dessin. Emplacement du
-cbuffer : `trail_a` = [modèle, épaisseur sous z = 0, hauteur au-dessus, 0] (`cursor_model_cb`).
+La flèche et la main des thèmes d'origine sont **modélisées à la main**, en fonctions de
+distance signée écrites dans les trois shaders (`sculpt_proto`, `sculpt_material`) : voxels
+pour Pixel Candy ; pour Studio Ink et Star Sprout des pièces qui gardent le trait de
+leur dessin : un plateau et un jonc de la couleur du trait, un coussin de couleur dedans
+(`s_rimmed`) ; pour Pop Coral les mêmes formes en papier découpé, des feuilles au dessus plat
+(`s_paper`). Prism Glow est à part : un **cristal en maillage**, ses facettes tracées sur son
+seul dessin 2D (`design/cursors/prism-glow/model/`), serti dans sa silhouette extrudée, marine.
+Le shader le lance de rayons, triangles rangés par boîtes englobantes (un rayon saute les
+boîtes qu'il rate) : réfraction par canal (une légère dispersion), réflexions totales internes,
+et sortie par son fond plat sur l'image sous le curseur ; chaque facette luit un peu de sa
+couleur du dessin, ses plis d'un liseré clair. Cette image est une copie de la frame composée
+prise juste avant le curseur : le métrage, puis ses flous de confidentialité, puis le curseur,
+net par-dessus. Seuls des pixels déjà floutés passent donc à travers le verre.
+`export_compositor.py` écrit le maillage dans `prism_mesh.rs` et dans les trois shaders. Le PNG
+du thème reste l'art en 2D. En 3D, la scène nomme le modèle ; `sculpt.rs` en tient la boîte, qui
+pose le hotspot (pointe de la flèche, bout de l'index), règle la garde au sol et borne la boîte
+de dessin. Emplacement du cbuffer : `trail_a` = [modèle, épaisseur sous z = 0, hauteur
+au-dessus, 0] (`cursor_model_cb`).
+Pixel Candy est un pixel art dessiné une fois, en grille, dans
+`scripts/generate-pixel-candy-voxels.mjs` : le script en tire ses PNG 2D et les tables des trois
+shaders, un cube par pixel plein, tous de même hauteur, colorés comme leur pixel (contour prune,
+rose, reflet rose pâle, ombre rose foncé).
 
 - **Éclairage**, sprites extrudés compris : une lampe proche en haut à gauche, qui met un dégradé
   et un reflet même sur une face plane ; une lumière d'appoint faible ; le côté ombré teinté par
   la matière ; occlusion ambiante, ombre propre douce vers la lampe, studio dans les reflets,
   liseré de Fresnel ; tone map Khronos PBR Neutral.
-- **Ombre sur l'écran** : celle de B.3. Le cristal et les voxels donnent de mauvaises distances
-  loin de leur surface (bornes de plans, champ de grille) : l'ombre prend la forme lisse de Pop
-  Coral pour le cristal et le contour extrudé pour les voxels.
+- **Ombre sur l'écran** : celle de B.3. Les voxels donnent de mauvaises distances loin de leur
+  surface (champ de grille) : l'ombre de Pixel Candy vient de sa forme extrudée.
+- **Antialiasing** : la silhouette l'est par la marche (la distance minimale frôlée, en pixels,
+  donne la couverture). Les bords intérieurs (deux matières, une arête, un arrondi serré, un
+  joint de voxels) sont suréchantillonnés : quatre sondes à un demi-pixel du point touché, dans
+  son plan tangent, et si la matière change ou que la surface s'en écarte, trois rayons de plus
+  dans le pixel, ombrés avec l'occlusion et les ombres du premier (`STAGE_EDGE`, `STAGE_SHADE`).
+  Sur un grand curseur, ~+50 % du coût du curseur (rendu logiciel), rien ailleurs.
 - **Coût de compilation** : FXC recopie chaque appel. La marche, les normales, l'occlusion et les
-  ombres forment donc une seule boucle à étapes avec un seul appel au modèle, et l'étoile de Star
-  Sprout un seul appel pour les deux formes.
+  ombres forment donc une seule boucle à étapes avec un seul appel au modèle, et les thèmes
+  cerclés un seul appel pour leurs deux formes.
 
 ### B.4 La caméra et l'ancrage
 
@@ -490,7 +509,7 @@ C'est le cadre qui s'adapte au métrage — jamais l'inverse : un téléphone au
 est un téléphone COUCHÉ, avec son œil de caméra sur le bord qui est devenu son haut.
 
 **Roundness sous un cadre.** Le slider parcourt 0 → le plafond du cadre choisi (C.5) et se lit
-en **%** de cette course, avec l'infobulle « La course s'adapte au cadre » (`roundnessFrameHelp`,
+en **%** de cette course, avec l'infobulle « La course dépend du cadre » (`roundnessFrameHelp`,
 15 langues). La valeur stockée reste en px ; le natif en relit la position (`roundnessFrac` ×
 petit côté de la sortie ÷ `ROUNDNESS_SLIDER_MAX_PX` = 64, miroir de `paramUnits.ts`). Sans cadre,
 le slider reste en px et le rendu est celui d'avant, à l'octet.

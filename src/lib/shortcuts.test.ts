@@ -4,6 +4,7 @@ import {
 	FIXED_SHORTCUTS,
 	type FixedShortcut,
 	findConflict,
+	formatFirstFixedBinding,
 	formatFixedShortcut,
 	mergeWithDefaults,
 	SHORTCUT_ACTIONS,
@@ -70,5 +71,19 @@ describe("formatFixedShortcut", () => {
 	it("leaves rows without a primary modifier on their hand-written label", () => {
 		expect(formatFixedShortcut(fixed("deleteSelectedAlt"), true)).toBe("Del / ⌫");
 		expect(formatFixedShortcut(fixed("cycleAnnotationsBackward"), true)).toBe("Shift + Tab");
+	});
+});
+
+describe("formatFirstFixedBinding", () => {
+	// A tooltip shows one chip. Redo is bound twice, and the dialog row that lists both is too long.
+	it("names the first binding of undo and redo, with ⌘ on macOS", () => {
+		expect(formatFirstFixedBinding("undo", false)).toBe("Ctrl + Z");
+		expect(formatFirstFixedBinding("redo", false)).toBe("Ctrl + Shift + Z");
+		expect(formatFirstFixedBinding("redo", true)).toBe("⌘ + ⇧ + Z");
+	});
+
+	it("has nothing to show for a row without a binding, or an unknown row", () => {
+		expect(formatFirstFixedBinding("panTimeline", false)).toBeUndefined();
+		expect(formatFirstFixedBinding("nope", false)).toBeUndefined();
 	});
 });

@@ -3,9 +3,8 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STT_VAD_UNAVAILABLE } from "./transcriptionContract";
 import { writeSamplesAsWav } from "./wav";
-import { MAX_VAD_CHUNK_SAMPLES, mergeVadIntervals, WhisperServerManager } from "./whisperServer";
+import { WhisperServerManager } from "./whisperServer";
 
 vi.mock("node:child_process", async (importOriginal) => {
 	// `node:child_process` is CJS, so the ESM namespace also carries a `default`
@@ -348,6 +347,148 @@ describe("WhisperServerManager", () => {
 		} finally {
 			vi.unstubAllGlobals();
 		}
+	});
+
+	it("anchors a phrase's first word on the onset of the speech its anchor falls in", async () => {
+		// "Salut" starts where the previous token ended, in the first stretch's
+		// tail, but its anchor puts it in the second stretch.
+		const fakeJson = {
+			segments: [
+				{
+					text: " Salut",
+					start: 1.57,
+					end: 2.56,
+					words: [{ word: " Salut", start: 1.05, end: 2.56, anchor: 1.8 }],
+				},
+			],
+			speech: [
+				{ start: 0.2, end: 1 },
+				{ start: 1.57, end: 2.56 },
+			],
+			backend: "whispercpp-cpu",
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(JSON.stringify(fakeJson), { status: 200 })),
+		);
+		try {
+			const mgr = new WhisperServerManager();
+			(mgr as unknown as { process: unknown; port: number }).process = {};
+			(mgr as unknown as { process: unknown; port: number }).port = 9999;
+			const result = await mgr.transcribe({ samples: new Float32Array(16_000 * 3) });
+			expect(result.wordSegments).toEqual([{ word: "Salut", startSec: 1.57, endSec: 2.56 }]);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	describe("CTC word aligner", () => {
+		const inference = {
+			segments: [
+				{
+					text: " ab ba",
+					start: 0.2,
+					end: 1,
+					words: [
+						{ word: " ab", start: 0.3, end: 0.5, anchor: 0.4 },
+						{ word: " ba", start: 0.5, end: 0.8, anchor: 0.6 },
+					],
+				},
+			],
+			speech: [{ start: 0.2, end: 1 }],
+			detected_language: "fr",
+			backend: "whispercpp-vulkan",
+			timing: { elapsed_s: 0.5, audio_s: 2, rtf: 0.25 },
+		};
+		// "ab" spoken on frames 20-21, the word delimiter on 22, "ba" on 24-25.
+		const vocab = ["<pad>", "|", "a", "b"];
+		const frames = Array<number>(60).fill(0);
+		frames[20] = 2;
+		frames[21] = 3;
+		frames[22] = 1;
+		frames[24] = 3;
+		frames[25] = 2;
+		const logprobs = new Float32Array(60 * vocab.length).fill(-12);
+		frames.forEach((tok, f) => {
+			logprobs[f * vocab.length + tok] = -0.01;
+		});
+		const emissions = {
+			vocab,
+			blank: 0,
+			stride_s: 0.02,
+			elapsed_s: 0.1,
+			regions: [
+				{ start: 0, frames: 60, logprobs: Buffer.from(logprobs.buffer).toString("base64") },
+			],
+		};
+
+		async function run(emissionsReply: Response, reply: object = inference) {
+			const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+				url.endsWith("/emissions")
+					? emissionsReply
+					: new Response(JSON.stringify(reply), { status: 200 }),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const mgr = new WhisperServerManager();
+				(mgr as unknown as { process: unknown; port: number }).process = {};
+				(mgr as unknown as { process: unknown; port: number }).port = 9999;
+				const alignerFor = vi.fn(async (language: string) => `/models/${language}.gguf`);
+				const result = await mgr.transcribe({
+					samples: new Float32Array(16_000 * 2),
+					alignerFor,
+				});
+				return { result, alignerFor, fetchMock };
+			} finally {
+				vi.unstubAllGlobals();
+			}
+		}
+
+		it("re-times the words on the aligner of the detected language, and counts its cost", async () => {
+			const { result, alignerFor, fetchMock } = await run(
+				new Response(JSON.stringify(emissions), { status: 200 }),
+			);
+			expect(alignerFor).toHaveBeenCalledWith("fr");
+			const body = fetchMock.mock.calls[1][1]?.body as FormData;
+			expect(body.get("model")).toBe("/models/fr.gguf");
+			expect(JSON.parse(String(body.get("regions")))).toEqual([[0, 1.3]]);
+			// The phrase edges stay on the speech; the inner boundary moves to the letters.
+			const ms = (x: number) => Math.round(x * 1000);
+			expect(result.wordSegments.map((w) => [w.word, ms(w.startSec), ms(w.endSec)])).toEqual([
+				["ab", 200, 450],
+				["ba", 450, 1000],
+			]);
+			expect(result.timing?.elapsedSec).toBeCloseTo(0.6);
+			expect(result.timing?.rtf).toBeCloseTo(0.3);
+		});
+
+		it("leaves the aligner out on the CPU, without even asking for it", async () => {
+			const { result, alignerFor, fetchMock } = await run(
+				new Response(JSON.stringify(emissions), { status: 200 }),
+				{ ...inference, backend: "whispercpp-cpu" },
+			);
+			expect(alignerFor).not.toHaveBeenCalled();
+			expect(fetchMock).toHaveBeenCalledOnce();
+			expect(result.wordSegments.map((w) => [w.word, w.startSec, w.endSec])).toEqual([
+				["ab", 0.2, 0.5],
+				["ba", 0.5, 1],
+			]);
+		});
+
+		it("keeps whisper's times when the aligner fails", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+			try {
+				const { result } = await run(new Response("not found", { status: 404 }));
+				expect(result.wordSegments.map((w) => [w.word, w.startSec, w.endSec])).toEqual([
+					["ab", 0.2, 0.5],
+					["ba", 0.5, 1],
+				]);
+				expect(result.timing?.elapsedSec).toBe(0.5);
+				expect(warn).toHaveBeenCalledWith(expect.stringMatching(/word aligner failed/));
+			} finally {
+				warn.mockRestore();
+			}
+		});
 	});
 
 	it("spawns whisper-stt-server with --model", async () => {
@@ -727,177 +868,6 @@ describe("WhisperServerManager", () => {
 			if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
 			vi.unstubAllGlobals();
 			await rm(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("detectVadSegments extracts segments from /vad response", async () => {
-		const fakeJson = {
-			segments: [
-				{ start: 0.25, end: 1.5 },
-				{ start: 2.1, end: 4.8 },
-			],
-		};
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response(JSON.stringify(fakeJson), { status: 200 })),
-		);
-		try {
-			const mgr = new WhisperServerManager();
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).process = {};
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).port = 9999;
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).vadAvailable =
-				true;
-
-			const segments = await mgr.detectVadSegments({ samples: new Float32Array(1600) });
-			expect(segments).toEqual([
-				{ startSec: 0.25, endSec: 1.5 },
-				{ startSec: 2.1, endSec: 4.8 },
-			]);
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
-
-	it("detectVadSegments surfaces server error from /vad endpoint", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response("VAD model was not loaded", { status: 400 })),
-		);
-		try {
-			const mgr = new WhisperServerManager();
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).process = {};
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).port = 9999;
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).vadAvailable =
-				true;
-
-			await expect(mgr.detectVadSegments({ samples: new Float32Array(1600) })).rejects.toThrow(
-				/whisper-stt-server \/vad HTTP 400/,
-			);
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
-
-	it("filters out /vad segments missing end that map to zero-length intervals", async () => {
-		const fakeJson = {
-			segments: [
-				{ start: 1.5 }, // missing end -> maps to startSec: 1.5, endSec: 1.5
-			],
-		};
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response(JSON.stringify(fakeJson), { status: 200 })),
-		);
-		try {
-			const mgr = new WhisperServerManager();
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).process = {};
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).port = 9999;
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).vadAvailable =
-				true;
-
-			const segments = await mgr.detectVadSegments({ samples: new Float32Array(1600) });
-			expect(segments).toEqual([]);
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
-
-	it("handles malformed WAV /vad HTTP 400 without crashing helper availability", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(
-				async () => new Response(JSON.stringify({ error: "failed to parse WAV" }), { status: 400 }),
-			),
-		);
-		try {
-			const mgr = new WhisperServerManager();
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).process = {
-				pid: 999,
-			};
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).port = 9999;
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).vadAvailable =
-				true;
-
-			await expect(mgr.detectVadSegments({ samples: new Float32Array(100) })).rejects.toThrow(
-				/whisper-stt-server \/vad HTTP 400/,
-			);
-			expect(mgr.status.running).toBe(true);
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
-
-	it("rejects detectVadSegments when VAD is unavailable", async () => {
-		const mgr = new WhisperServerManager();
-		(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).process = {};
-		(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).port = 9999;
-		(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).vadAvailable =
-			false;
-
-		await expect(mgr.detectVadSegments({ samples: new Float32Array(1600) })).rejects.toThrow(
-			STT_VAD_UNAVAILABLE,
-		);
-	});
-
-	describe("mergeVadIntervals", () => {
-		it("returns empty array for empty input", () => {
-			expect(mergeVadIntervals([])).toEqual([]);
-		});
-
-		it("returns single interval as-is", () => {
-			expect(mergeVadIntervals([{ startSec: 1, endSec: 2 }])).toEqual([{ startSec: 1, endSec: 2 }]);
-		});
-
-		it("merges overlapping and adjacent intervals", () => {
-			const input = [
-				{ startSec: 1, endSec: 3 },
-				{ startSec: 2.5, endSec: 5 },
-				{ startSec: 5, endSec: 6.2 },
-				{ startSec: 8, endSec: 10 },
-			];
-			expect(mergeVadIntervals(input)).toEqual([
-				{ startSec: 1, endSec: 6.2 },
-				{ startSec: 8, endSec: 10 },
-			]);
-		});
-
-		it("drops inverted intervals where endSec <= startSec", () => {
-			const input = [
-				{ startSec: 2, endSec: 1 },
-				{ startSec: 3, endSec: 4 },
-			];
-			expect(mergeVadIntervals(input)).toEqual([{ startSec: 3, endSec: 4 }]);
-		});
-
-		it("drops singleton intervals where endSec <= startSec", () => {
-			expect(mergeVadIntervals([{ startSec: 2, endSec: 1 }])).toEqual([]);
-			expect(mergeVadIntervals([{ startSec: 2, endSec: 2 }])).toEqual([]);
-		});
-	});
-
-	it("chunks long audio across MAX_VAD_CHUNK_SAMPLES and offsets timestamps", async () => {
-		const fetchMock = vi.fn(async () => {
-			const callIndex = fetchMock.mock.calls.length - 1;
-			const segments = callIndex === 0 ? [{ start: 10, end: 180 }] : [{ start: 0, end: 20 }];
-			return new Response(JSON.stringify({ segments }), { status: 200 });
-		});
-		vi.stubGlobal("fetch", fetchMock);
-		try {
-			const mgr = new WhisperServerManager();
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).process = {};
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).port = 9999;
-			(mgr as unknown as { process: unknown; port: number; vadAvailable: boolean }).vadAvailable =
-				true;
-
-			// Total duration = 200 seconds @ 16 kHz = 3,200,000 samples (> MAX_VAD_CHUNK_SAMPLES = 2,880,000)
-			const samples = new Float32Array(MAX_VAD_CHUNK_SAMPLES + 16_000 * 20);
-			const segments = await mgr.detectVadSegments({ samples });
-
-			expect(fetchMock).toHaveBeenCalledTimes(2);
-			// 180s in chunk 0 + 20s in chunk 1 with offset 180s -> merged [10, 200]
-			expect(segments).toEqual([{ startSec: 10, endSec: 200 }]);
-		} finally {
-			vi.unstubAllGlobals();
 		}
 	});
 });

@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "Nascondi",
+		"hideHUDTip": "Nascondi la barra. Puoi mostrarla di nuovo dall'icona nell'area di notifica.",
 		"closeApp": "Chiudi app",
-		"restartRecording": "Riavvia registrazione",
-		"cancelRecording": "Annulla registrazione",
+		"restartRecording": "Elimina questa registrazione e iniziane una nuova",
+		"cancelRecording": "Interrompi ed elimina questa registrazione",
 		"pauseRecording": "Metti in pausa registrazione",
 		"resumeRecording": "Riprendi registrazione",
 		"useVerticalTray": "Usa barra verticale",
 		"useHorizontalTray": "Usa barra orizzontale",
-		"openStudio": "Apri Studio",
-		"openNotes": "Apri note",
+		"changeSource": "Scegli un altro schermo o un'altra finestra",
+		"systemAudio": "Audio di sistema: registra il suono riprodotto dal computer",
+		"microphone": "Microfono: registra la tua voce",
+		"camera": "Fotocamera: ti registra come livello separato che puoi spostare nell'editor",
+		"openStudio": "Apri Studio: l'editor per le tue registrazioni",
+		"openNotes": "Apri note: testo da leggere durante la registrazione",
 		"openNotesPlaceholder": "Scrivi le tue note qui...",
 		"notesToolbar": {
 			"bold": "Grassetto",
@@ -27,34 +32,30 @@
 			"fontSize": "Dimensione carattere",
 			"decreaseFontSize": "Riduci dimensione carattere",
 			"increaseFontSize": "Aumenta dimensione carattere",
-			"mirror": "Specchia orizzontalmente"
+			"mirror": "Specchia orizzontalmente",
+			"mirrorTip": "Specchia il testo per leggerlo in uno specchio"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "Abilita audio di sistema",
-		"disableSystemAudio": "Disabilita audio di sistema",
-		"enableMicrophone": "Abilita microfono",
-		"disableMicrophone": "Disabilita microfono",
-		"defaultMicrophone": "Microfono predefinito",
 		"systemAudio": "Audio di sistema",
 		"microphone": "Microfono",
-		"on": "Attivo",
-		"off": "Disattivo",
 		"inputDevice": "Dispositivo di input"
 	},
 	"webcam": {
-		"enableWebcam": "Abilita webcam",
-		"disableWebcam": "Disabilita webcam",
-		"defaultCamera": "Fotocamera predefinita",
 		"searching": "Ricerca in corso...",
 		"noneFound": "Nessuna fotocamera trovata",
 		"unavailable": "Fotocamera non disponibile",
 		"camera": "Fotocamera",
-		"cameraDevice": "Dispositivo fotocamera"
+		"cameraDevice": "Dispositivo fotocamera",
+		"quality": "Qualità della fotocamera",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "Usa cursore modificabile: riattiva lo zoom automatico e gli effetti del cursore",
-		"useSystemCursorHint": "Usa cursore di sistema: disattiva lo zoom automatico e gli effetti del cursore"
+		"name": "Cursore modificabile",
+		"editableTip": "Cursore modificabile: registrato separatamente, così puoi cambiarne lo stile e usare lo zoom automatico nell'editor",
+		"systemTip": "Cursore di sistema: il tuo cursore reale, registrato nel video. Nessun cambio di stile, nessuno zoom automatico."
 	},
 	"sourceSelector": {
 		"loading": "Caricamento sorgenti...",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "Seleziona una sorgente da registrare",
 		"systemPicker": "Il sistema ti chiederà cosa condividere",
-		"inProgress": "Registrazione in corso",
+		"start": "Avvia registrazione",
+		"stop": "Interrompi e salva la registrazione",
 		"saving": "Salvataggio..."
 	},
 	"language": "Lingua",
+	"languageWithName": "Lingua: {{language}}",
 	"systemLanguagePrompt": {
 		"title": "Usare la lingua del sistema?",
 		"description": "Abbiamo rilevato {{language}} come lingua del sistema. Vuoi passare OpenScreen a {{language}}?",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "Impostazioni dispositivi",
-		"done": "Fatto",
+		"close": "Chiudi",
 		"micLevel": "Livello di ingresso",
 		"micHint": "Parla per testare il microfono",
 		"noMicrophones": "Nessun microfono trovato",

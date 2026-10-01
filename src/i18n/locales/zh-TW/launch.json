@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "隱藏控制面板",
+		"hideHUDTip": "隱藏控制面板。可從系統匣圖示重新顯示。",
 		"closeApp": "關閉應用程式",
-		"restartRecording": "重新開始錄製",
-		"cancelRecording": "取消錄製",
+		"restartRecording": "刪除此錄製並重新開始",
+		"cancelRecording": "停止並刪除此錄製",
 		"pauseRecording": "暫停錄製",
 		"resumeRecording": "繼續錄製",
 		"useVerticalTray": "使用直向托盤",
 		"useHorizontalTray": "使用橫向托盤",
-		"openStudio": "開啟工作室",
-		"openNotes": "開啟筆記",
+		"changeSource": "選擇其他螢幕或視窗",
+		"systemAudio": "系統音訊：錄製電腦播放的聲音",
+		"microphone": "麥克風：錄製語音",
+		"camera": "攝影機：錄製為獨立圖層，可在編輯器中移動",
+		"openStudio": "開啟工作室：錄製內容的編輯器",
+		"openNotes": "開啟筆記：錄製時閱讀的文字",
 		"openNotesPlaceholder": "在此輸入筆記...",
 		"notesToolbar": {
 			"bold": "粗體",
@@ -27,34 +32,30 @@
 			"fontSize": "字體大小",
 			"decreaseFontSize": "縮小字體",
 			"increaseFontSize": "放大字體",
-			"mirror": "水平鏡像"
+			"mirror": "水平鏡像",
+			"mirrorTip": "水平翻轉文字，以便在鏡子中閱讀"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "啟用系統音訊",
-		"disableSystemAudio": "停用系統音訊",
-		"enableMicrophone": "啟用麥克風",
-		"disableMicrophone": "停用麥克風",
-		"defaultMicrophone": "預設麥克風",
 		"systemAudio": "系統音訊",
 		"microphone": "麥克風",
-		"on": "開",
-		"off": "關",
 		"inputDevice": "輸入裝置"
 	},
 	"webcam": {
-		"enableWebcam": "啟用攝影機",
-		"disableWebcam": "停用攝影機",
-		"defaultCamera": "預設攝影機",
 		"searching": "正在搜尋...",
 		"noneFound": "未找到攝影機",
 		"unavailable": "攝影機不可用",
 		"camera": "攝影機",
-		"cameraDevice": "攝影機裝置"
+		"cameraDevice": "攝影機裝置",
+		"quality": "攝影機畫質",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "使用可編輯游標：將重新開啟自動縮放與游標效果",
-		"useSystemCursorHint": "使用系統游標：將關閉自動縮放與游標效果"
+		"name": "可編輯游標",
+		"editableTip": "可編輯游標：單獨錄製，可在編輯器中修改樣式並使用自動縮放",
+		"systemTip": "系統游標：真實游標，直接錄進影片。無法修改樣式，沒有自動縮放。"
 	},
 	"sourceSelector": {
 		"loading": "正在載入來源...",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "請選擇要錄製的來源",
 		"systemPicker": "系統將詢問要分享的內容",
-		"inProgress": "正在錄製",
+		"start": "開始錄製",
+		"stop": "停止並儲存錄製",
 		"saving": "正在儲存..."
 	},
 	"language": "語言",
+	"languageWithName": "語言：{{language}}",
 	"systemLanguagePrompt": {
 		"title": "要使用系統語言嗎？",
 		"description": "偵測到系統語言為 {{language}}。要將 OpenScreen 切換為 {{language}} 嗎？",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "裝置設定",
-		"done": "完成",
+		"close": "關閉",
 		"micLevel": "輸入音量",
 		"micHint": "說話以測試麥克風",
 		"noMicrophones": "找不到麥克風",

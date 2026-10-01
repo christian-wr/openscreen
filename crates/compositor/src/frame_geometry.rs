@@ -2658,10 +2658,6 @@ impl FrameGeometry {
             [centre[0] + px, centre[1] + py]
         };
         let pts = [at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1)];
-        // Le mode 8 étale aussi chaque pixel vers là où le plan était une frame plus tôt
-        // (`tilt_trail`) : une copie traînée du secret sort du quad courant. Le masque couvre alors
-        // la boîte englobante du secret aux deux frames, en rect droit, comme le chemin droit.
-        // Même warp que le shader sur les coins d'avant (le drapeau projectif est celui du plan).
         // La perspective grossit localement le côté proche : la force suit l'arête la plus
         // agrandie par rapport au rect droit zoomé, pour que nulle part le masque ne soit plus
         // fin, rapporté au contenu, qu'au repos.
@@ -2672,28 +2668,29 @@ impl FrameGeometry {
             .max(len(pts[0], pts[3]) / eh)
             .max(len(pts[1], pts[2]) / eh);
         let strength = (zoom_k * tilt_k).max(1.0);
-        // Sans mouvement, la traînée EST le quad (au bit près) : rien de plus à couvrir.
-        if let Some(trail) = self.tilt_trail(render_px).filter(|t| t.corners != quad.corners) {
-            let before = crate::regions::TiltedQuad { corners: trail.corners, ..quad };
-            let then = |fx: f32, fy: f32| {
-                let (px, py) = before.point_px(fx, fy);
-                [centre[0] + px, centre[1] + py]
-            };
-            let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
-            for [px, py] in pts.into_iter().chain([then(x0, y0), then(x1, y0), then(x1, y1), then(x0, y1)]) {
-                (lo, hi) = ([lo[0].min(px), lo[1].min(py)], [hi[0].max(px), hi[1].max(py)]);
+        // Le mode 8 étale aussi chaque pixel vers là où le plan était une frame plus tôt
+        // (`tilt_trail`) : une copie traînée du secret sort du quad courant. Le masque garde la
+        // perspective du quad courant, élargi de la plus grande avance d'un de ses coins : chaque
+        // coin d'avant tombe dedans, donc tout le secret d'avant aussi (un quad convexe contient
+        // l'enveloppe de ses coins), et la traînée, qui va de l'un à l'autre. Même warp que le
+        // shader sur les coins d'avant (le drapeau projectif est celui du plan). Sans mouvement,
+        // la traînée EST le quad (au bit près) : rien de plus à couvrir.
+        let trail = self.tilt_trail(render_px).filter(|t| t.corners != quad.corners);
+        let pts = match trail {
+            Some(trail) => {
+                let before = crate::regions::TiltedQuad { corners: trail.corners, ..quad };
+                let then = |fx: f32, fy: f32| {
+                    let (px, py) = before.point_px(fx, fy);
+                    [centre[0] + px, centre[1] + py]
+                };
+                let prev = [then(x0, y0), then(x1, y0), then(x1, y1), then(x0, y1)];
+                let reach = (0..4)
+                    .map(|i| (prev[i][0] - pts[i][0]).hypot(prev[i][1] - pts[i][1]))
+                    .fold(0.0f32, f32::max);
+                grow_quad(pts, reach + 0.5)
             }
-            let rect =
-                [lo[0] / rw, lo[1] / rh, (hi[0] - lo[0]).max(1.0) / rw, (hi[1] - lo[1]).max(1.0) / rh];
-            let rect = match self.screen_mask {
-                Some(m) => m.clip(rect)?,
-                None => rect,
-            };
-            let mut mask = PrivacyMask::upright(rect, render_px, strength);
-            // Un ovale inscrit dans la boîte élargie ne couvrirait plus l'ovale courant.
-            mask.oval_ok = false;
-            return Some(mask);
-        }
+            None => pts,
+        };
         let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
         let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
         for [px, py] in pts {
@@ -2721,9 +2718,65 @@ impl FrameGeometry {
             warp: Some(local),
             projective: quad.projective,
             strength,
-            oval_ok: true,
+            // Un ovale inscrit dans le quad élargi ne couvrirait plus sûrement l'ovale d'avant.
+            oval_ok: trail.is_none(),
         })
     }
+
+    /// Où tombe le métrage dans l'image (`FootageQuad`) : là où `privacy_mask` pose un masque,
+    /// donc là où l'éditeur doit poser le gimbal d'un flou pour qu'il couvre ce qu'il cache.
+    pub fn footage_quad(&self, render_px: [f32; 2]) -> FootageQuad {
+        let [rw, rh] = render_px;
+        let s_px = [self.s_dst[2] * rw, self.s_dst[3] * rh];
+        if let Some(quad) = self.screen_tilt(s_px).filter(|_| self.tilted() && rw > 0.0 && rh > 0.0) {
+            let centre = self.screen_center_px(render_px);
+            let at = |fx: f32, fy: f32| {
+                let (px, py) = quad.point_px(fx, fy);
+                [(centre[0] + px) / rw, (centre[1] + py) / rh]
+            };
+            return FootageQuad {
+                corners: [at(0.0, 0.0), at(1.0, 0.0), at(1.0, 1.0), at(0.0, 1.0)],
+                projective: quad.projective,
+            };
+        }
+        let [x, y, w, h] = self.s_dst;
+        FootageQuad { corners: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], projective: false }
+    }
+}
+
+/// Le métrage dans l'image : ses coins TL, TR, BR, BL en fractions de la sortie, et la
+/// correspondance d'un point `(u, v)` du métrage à l'image, bilinéaire entre eux ou, sous la
+/// caméra réelle, l'homographie qu'ils définissent (`TiltedQuad::point_px`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FootageQuad {
+    pub corners: [[f32; 2]; 4],
+    pub projective: bool,
+}
+
+/// Le quad convexe `pts` (TL, TR, BR, BL) dont chaque côté recule de `d` px vers l'extérieur :
+/// ses côtés restent parallèles aux siens, donc sa perspective aussi, et il contient tout point
+/// à moins de `d` de lui.
+fn grow_quad(pts: [[f32; 2]; 4], d: f32) -> [[f32; 2]; 4] {
+    // L'extérieur d'un côté est d'un bord ou de l'autre selon le sens de parcours.
+    let area: f32 = (0..4)
+        .map(|i| {
+            let (a, b) = (pts[i], pts[(i + 1) % 4]);
+            a[0] * b[1] - b[0] * a[1]
+        })
+        .sum();
+    let side = area.signum();
+    let normal = |i: usize| {
+        let (a, b) = (pts[i], pts[(i + 1) % 4]);
+        let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+        let len = ex.hypot(ey).max(1e-6);
+        [side * ey / len, -side * ex / len]
+    };
+    std::array::from_fn(|i| {
+        // Le coin glisse sur la bissectrice jusqu'à la rencontre des deux côtés reculés.
+        let (na, nb) = (normal((i + 3) % 4), normal(i));
+        let k = d / (1.0 + na[0] * nb[0] + na[1] * nb[1]).max(0.2);
+        [pts[i][0] + (na[0] + nb[0]) * k, pts[i][1] + (na[1] + nb[1]) * k]
+    })
 }
 
 /// Marge ajoutée autour d'un masque de confidentialité, en px de la boîte écran AU REPOS : un
@@ -2891,6 +2944,8 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         let mut zoom_tilt = 0.0f32;
         let mut zoom_camera = 0.0f32;
         let mut zoom_camera_prev = 0.0f32;
+        let mut zoom_strength = 0.0f32;
+        let mut zoom_strength_prev = 0.0f32;
         let mut zoom_aim = [0.5f32; 2];
         let mut zoom_orbit = [0.5f32; 2];
         let (mut zoom_aim_prev, mut zoom_orbit_prev) = ([0.5f32; 2], [0.5f32; 2]);
@@ -2919,6 +2974,7 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
             zoom_rotation = zs.rotation;
             zoom_tilt = zs.tilt;
             zoom_camera = zs.camera;
+            zoom_strength = zs.strength;
             zoom_aim = zs.aim;
             zoom_orbit = zs.orbit;
             // Même `CameraFrame` qu'à la frame courante : la caméra réelle d'avant (poids, visée,
@@ -2934,6 +2990,7 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
             pp.focus = zs_p.focus;
             zoom_rotation_prev = zs_p.rotation;
             zoom_camera_prev = zs_p.camera;
+            zoom_strength_prev = zs_p.strength;
             zoom_aim_prev = zs_p.aim;
             zoom_orbit_prev = zs_p.orbit;
         }
@@ -2945,13 +3002,15 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
             crate::regions::camera_fullscreen_progress_at(cam_regions, source_t_prev, &clock);
         let shape_fade =
             crate::regions::camera_fullscreen_shape_at(cam_regions, source_t, &clock);
-        // rétrécissement réactif : la webcam rétrécit pendant un zoom actif, de la MOITIÉ de ce
-        // que prendrait 1/zoom : ×0,78 au zoom par défaut (1,8), ×0,6 au zoom maximal (5). En
-        // 1/zoom elle tombait à ×0,56 au zoom par défaut et un visage ne se lisait plus. Ignoré
-        // pendant Full Camera (voir ci-dessus).
-        let reactive_scale = |zoom: f32, progress: f32| -> f32 {
-            if webcam_reactive && progress <= 0.0 && zoom.is_finite() && zoom > 0.0 {
-                ((1.0 + 1.0 / zoom) / 2.0).min(1.0)
+        // rétrécissement réactif : la webcam garde 70 % de sa taille pendant un zoom actif, quel
+        // que soit son niveau (elle suivait 1/zoom, et rétrécissait donc d'autant plus que le zoom
+        // était profond : ×0,6 au zoom maximal). L'enveloppe est celle de la région : elle descend
+        // avec le ease-in du zoom, tient 0,7 sur le span, remonte avec le ease-out. Une région à
+        // échelle 1 ne zoome rien : elle laisse la caméra à sa taille. Ignoré pendant Full Camera
+        // (voir ci-dessus).
+        let reactive_scale = |strength: f32, zoom: f32, progress: f32| -> f32 {
+            if webcam_reactive && progress <= 0.0 && zoom > 1.0 && strength.is_finite() {
+                (1.0 - 0.3 * strength.clamp(0.0, 1.0)).clamp(0.7, 1.0)
             } else {
                 1.0
             }
@@ -2965,8 +3024,9 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         // Seul `reactive_scale` (rétrécissement pendant un zoom, une valeur ANIMÉE par frame que
         // le rect statique de l'app ne capture pas) doit encore s'appliquer dans ce cas.
         let base_size_scale = if app_webcam_rect.is_some() { 1.0 } else { lp.webcam_size_scale };
-        let webcam_size_scale = base_size_scale * reactive_scale(p.zoom, cam_progress);
-        let webcam_size_scale_prev = base_size_scale * reactive_scale(pp.zoom, cam_progress_prev);
+        let webcam_size_scale = base_size_scale * reactive_scale(zoom_strength, p.zoom, cam_progress);
+        let webcam_size_scale_prev =
+            base_size_scale * reactive_scale(zoom_strength_prev, pp.zoom, cam_progress_prev);
 
         // padding : échelle globale du layout autour du centre du cadre (parité web frameRenderer :
         // paddingScale = 1 - padding*0.4 → padding 0 = plein cadre). S'applique à TOUS les presets :
@@ -3419,6 +3479,10 @@ pub struct CursorPlan {
     /// L'impact des clics récents sur l'écran (mode 16), à dessiner SOUS le curseur. Vide sans
     /// curseur modélisé, sans clic récent ou à `clickBounce` nul.
     pub impacts: Vec<LayerCB>,
+    /// Le curseur modélisé est le cristal de Prism Glow : il réfracte l'image déjà composée, le
+    /// métrage et ses flous de confidentialité, que le backend lui copie juste avant de le
+    /// dessiner. Seuls des pixels floutés passent ainsi à travers le verre.
+    pub glass: bool,
 }
 
 impl CursorPlan {
@@ -3720,6 +3784,7 @@ pub fn plan_cursor(g: &FrameGeometry, input: &CursorPlanInput) -> Option<CursorP
             cursor_pose(input.track, input.t, lp.cursor_bounce_scale, pointing)
         }),
         impacts,
+        glass: model_sprite.and_then(|s| s.sculpt.as_deref()).is_some_and(crate::sculpt::refracts),
     })
 }
 
@@ -3756,9 +3821,13 @@ pub fn plan_cursor(g: &FrameGeometry, input: &CursorPlanInput) -> Option<CursorP
 //   radius_px     rapport w/h du sprite : sa taille (unités) en découle, plus grand côté = 1
 //   trail_a       le curseur sculpté (0 = le sprite extrudé), l'épaisseur sous z = 0 avant
 //                 écrasement, la hauteur au-dessus de z = 0 (`SpriteShape`), 0
-// Textures : le sprite RGBA (alpha droit) et son champ R16F (`cursor_sdf`), sur le même rect.
-//   Windows et macOS : sprite en t2/texture(2) (`texImg`), champ en t4/texture(4) (`texSdf`).
-//   Linux : sprite au binding 1 (`texY`), champ au binding 2 (`texU`).
+// Textures : le sprite RGBA (alpha droit) et son champ R16F (`cursor_sdf`), sur le même rect ;
+// pour le cristal de Prism Glow (`CursorPlan::glass`), une copie de l'image composée, flous de
+// confidentialité compris, qu'il réfracte.
+//   Windows et macOS : sprite en t2/texture(2) (`texImg`), champ en t4/texture(4) (`texSdf`),
+//   copie en t5/texture(5) (`texDof`).
+//   Linux : sprite au binding 6 (`texDof`), champ au binding 4 (`texMask`), copie au binding 1
+//   (`texY`).
 
 /// Épaisseur du sprite extrudé : son dessus est en z = 0, son dessous en z = -épaisseur.
 pub const MODEL_THICK: f32 = 0.19;
@@ -6479,7 +6548,7 @@ mod tests {
     #[test]
     fn the_reactive_zoom_shrinks_the_camera_toward_its_anchor() {
         let cfg = crate::config::all().pop().expect("au moins une config");
-        // Caméra de 0,2 de côté posée par l'app, marge 0,03 ; zoom ×2 à 1,5 s → échelle 0,75.
+        // Caméra de 0,2 de côté posée par l'app, marge 0,03 ; zoom ×2 à 1,5 s → échelle 0,7.
         let camera_at = |anchor: Option<&str>, x: f32, y: f32| {
             let anchor = anchor.map(|a| format!(r#","webcamAnchor":"{a}""#)).unwrap_or_default();
             let layout = format!(
@@ -6490,17 +6559,54 @@ mod tests {
             plan_frame(&golden_input(&scene, &cfg)).w_dst
         };
         for (anchor, x, y, want) in [
-            (Some("bottom-right"), 0.77, 0.77, [0.82, 0.82]),
+            (Some("bottom-right"), 0.77, 0.77, [0.83, 0.83]),
             (Some("top-left"), 0.03, 0.03, [0.03, 0.03]),
-            (Some("bottom"), 0.4, 0.77, [0.425, 0.82]),
-            (Some("left"), 0.03, 0.4, [0.03, 0.425]),
-            (None, 0.77, 0.77, [0.795, 0.795]),
+            (Some("bottom"), 0.4, 0.77, [0.43, 0.83]),
+            (Some("left"), 0.03, 0.4, [0.03, 0.43]),
+            (None, 0.77, 0.77, [0.80, 0.80]),
         ] {
             let w = camera_at(anchor, x, y);
             let got = [w[0], w[1], w[2], w[3]];
-            let want = [want[0], want[1], 0.15, 0.15];
+            let want = [want[0], want[1], 0.14, 0.14];
             assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-5), "{anchor:?} : {got:?} au lieu de {want:?}");
         }
+    }
+
+    /// Le rétrécissement réactif vise 70 % QUEL QUE SOIT le niveau de zoom : la caméra garde la
+    /// même taille à 1,25×, 2× et 5× (elle suivait 1/zoom, et rétrécissait d'autant plus que le
+    /// zoom était profond).
+    #[test]
+    fn the_camera_shrink_is_the_same_at_every_zoom_level() {
+        let cfg = crate::config::all().pop().expect("au moins une config");
+        let camera_at = |scale: &str| {
+            let layout = r#""webcamReactiveZoom":true,"webcamAnchor":"bottom-right","webcamRect":{"x":0.77,"y":0.77,"width":0.2,"height":0.2}}"#;
+            let json = zoomed_golden_scene_json()
+                .replace(r#""webcamReactiveZoom":false}"#, layout)
+                .replace(r#""scale":2.0"#, scale);
+            let scene = Scene::from_json(&json).expect("scène");
+            plan_frame(&golden_input(&scene, &cfg)).w_dst
+        };
+        for scale in [r#""scale":1.25"#, r#""scale":2.0"#, r#""scale":5.0"#] {
+            let w = camera_at(scale);
+            let got = [w[0], w[1], w[2], w[3]];
+            let want = [0.83, 0.83, 0.14, 0.14];
+            assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-5), "{scale} : {got:?} au lieu de {want:?}");
+        }
+    }
+
+    /// Une région de zoom à échelle 1 ne zoome rien : elle ne rétrécit pas la caméra.
+    #[test]
+    fn a_one_x_zoom_region_keeps_the_camera_at_its_size() {
+        let cfg = crate::config::all().pop().expect("au moins une config");
+        let layout = r#""webcamReactiveZoom":true,"webcamAnchor":"bottom-right","webcamRect":{"x":0.77,"y":0.77,"width":0.2,"height":0.2}}"#;
+        let json = zoomed_golden_scene_json()
+            .replace(r#""webcamReactiveZoom":false}"#, layout)
+            .replace(r#""scale":2.0"#, r#""scale":1.0"#);
+        let scene = Scene::from_json(&json).expect("scène");
+        let w = plan_frame(&golden_input(&scene, &cfg)).w_dst;
+        let got = [w[0], w[1], w[2], w[3]];
+        let want = [0.77, 0.77, 0.2, 0.2];
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-5), "{got:?} au lieu de {want:?}");
     }
 
     /// La vitesse se mesure dans la coupe VISIBLE, zoom compris : sous un x2, le même geste
@@ -6837,6 +6943,87 @@ mod tests {
                 assert!(inside(m.dst, x, y), "({x}, {y}) hors du masque {:?}", m.dst);
             }
         }
+    }
+
+    /// Le point `p` est dans le quad convexe `q` (TL, TR, BR, BL, px de sortie).
+    fn in_convex_quad(q: [[f32; 2]; 4], p: [f32; 2]) -> bool {
+        let side = |i: usize| {
+            let (a, b) = (q[i], q[(i + 1) % 4]);
+            (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+        };
+        (0..4).all(|i| side(i) >= -1e-3) || (0..4).all(|i| side(i) <= 1e-3)
+    }
+
+    /// Sous l'orbite, la caméra suit le pointeur et le flou de mouvement étale le contenu vers
+    /// sa position de la frame d'avant : le masque garde la perspective du contenu (un quad warpé
+    /// aux côtés parallèles aux siens, pas un rect droit) et couvre le secret aux deux frames.
+    #[test]
+    fn a_moving_tilted_mask_keeps_its_perspective() {
+        let cfg = crate::config::all().pop().expect("au moins une config");
+        let json = zoomed_golden_scene_json()
+            .replace(r#""rotation":"none""#, r#""rotation":"orbit","focusMode":"auto""#);
+        let scene = Scene::from_json(&json).expect("scène");
+        // Le pointeur file vers la droite : l'orbite le suit, la caméra bouge à chaque frame.
+        let track: &'static crate::cursor::CursorTrack = Box::leak(Box::new(crate::cursor::CursorTrack::new(
+            (0..=90).map(|i| (i as f32 / 30.0, 0.05 + 0.5 * i as f32 / 90.0, 0.3)).collect(),
+            vec![],
+            vec![],
+        )));
+        let g = plan_frame(&FrameGeometryInput { cursor: Some(track), ..golden_input(&scene, &cfg) });
+        let render = [1170.0, 658.0];
+        let quad = g.screen_tilt([g.s_dst[2] * render[0], g.s_dst[3] * render[1]]).expect("orbite");
+        let trail = g.tilt_trail(render).expect("garde : flou de mouvement actif sous l'orbite");
+        assert_ne!(trail.corners, quad.corners, "garde : la caméra doit bouger d'une frame à l'autre");
+        let a = blur_annotation("");
+        let m = g.privacy_mask(&a, render).expect("masque");
+        let warp = m.warp.expect("le masque d'un écran incliné qui bouge reste un quad warpé");
+        let origin = [m.dst[0] * render[0], m.dst[1] * render[1]];
+        let mask = warp.map(|[x, y]| [origin[0] + x, origin[1] + y]);
+        let centre = [(g.s_dst[0] + g.s_dst[2] * 0.5) * render[0], (g.s_dst[1] + g.s_dst[3] * 0.5) * render[1]];
+        let before = crate::regions::TiltedQuad { corners: trail.corners, ..quad };
+        for q in [quad, before] {
+            for (fx, fy) in [(a.x, a.y), (a.x + a.w, a.y), (a.x + a.w, a.y + a.h), (a.x, a.y + a.h)] {
+                let (px, py) = q.point_px(fx, fy);
+                let p = [centre[0] + px, centre[1] + py];
+                assert!(in_convex_quad(mask, p), "{p:?} hors du masque {mask:?}");
+            }
+        }
+        let (tl, tr) = (quad.point_px(a.x, a.y), quad.point_px(a.x + a.w, a.y));
+        let content = (tr.1 - tl.1) / (tr.0 - tl.0);
+        assert!(content.abs() > 1e-3, "garde : l'orbite doit incliner le haut du secret ({content})");
+        let top = (mask[1][1] - mask[0][1]) / (mask[1][0] - mask[0][0]);
+        assert!((top - content).abs() < 1e-3, "le haut du masque ({top}) doit suivre celui du contenu ({content})");
+        assert!(!m.oval_ok, "un masque élargi à la trace doit refuser l'ovale");
+    }
+
+    /// Le métrage que l'éditeur lit avec l'image : le rect zoomé à plat, le quad incliné du mode 8
+    /// sous un préset, l'homographie de ses coins sous la caméra réelle.
+    #[test]
+    fn the_footage_quad_is_where_masks_land() {
+        let cfg = crate::config::all().pop().expect("au moins une config");
+        let render = [1170.0, 658.0];
+        let flat = plan_frame(&golden_input(&zoomed_golden_scene(), &cfg));
+        let [x, y, w, h] = flat.s_dst;
+        assert_eq!(
+            flat.footage_quad(render),
+            FootageQuad { corners: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], projective: false }
+        );
+        let tilted = plan_frame(&golden_input(&tilted_golden_scene(), &cfg));
+        let q = tilted.footage_quad(render);
+        let quad = tilted.screen_tilt([tilted.s_dst[2] * render[0], tilted.s_dst[3] * render[1]]).expect("iso");
+        let centre = [
+            (tilted.s_dst[0] + tilted.s_dst[2] * 0.5) * render[0],
+            (tilted.s_dst[1] + tilted.s_dst[3] * 0.5) * render[1],
+        ];
+        for (k, (cx, cy)) in quad.corners.iter().enumerate() {
+            let want = [(centre[0] + cx) / render[0], (centre[1] + cy) / render[1]];
+            assert!((q.corners[k][0] - want[0]).abs() < 1e-5 && (q.corners[k][1] - want[1]).abs() < 1e-5, "coin {k}");
+        }
+        assert!(!q.projective);
+        let json = zoomed_golden_scene_json()
+            .replace(r#""rotation":"none""#, r#""rotation":"orbit","focusMode":"auto""#);
+        let orbit = plan_frame(&golden_input(&Scene::from_json(&json).expect("scène"), &cfg));
+        assert!(orbit.footage_quad(render).projective, "la caméra réelle warpe par homographie");
     }
 
     /// Une entrée mesurée sur le cadre de sortie n'est pas concernée par le zoom.

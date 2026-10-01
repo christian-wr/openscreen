@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "HUDを隠す",
+		"hideHUDTip": "録画バーを隠します。通知領域のアイコンから再表示できます。",
 		"closeApp": "アプリを閉じる",
-		"restartRecording": "録画を再開",
-		"cancelRecording": "録画をキャンセル",
+		"restartRecording": "この録画を削除して、新しく録画を開始",
+		"cancelRecording": "停止してこの録画を削除",
 		"pauseRecording": "録画を一時停止",
 		"resumeRecording": "録画を再開",
 		"useVerticalTray": "縦型トレイを使用",
 		"useHorizontalTray": "横型トレイを使用",
-		"openStudio": "スタジオを開く",
-		"openNotes": "ノートを開く",
+		"changeSource": "別の画面またはウィンドウを選択",
+		"systemAudio": "システム音声：コンピューターが再生する音を録音します",
+		"microphone": "マイク：声を録音します",
+		"camera": "カメラ：自分の映像を別レイヤーとして録画し、エディターで動かせます",
+		"openStudio": "スタジオを開く：録画を編集するエディター",
+		"openNotes": "ノートを開く：録画中に読むテキスト",
 		"openNotesPlaceholder": "ここにメモを入力...",
 		"notesToolbar": {
 			"bold": "太字",
@@ -27,34 +32,30 @@
 			"fontSize": "フォントサイズ",
 			"decreaseFontSize": "フォントサイズを小さくする",
 			"increaseFontSize": "フォントサイズを大きくする",
-			"mirror": "左右反転"
+			"mirror": "左右反転",
+			"mirrorTip": "テキストを左右反転し、鏡越しに読めるようにします"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "システム音声を有効にする",
-		"disableSystemAudio": "システム音声を無効にする",
-		"enableMicrophone": "マイクを有効にする",
-		"disableMicrophone": "マイクを無効にする",
-		"defaultMicrophone": "デフォルトのマイク",
 		"systemAudio": "システム音声",
 		"microphone": "マイク",
-		"on": "オン",
-		"off": "オフ",
 		"inputDevice": "入力デバイス"
 	},
 	"webcam": {
-		"enableWebcam": "ウェブカメラを有効にする",
-		"disableWebcam": "ウェブカメラを無効にする",
-		"defaultCamera": "デフォルトのカメラ",
 		"searching": "検索中...",
 		"noneFound": "カメラが見つかりません",
 		"unavailable": "カメラが利用できません",
 		"camera": "カメラ",
-		"cameraDevice": "カメラデバイス"
+		"cameraDevice": "カメラデバイス",
+		"quality": "カメラの画質",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "編集可能なカーソルを使う：自動ズームとカーソル効果が再びオンになります",
-		"useSystemCursorHint": "システムカーソルを使う：自動ズームとカーソル効果がオフになります"
+		"name": "編集可能なカーソル",
+		"editableTip": "編集可能なカーソル：別途記録されるため、エディターでスタイルを変更でき、自動ズームも使えます",
+		"systemTip": "システムカーソル：実際のカーソルが動画に録画されます。スタイル変更や自動ズームは使えません。"
 	},
 	"sourceSelector": {
 		"loading": "ソースを読み込み中...",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "録画するソースを選択してください",
 		"systemPicker": "共有する対象はシステムが確認します",
-		"inProgress": "録画中",
+		"start": "録画を開始",
+		"stop": "録画を停止して保存",
 		"saving": "保存中..."
 	},
 	"language": "言語",
+	"languageWithName": "言語：{{language}}",
 	"systemLanguagePrompt": {
 		"title": "システム言語を使用しますか？",
 		"description": "システム言語として{{language}}が検出されました。OpenScreenを{{language}}に切り替えますか？",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "デバイス設定",
-		"done": "完了",
+		"close": "閉じる",
 		"micLevel": "入力レベル",
 		"micHint": "マイクをテストするには話してください",
 		"noMicrophones": "マイクが見つかりません",

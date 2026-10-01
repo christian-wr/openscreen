@@ -13,10 +13,12 @@ import {
 	desktopCapturer,
 	dialog,
 	ipcMain,
+	safeStorage,
 	screen,
 	shell,
 	systemPreferences,
 } from "electron";
+import { DEFAULT_WEBCAM_QUALITY, type WebcamQualityId } from "../../src/hooks/webcamCaptureTarget";
 import {
 	type AxcutDocument,
 	isAxcutDocumentFile,
@@ -68,6 +70,9 @@ import { isDiagnosticModeEnabled, mainLogBuffer } from "../diagnostics/main-log-
 import { mainT } from "../i18n";
 import { getInstallChannel } from "../install-channel";
 import { RECORDINGS_DIR } from "../main";
+import { EditorDocumentHost } from "../mcp/editor-document-host";
+import { McpController } from "../mcp/mcp-controller";
+import { McpSettingsStore } from "../mcp/mcp-settings-store";
 import { type AudioPeaksResult, getAudioPeaks } from "../media/audioPeaks";
 import {
 	readCursorRecordingFile as readCursorRecordingFileFrom,
@@ -116,6 +121,7 @@ import {
 	NATIVE_WINDOWS_SALVAGEABLE_OUTPUT_BYTES,
 	readMicrophoneDefaulted,
 	readMicrophoneUnavailable,
+	readSecondaryWindowsApplied,
 	readWebcamFormat,
 	readWebcamUnavailable,
 	terminateNativeWindowsCapture,
@@ -124,9 +130,11 @@ import {
 import { patchWebmDurationOnDisk } from "../recording/webm-duration";
 import { reindexRecordingOnDisk } from "../recording/webm-seek-index";
 import {
+	describeMacPickerSource,
 	describeRecordingSource,
 	enumerationIncludesSourceKind,
 	mergeEnumeratedSources,
+	rememberedPickerSourceName,
 	resolveRecordingSource,
 	restoreRecordingSourceAfterEnumeration,
 	shouldEnumerateRecordingSources,
@@ -649,6 +657,8 @@ export interface RecordingPrefs {
 	camDeviceId: string | null;
 	/** Camera label paired with the preferred id for restart-safe resolution. */
 	camDeviceName: string | null;
+	/** Capture resolution for the camera. See WEBCAM_QUALITY_PRESETS. */
+	camQuality: WebcamQualityId;
 	systemAudioEnabled: boolean;
 	cursorCaptureMode: CursorCaptureMode;
 	hideDesktopIcons: boolean;
@@ -662,6 +672,7 @@ const defaultRecordingPrefs: RecordingPrefs = {
 	camEnabled: false,
 	camDeviceId: null,
 	camDeviceName: null,
+	camQuality: DEFAULT_WEBCAM_QUALITY,
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
 	hideDesktopIcons: false,
@@ -1054,7 +1065,9 @@ async function getMacPickerSession(): Promise<MacPickerSession | null> {
 	return session;
 }
 
-function selectedSourceFromPick(pick: MacPickerSelection): SelectedSource {
+function selectedSourceFromPick(
+	pick: MacPickerSelection,
+): SelectedSource & { id: string; display_id: string } {
 	const display =
 		pick.displayId !== null
 			? screen.getAllDisplays().find((candidate) => candidate.id === pick.displayId)
@@ -1605,6 +1618,7 @@ function inspectNativeMacCaptureOutput() {
 function attachNativeMacCaptureOutputDrain(
 	proc: ChildProcessWithoutNullStreams,
 	onTakeEnded: () => void,
+	onSystemAudioUnavailable: () => void,
 ) {
 	let lineBuffer = "";
 	// Hooked here rather than on `nativeMacCaptureEvents`, which the start wait
@@ -1612,6 +1626,7 @@ function attachNativeMacCaptureOutputDrain(
 	const watchLiveTake = createNativeMacMidCaptureErrorWatch(
 		() => nativeMacCaptureProcess === proc && !nativeMacStopInFlight,
 		onTakeEnded,
+		onSystemAudioUnavailable,
 	);
 	const drain = (chunk: Buffer) => {
 		const text = chunk.toString();
@@ -2119,8 +2134,15 @@ export function registerIpcHandlers(
 			}
 			return;
 		}
-		selectedSource = selectedSourceFromPick(pick);
+		const picked = selectedSourceFromPick(pick);
+		selectedSource = picked;
 		selectedDesktopSource = null;
+		// Written only so the next launch can name it: the pick itself dies with the helper.
+		try {
+			appSettings.setLastSource(describeMacPickerSource(picked, pick.kind));
+		} catch (error) {
+			console.warn("Failed to persist the picked recording source:", error);
+		}
 		broadcastSelectedSource(selectedSource);
 	}
 
@@ -2131,6 +2153,12 @@ export function registerIpcHandlers(
 	// For the renderer's own source lists (the AI editor's recording stage): with Apple's
 	// picker they must hand the choice to `open-source-selector` rather than enumerate.
 	ipcMain.handle("uses-system-source-picker", () => macPickerOwnsSources());
+
+	// Named in the HUD and Record mode after a relaunch, while `get-selected-source` still
+	// answers null: the pick cannot be restored, so it is never reported as selected.
+	ipcMain.handle("get-last-picked-source", () =>
+		rememberedPickerSourceName(appSettings.getSnapshot().lastSource, macPickerOwnsSources()),
+	);
 
 	ipcMain.handle("get-selected-source", async () => {
 		const previousSelectedSource = selectedSource;
@@ -2287,12 +2315,11 @@ export function registerIpcHandlers(
 				return access;
 			}
 
-			// The helper that answered has just raised macOS' own Accessibility prompt on
-			// its way up, so the window must offer System Settings, not a second prompt. It
-			// explains what the grant is for and tracks it live, where a message box could
-			// only say "go to System Settings" in English.
+			// Accessibility improves cursor shape hints but is not required to record.
+			// Remember that the helper raised the system prompt so a later visit to the
+			// permissions window can direct the user to Settings, but don't reopen that
+			// window from every Record press.
 			getMacPermissions().noteRequested("accessibility");
-			showPermissionsWindow();
 		}
 
 		return access;
@@ -2904,6 +2931,9 @@ export function registerIpcHandlers(
 					cursorOffsetMs: nativeWindowsCursorOffsetMs,
 					webcamFormat,
 					encoderSelection,
+					// Logged only: menus missing from a window take on Windows before 11
+					// 24H2 are a platform limit, not something to put in front of the user.
+					secondaryWindowsApplied: readSecondaryWindowsApplied(nativeWindowsCaptureOutput),
 				});
 
 				const source = selectedSource || { name: "Screen" };
@@ -3108,12 +3138,21 @@ export function registerIpcHandlers(
 			// When the take ends without the user — the helper reported an error or
 			// exited — this drives the renderer's own stop, the same one the tray's Stop
 			// Recording sends: it clears the HUD and surfaces the result.
-			attachNativeMacCaptureOutputDrain(proc, () => {
-				const hudWindow = getMainWindow();
-				if (hudWindow && !hudWindow.isDestroyed()) {
-					hudWindow.webContents.send("stop-recording-from-tray");
-				}
-			});
+			attachNativeMacCaptureOutputDrain(
+				proc,
+				() => {
+					const hudWindow = getMainWindow();
+					if (hudWindow && !hudWindow.isDestroyed()) {
+						hudWindow.webContents.send("stop-recording-from-tray");
+					}
+				},
+				() => {
+					const hudWindow = getMainWindow();
+					if (hudWindow && !hudWindow.isDestroyed()) {
+						hudWindow.webContents.send("native-mac-system-audio-unavailable");
+					}
+				},
+			);
 
 			await waitForNativeMacCaptureStart(proc);
 			const captureStartedAtMs = Date.now();
@@ -4822,6 +4861,21 @@ export function registerIpcHandlers(
 		return aiEditionLlmConfigInstance;
 	};
 
+	// The local MCP server offers the agent's tools to MCP clients the user runs
+	// (Claude Code, Codex…). Built here because this is where the agent's own
+	// dependencies live, but NOT started here: the headless CLI shares this
+	// function and must never bind the port a running app is listening on.
+	// `main.ts` starts it. Its writes have their own switch, off by default and
+	// read on every call — separate from the in-app agent's "Project edits", so
+	// turning the server on grants a client read access and nothing more.
+	const mcpSettings = new McpSettingsStore(app.getPath("userData"), safeStorage);
+	const mcpController = new McpController(mcpSettings, {
+		host: new EditorDocumentHost(ipcMain),
+		editsAllowed: () => mcpSettings.getSettings().allowEdits,
+		cursor: agentCursorTelemetryReader,
+		version: app.getVersion(),
+	});
+
 	registerNativeBridgeHandlers({
 		getPlatform: () => process.platform,
 		getCurrentProjectPath: () => currentProjectPath,
@@ -4877,5 +4931,8 @@ export function registerIpcHandlers(
 		renameAiEditionChatSession: (projectId, sessionId, title) =>
 			renameSession(projectId, sessionId, title),
 		deleteAiEditionChatSession: (projectId, sessionId) => deleteSession(projectId, sessionId),
+		getMcpController: () => mcpController,
 	});
+
+	return { mcpController };
 }

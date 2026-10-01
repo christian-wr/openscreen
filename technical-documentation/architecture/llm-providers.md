@@ -102,6 +102,10 @@ Three call sites share that factory:
 
 MiniMax's `thinking` block is binary (`{type: "adaptive"}` or absent), so `getReasoningEffortOptions` shows it only `none` / `medium` and `getReasoningEffortLabel` renders that `medium` as **On** — advertising six tiers would imply a granularity it doesn't have. Both helpers are the SSOT shared by `ProviderSettings.tsx` and the in-chat quick-pick in `LeftPanel.tsx`.
 
+## Using a subscription through MCP instead
+
+Claude.ai (Pro/Max) and ChatGPT sign-ins are not providers here and are not meant to become ones: Anthropic's terms forbid third-party apps offering Claude.ai login or routing requests through a user's plan credentials, and the ChatGPT path is the one removed in 1.8.0. The supported route runs the other way round — the user runs their own Claude Code or Codex, signed in as themselves, and connects it to OpenScreen's local MCP server, which exposes the same tools. See [mcp-server.md](mcp-server.md).
+
 ## Model discovery
 
 `aiEditionService.llmListProviderModels(providerId)` resolves the credential, then dispatches per provider:

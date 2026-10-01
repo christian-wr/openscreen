@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D::{
-    D3D11_SRV_DIMENSION_TEXTURE2DARRAY, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+    D3D11_SRV_DIMENSION_TEXTURE2D, D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
@@ -142,6 +142,8 @@ pub struct Compositor {
     /// (`frame / FPS`). L'export multiclip et le live le positionnent au PTS écran courant,
     /// c'est-à-dire au temps source absolu du clip actif.
     cursor_t_override: RefCell<Option<f32>>,
+    /// Le métrage dans la dernière image composée, que l'éditeur lit avec elle (`live.rs`).
+    footage: std::cell::Cell<Option<crate::frame_geometry::FootageQuad>>,
     /// Override du temps des zoom/full-camera regions (secondes source du clip actif). Le nom
     /// `timeline_t_override` est conservé pour l'API existante, mais ce temps n'est plus cumulé
     /// entre clips : les régions projetées par l'app portent elles aussi des temps source.
@@ -149,9 +151,11 @@ pub struct Compositor {
     timeline_t_override: RefCell<Option<f32>>,
     /// Temps programme (secondes de sortie) — cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
-    // cache des SRV décodeur par (texture array, slice) : le pool réutilise ~32 textures,
-    // donc après warmup plus aucune création de SRV par frame (overhead CPU supprimé).
-    srv_cache: RefCell<HashMap<(usize, u32), (ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
+    /// A private copy of a decoder surface, with its two plane views (Y, UV).
+    /// Keyed by the decoder texture's pointer, which pins nothing: `nv12_srvs` re-checks
+    /// the copy's size and format on every hit, so a new texture landing on an old address
+    /// is never handed a copy sized for the old one. `clear_srv_cache` frees stale entries.
+    srv_cache: RefCell<HashMap<usize, (ID3D11Texture2D, ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
     live_params: RefCell<LiveParams>,
     /// Scène pilotée par l'app (contrat) : quand présente, remplace le layout fixture de
     /// `timeline()`. Voir `scene.rs` / `SceneDescription` (TS).
@@ -722,6 +726,7 @@ impl Compositor {
             trail_srv,
             cursor: RefCell::new(None),
             cursor_t_override: RefCell::new(None),
+            footage: std::cell::Cell::new(None),
             timeline_t_override: RefCell::new(None),
             programme_time: RefCell::new(None),
             srv_cache: RefCell::new(HashMap::new()),
@@ -805,41 +810,101 @@ impl Compositor {
         *self.scene.borrow_mut() = s;
     }
 
-    /// Crée les SRV Y (R8) et UV (R8G8) sur la tranche d'array de la frame décodeur.
+    /// The Y (R8) and UV (R8G8) views of the decoder frame — over a private COPY, never
+    /// over the decoder surface itself.
+    ///
+    /// Two documented D3D11 rules rule out the direct path. The first is explicit, on
+    /// `D3D11_BIND_DECODER`: "you cannot use texture arrays that are created with this
+    /// flag in calls to ID3D11Device::CreateShaderResourceView". The ffmpeg pool IS such
+    /// an array (`initial_pool_size` = 32, see `get_hw_format`). The second explains what
+    /// we were seeing: between the video engine and the 3D pipeline "there is no automatic
+    /// hazard tracking" — the surface stays the decoder's reference frame, so it may be
+    /// rewritten WHILE the shader samples it. ffmpeg's `ID3D11VideoContext` is in fact the
+    /// SAME object as our immediate context (it comes out of a QueryInterface on it), and
+    /// `SetMultithreadProtected(TRUE)` only makes an individual call atomic, never a
+    /// sequence.
+    ///
+    /// Measured on a Snapdragon X Elite (Adreno X1-85), same build, same recording, the
+    /// path picked by an environment variable: 768 black frames out of 792 when sampling
+    /// the decoder surface, 2 out of 545 through the copy. The black was OPAQUE and total,
+    /// so not "one frame late" but no frame at all.
+    ///
+    /// `CopySubresourceRegion` is issued on the immediate context, so it IS ordered against
+    /// the draws that follow; the destination texture is `ArraySize = 1` and carries only
+    /// `BIND_SHADER_RESOURCE`, which also takes it out of the restriction above. The cost
+    /// is one GPU→GPU copy per frame and per source, with nothing going back to system
+    /// memory.
+    ///
+    /// What hid the cause for so long: exporting the SAME scene never produced a black
+    /// frame (28 342 verified), because the export drains the GPU every frame through the
+    /// encoder. Everything that slowed the live loop — one more readback, a lock, a pause —
+    /// cut the black proportionally without ever removing it.
     pub unsafe fn nv12_srvs(
         &self,
         frame: *const AVFrame,
     ) -> Result<(ID3D11ShaderResourceView, ID3D11ShaderResourceView)> {
         let tex_ptr = (*frame).data[0] as *mut c_void;
         let slice = (*frame).data[1] as u32;
-        // cache hit : le pool réutilise les mêmes textures -> zéro création après warmup
-        let key = (tex_ptr as usize, slice);
-        if let Some((y, uv)) = self.srv_cache.borrow().get(&key) {
-            return Ok((y.clone(), uv.clone()));
-        }
-        let tex = ID3D11Texture2D::from_raw_borrowed(&tex_ptr)
-            .ok_or_else(|| anyhow::anyhow!("frame sans texture D3D11"))?
+        let src = ID3D11Texture2D::from_raw_borrowed(&tex_ptr)
+            .ok_or_else(|| anyhow::anyhow!("frame has no D3D11 texture"))?
             .clone();
 
-        let mk = |fmt: DXGI_FORMAT| -> Result<ID3D11ShaderResourceView> {
-            let mut d = D3D11_SHADER_RESOURCE_VIEW_DESC {
-                Format: fmt,
-                ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
-                ..Default::default()
-            };
-            d.Anonymous.Texture2DArray = D3D11_TEX2D_ARRAY_SRV {
-                MostDetailedMip: 0,
-                MipLevels: 1,
-                FirstArraySlice: slice,
-                ArraySize: 1,
-            };
-            let mut srv: Option<ID3D11ShaderResourceView> = None;
-            self.dev.CreateShaderResourceView(&tex, Some(&d), Some(&mut srv))?;
-            Ok(srv.unwrap())
+        // Cache hit: the pool reuses the same textures, so this allocates once per decoder
+        // after warmup. The COPY itself happens on EVERY frame — that is what freezes the
+        // slice's contents before the decoder takes it back.
+        //
+        // The key is a bare address and pins nothing. A decoder replaced without
+        // `clear_srv_cache` (a mid-stream resolution change, `CpuFrames::ensure_tex`) can
+        // hand a NEW texture the address of an old one, and a copy into a smaller destination
+        // is dropped without an error: the picture freezes. So a hit only counts while the
+        // destination still has the source's size and format.
+        let mut sd = D3D11_TEXTURE2D_DESC::default();
+        src.GetDesc(&mut sd);
+        let key = tex_ptr as usize;
+        let cached = self.srv_cache.borrow().get(&key).cloned().filter(|(dst, ..)| {
+            let mut dd = D3D11_TEXTURE2D_DESC::default();
+            dst.GetDesc(&mut dd);
+            (dd.Width, dd.Height, dd.Format) == (sd.Width, sd.Height, sd.Format)
+        });
+        let (dst, y, uv) = match cached {
+            Some(v) => v,
+            None => {
+                let dd = D3D11_TEXTURE2D_DESC {
+                    Width: sd.Width,
+                    Height: sd.Height,
+                    MipLevels: 1,
+                    ArraySize: 1,
+                    Format: sd.Format,
+                    SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                    Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+                    CPUAccessFlags: 0,
+                    MiscFlags: 0,
+                };
+                let mut dst: Option<ID3D11Texture2D> = None;
+                self.dev.CreateTexture2D(&dd, None, Some(&mut dst))?;
+                let dst = dst.unwrap();
+                let mk = |fmt: DXGI_FORMAT| -> Result<ID3D11ShaderResourceView> {
+                    let mut d = D3D11_SHADER_RESOURCE_VIEW_DESC {
+                        Format: fmt,
+                        ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2D,
+                        ..Default::default()
+                    };
+                    d.Anonymous.Texture2D = D3D11_TEX2D_SRV { MostDetailedMip: 0, MipLevels: 1 };
+                    let mut srv: Option<ID3D11ShaderResourceView> = None;
+                    self.dev.CreateShaderResourceView(&dst, Some(&d), Some(&mut srv))?;
+                    Ok(srv.unwrap())
+                };
+                let y = mk(DXGI_FORMAT_R8_UNORM)?;
+                let uv = mk(DXGI_FORMAT_R8G8_UNORM)?;
+                self.srv_cache
+                    .borrow_mut()
+                    .insert(key, (dst.clone(), y.clone(), uv.clone()));
+                (dst, y, uv)
+            }
         };
-        let y = mk(DXGI_FORMAT_R8_UNORM)?;
-        let uv = mk(DXGI_FORMAT_R8G8_UNORM)?;
-        self.srv_cache.borrow_mut().insert(key, (y.clone(), uv.clone()));
+
+        self.ctx.CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, slice, None);
         Ok((y, uv))
     }
 
@@ -1850,6 +1915,11 @@ impl Compositor {
         });
     }
 
+    /// Le métrage dans la dernière image composée : ses coins et son warp (`FootageQuad`).
+    pub fn footage_quad(&self) -> Option<crate::frame_geometry::FootageQuad> {
+        self.footage.get()
+    }
+
     /// Compose une frame animée (§6/§8) : fond flouté + screen zoomé (padding, coins, ombre)
     /// + webcam crop carré (coins, ombre), placements interpolés A↔B par la timeline.
     pub unsafe fn compose_frame(
@@ -1893,6 +1963,7 @@ impl Compositor {
             timeline_t_override: *self.timeline_t_override.borrow(),
             programme_time: *self.programme_time.borrow(),
         });
+        self.footage.set(Some(g.footage_quad([self.rw(), self.rh()])));
         let scene_preset = g.scene_preset.clone();
         let mb_taps = g.mb_taps;
         let mb_amount = g.mb_amount;
@@ -2138,6 +2209,11 @@ impl Compositor {
             self.ctx.PSSetShaderResources(5, Some(&[None]));
         }
 
+        // --- flous de confidentialité : sur le métrage, AVANT le curseur. Le curseur reste net
+        // par-dessus, et le cristal de Prism Glow, qui réfracte l'image composée, n'y voit que des
+        // pixels déjà floutés. Les autres annotations restent le calque le plus haut (plus bas).
+        self.draw_annotations(scene_ref.as_ref(), source_t, s_ann, &g, true);
+
         // --- curseur custom : suit le mapping src/dst (zoom+layout), click bounce,
         // et flou de mouvement (parité `compositor_macos.rs` et `compositor_linux.rs`) ---
         if let Some(track) = cursor_ref.as_ref() {
@@ -2161,6 +2237,13 @@ impl Compositor {
                     .map(|s| s.cursor.cursor_sprites.clone())
                     .unwrap_or_default();
                 let cursor_type = plan.cursor_type.as_deref();
+                // Le cristal de Prism Glow réfracte l'image telle qu'elle est composée à cet
+                // instant, flous compris : sa copie en t5, une fois pour toutes les copies de la
+                // traînée (`ann_copy` est libre, les flous l'ont déjà lue).
+                if plan.glass {
+                    self.ctx.CopySubresourceRegion(&self.ann_copy, 0, 0, 0, 0, &self.rt, 0, None);
+                    self.ctx.PSSetShaderResources(5, Some(&[Some(self.ann_copy_srv.clone())]));
+                }
                 // L'impact des clics (mode 16, sans texture), posé sur l'écran SOUS le curseur.
                 for cb in &plan.impacts {
                     self.draw_solid(cb);
@@ -2215,6 +2298,9 @@ impl Compositor {
                     // restaure l'état de composition standard (VS/PS/topologie quad-strip) pour
                     // le dessin de la webcam qui suit juste après.
                     self.bind_compose_state();
+                }
+                if plan.glass {
+                    self.ctx.PSSetShaderResources(5, Some(&[None]));
                 }
             }
         }
@@ -2334,12 +2420,13 @@ impl Compositor {
         // la transform, donc les annotations restent en place pendant que le contenu zoome dessous.
         // Ce fut `s_dst` tant que le zoom vivait dans la coupe source ; depuis l'issue #179 il vit
         // dans la BOÎTE, et `s_dst` emmenait annotations et sous-titres avec lui.
-        // Exception : le flou de confidentialité suit le contenu (`FrameGeometry::privacy_mask`),
-        // d'où la géométrie entière passée en plus de `s_ann`.
+        // Les flous de confidentialité, eux, sont passés avant le curseur (plus haut) : ils suivent
+        // le contenu (`FrameGeometry::privacy_mask`), d'où la géométrie entière passée en plus de
+        // `s_ann`.
         // `source_t`, la même base de temps que les zoom/speed regions : le temps SOURCE du clip,
         // pas le compteur de frames. C'est ce qui garde une annotation alignée sur l'image quand
         // une speed region répète ou saute des frames.
-        self.draw_annotations(scene_ref.as_ref(), source_t, s_ann, &g);
+        self.draw_annotations(scene_ref.as_ref(), source_t, s_ann, &g, false);
         Ok(())
     }
 
@@ -2351,19 +2438,23 @@ impl Compositor {
     /// sous-titres sous un zoom (issue #179, puis #397 sur Linux). L'arithmétique elle-même vit
     /// dans `frame_geometry::annotation_dst_in`, partagée par les trois backends. Le flou, lui,
     /// se place par `g.privacy_mask` : un masque doit rester sur ce qu'il cache.
+    ///
+    /// `privacy` : les flous de confidentialité seuls, dessinés sur le métrage avant le curseur ;
+    /// sinon toutes les autres annotations, le calque le plus haut.
     unsafe fn draw_annotations(
         &self,
         scene: Option<&Scene>,
         t: f32,
         s_ann: [f32; 4],
         g: &crate::frame_geometry::FrameGeometry,
+        privacy: bool,
     ) {
         let Some(scene) = scene else { return };
         if scene.annotations.is_empty() {
             return;
         }
         let visible = |a: &crate::scene::SceneAnnotation| {
-            t >= a.start_sec as f32 && t < a.end_sec as f32
+            t >= a.start_sec as f32 && t < a.end_sec as f32 && (a.kind == "blur") == privacy
         };
         // Une seule recopie du render target pour TOUTES les annotations flou de la frame — leur
         // lecture doit voir l'image composée sans les flous eux-mêmes, sinon deux zones qui se
@@ -3247,6 +3338,62 @@ mod tests {
             "sans éviction le total ({} Mo) doit dépasser le budget, sinon le test ne prouve rien",
             cumule / 1048576
         );
+    }
+
+    /// Un NV12 sans données, à la taille voulue : tout ce que `nv12_srvs` lit d'une frame.
+    fn nv12_frame(gpu: &crate::d3d::Gpu, w: u32, h: u32) -> (Box<AVFrame>, ID3D11Texture2D) {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: w,
+            Height: h,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        unsafe {
+            let mut tex: Option<ID3D11Texture2D> = None;
+            gpu.device.CreateTexture2D(&desc, None, Some(&mut tex)).expect("texture NV12");
+            let tex = tex.expect("texture NV12");
+            let mut frame: Box<AVFrame> = Box::new(std::mem::zeroed());
+            frame.data[0] = tex.as_raw() as *mut u8;
+            frame.data[1] = std::ptr::null_mut();
+            (frame, tex)
+        }
+    }
+
+    /// Un décodeur remplacé sans `clear_srv_cache` (changement de résolution en cours de flux,
+    /// `CpuFrames::ensure_tex`) peut donner à une texture NEUVE l'adresse d'une ancienne. La
+    /// copie privée gardée pour l'ancienne est alors trop petite, `CopySubresourceRegion` la
+    /// saute sans erreur et l'image gèle. On ne peut pas choisir l'adresse d'une texture ;
+    /// l'entrée de la petite est donc replacée sous la clé de la grande, l'état exact où le
+    /// cache se retrouve après un tel recyclage.
+    #[test]
+    fn a_larger_source_at_a_cached_address_gets_a_copy_of_its_own_size() {
+        let Ok(gpu) = crate::d3d::Gpu::create_auto(false) else {
+            eprintln!("pas de device D3D11 — test sauté");
+            return;
+        };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("compositeur");
+        let (small, _small_tex) = nv12_frame(&gpu, 64, 64);
+        let (large, _large_tex) = nv12_frame(&gpu, 128, 96);
+        let (small_key, large_key) = (small.data[0] as usize, large.data[0] as usize);
+
+        unsafe { comp.nv12_srvs(&*small) }.expect("source de 64x64");
+        {
+            let mut cache = comp.srv_cache.borrow_mut();
+            let stale = cache.remove(&small_key).expect("entrée de la petite source");
+            cache.insert(large_key, stale);
+        }
+        unsafe { comp.nv12_srvs(&*large) }.expect("source de 128x96");
+
+        let (dst, ..) = comp.srv_cache.borrow().get(&large_key).cloned().expect("entrée remplacée");
+        let mut dd = D3D11_TEXTURE2D_DESC::default();
+        unsafe { dst.GetDesc(&mut dd) };
+        assert_eq!((dd.Width, dd.Height), (128, 96), "la copie a gardé la taille de l'ancienne texture");
     }
 
     /// Un cran de padding en format Auto change la taille de rendu de la preview. `resized`

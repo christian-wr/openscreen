@@ -49,14 +49,17 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: () => (key: string) => key,
 }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { EditorDialogsProvider } from "@/contexts/EditorDialogsContext";
 import { NewEditorShell } from "./NewEditorShell";
 
 function renderShell() {
 	return render(
-		<EditorDialogsProvider>
-			<NewEditorShell />
-		</EditorDialogsProvider>,
+		<TooltipProvider>
+			<EditorDialogsProvider>
+				<NewEditorShell />
+			</EditorDialogsProvider>
+		</TooltipProvider>,
 	);
 }
 

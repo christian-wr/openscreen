@@ -355,6 +355,12 @@ impl VideoEncoder {
             (*codec_ctx).framerate = ff::AVRational { num: params.fps, den: 1 };
             (*codec_ctx).pix_fmt = backend.codec_pixel_format();
             (*codec_ctx).bit_rate = params.bitrate;
+            // What the samples are (see `ensure_sws` and the dmabuf VPP), said in
+            // the stream so no player has to guess from the frame size (#926).
+            (*codec_ctx).color_range = ff::AVCOL_RANGE_MPEG;
+            (*codec_ctx).colorspace = ff::AVCOL_SPC_BT709;
+            (*codec_ctx).color_primaries = ff::AVCOL_PRI_BT709;
+            (*codec_ctx).color_trc = ff::AVCOL_TRC_BT709;
             // Half a second, not the two seconds a streaming preset would use.
             //
             // This file is an EDITING SOURCE, and the editor scrubs it. Seeking
@@ -787,6 +793,17 @@ impl VideoEncoder {
                 ff::err_to_string(initialised)
             ));
         }
+        // BT.709 studio range, which is what the compositor decodes every
+        // recording as. swscale's default matrix is BT.601, so left alone every
+        // Linux take played back with shifted hue and saturation
+        // (getopenscreen/openscreen#926). Full range in: the source is RGB.
+        let bt709 = ff::sws_getCoefficients(ff::SWS_CS_ITU709 as i32);
+        let unity = 1 << 16;
+        if ff::sws_setColorspaceDetails(self.sws, bt709, 1, bt709, 0, 0, unity, unity) < 0 {
+            return Err(format!(
+                "swscale refused a BT.709 conversion from pixel format {src_format} to {dst_format}"
+            ));
+        }
         // Read back rather than assume: libswscale is free to ignore a thread
         // count it cannot use for a given conversion, and a request that was
         // silently dropped looks exactly like threading that did not help.
@@ -1053,6 +1070,40 @@ struct MuxTrack {
     stream_time_base: ff::AVRational,
 }
 
+/// The mov muxer options that make the output fragmented.
+///
+/// A fragment is cut at a video keyframe once it holds at least one second, the
+/// same floor the Windows sink uses (`kFragmentDurationHns` in
+/// wgc-capture/src/mf_encoder.cpp). The GOP is half a second (see
+/// `VideoEncoder::open_backend`), so a fragment is two GOPs and a kill loses at
+/// most about a second. `frag_keyframe` alone would cut every half second;
+/// `frag_duration` alone would cut mid-GOP, leaving fragments that open on a
+/// frame nothing can decode without the previous one. `min_frag_duration` is
+/// the floor that waits for the keyframe. `default_base_moof` makes each moof's
+/// data offsets relative to that moof rather than to the file, so a fragment
+/// parses on its own.
+///
+/// `flush_packets` hands every closed fragment to the kernel at once. Without
+/// it the moov and the fragments wait in avio's 32 KB buffer, and a kill loses
+/// that too: measured, a low-bitrate take killed after three seconds left a
+/// 28-byte file. It costs one write per fragment, since the muxer holds each
+/// fragment's samples until it closes.
+///
+/// `delay_moov` is for the audio track. AAC's first packet sits 1024 samples
+/// before zero (encoder priming), and an empty moov written with the header
+/// cannot know that, so libavformat drops the edit list and shifts every track
+/// 21 ms later instead: measured, the first video frame then lasts 55 ms and
+/// every later one lands 21 ms after its capture time, against a cursor track
+/// that does not move. Delaying the moov to the first fragment lets it carry
+/// the same edit list the plain MP4 had; timestamps match it packet for packet.
+/// The price is that a take killed in its first second keeps nothing, as every
+/// killed take did before.
+const FRAGMENT_OPTIONS: [(&CStr, &CStr); 3] = [
+    (c"movflags", c"+frag_keyframe+empty_moov+default_base_moof+delay_moov"),
+    (c"min_frag_duration", c"1000000"),
+    (c"flush_packets", c"1"),
+];
+
 /// An MP4 writer, taking however many streams [`Self::add_stream`] is called for.
 ///
 /// WHAT A RECORDING ACTUALLY USES IS TWO: one H.264 video stream and one AAC
@@ -1067,11 +1118,15 @@ struct MuxTrack {
 /// and it also removes the question of reconciling two capture clocks in the
 /// container: there is only one audio timeline now, built in `AudioMix::pump`.
 ///
+/// The file is a FRAGMENTED MP4, like the Windows and macOS helpers write
+/// (#338): a moov with no samples in front, then self-describing moof+mdat pairs. A plain
+/// MP4 has no index until the trailer, so a killed helper, a crash or a power
+/// loss used to leave gigabytes of frames and no way to read them (#944). Now it
+/// plays up to the last complete fragment. See [`FRAGMENT_OPTIONS`].
+///
 /// `+faststart` is not used: it rewrites the whole file on close, which on a
-/// long recording means copying gigabytes. The moov atom is written at the end
-/// as usual, and the app reads these files locally, where a trailing moov costs
-/// nothing. This is the difference from the WebM path, which had NO index at all
-/// and could not be seeked even locally (see electron/recording/webm-seek-index.ts).
+/// long recording means copying gigabytes, and a fragmented file has its moov
+/// in front anyway.
 pub struct Muxer {
     fmt: *mut ff::AVFormatContext,
     tracks: Vec<MuxTrack>,
@@ -1153,9 +1208,21 @@ impl Muxer {
         if self.tracks.is_empty() {
             return Err("the output has no streams".to_owned());
         }
-        // SAFETY: `fmt` is ours and every stream was added through add_stream.
+        // SAFETY: `fmt` is ours and every stream was added through add_stream;
+        // the dictionary is ours and freed before leaving the block.
         unsafe {
-            let header = ff::avformat_write_header(self.fmt, ptr::null_mut());
+            let mut options: *mut ff::AVDictionary = ptr::null_mut();
+            for (key, value) in FRAGMENT_OPTIONS {
+                ff::av_dict_set(&mut options, key.as_ptr(), value.as_ptr(), 0);
+            }
+            let header = ff::avformat_write_header(self.fmt, &mut options);
+            // The muxer takes out every option it knows; one left over is a typo
+            // that would silently bring back the unfragmented file.
+            let unknown = ff::av_dict_count(options);
+            ff::av_dict_free(&mut options);
+            if header >= 0 && unknown > 0 {
+                return Err(format!("the mp4 muxer ignored {unknown} fragment option(s)"));
+            }
             if header < 0 {
                 return Err(format!(
                     "avformat_write_header: {}",
@@ -1217,7 +1284,7 @@ impl Drop for Muxer {
     fn drop(&mut self) {
         // SAFETY: `fmt` is either null or ours. `header_written` is still true
         // only on the error path — `finish` clears it — and a file left without
-        // its trailer would be unplayable, so write one on the way out.
+        // its trailer would lose its last fragment, so write one on the way out.
         unsafe {
             if self.fmt.is_null() {
                 return;
@@ -1421,6 +1488,111 @@ mod tests {
 
         let size = std::fs::metadata(&output).expect("output exists").len();
         assert!(size > 1024, "the muxed file is {size} bytes, which cannot be 120 frames");
+    }
+
+    #[test]
+    fn software_path_converts_and_tags_bt709() {
+        // The compositor decodes every recording as BT.709 studio range; swscale's
+        // default is BT.601, which puts pure red at Y 81, Cb 90 (#926).
+        let (width, height) = (64, 32);
+        let mut encoder = VideoEncoder::open(
+            VideoParams { width, height, fps: 30, bitrate: 2_000_000 },
+            Some(Backend::Software),
+            |_, _| {},
+        )
+        .expect("the software encoder always opens");
+        let stride = width as usize * 4;
+        let mut frame = vec![0u8; stride * height as usize];
+        for pixel in frame.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[0, 0, 255, 255]); // BGRA pure red
+        }
+        encoder.stage(&frame, stride, ff::AV_PIX_FMT_BGRA).expect("stage");
+        // SAFETY: `stage` just filled `sw_frame`, a YUV420P frame of this size.
+        let (y, cb, cr, ctx) = unsafe {
+            let staged = encoder.sw_frame;
+            (*(*staged).data[0], *(*staged).data[1], *(*staged).data[2], &*encoder.codec_ctx)
+        };
+        let close = |got: u8, want: i32| (i32::from(got) - want).abs() <= 1;
+        assert!(close(y, 63) && close(cb, 102) && close(cr, 240), "red came out Y {y} Cb {cb} Cr {cr}");
+        assert_eq!(ctx.color_range, ff::AVCOL_RANGE_MPEG);
+        assert_eq!(ctx.colorspace, ff::AVCOL_SPC_BT709);
+        assert_eq!(ctx.color_primaries, ff::AVCOL_PRI_BT709);
+        assert_eq!(ctx.color_trc, ff::AVCOL_TRC_BT709);
+    }
+
+    #[test]
+    fn a_killed_muxer_leaves_a_file_that_opens_and_holds_its_frames() {
+        // Three seconds at 30 fps with audio, then a simulated kill: no trailer,
+        // no flush of the write buffer, no interleave queue drained (#944).
+        let (width, height, fps) = (64, 32, 30);
+        // Per process, so two test runs on one machine never share the file.
+        let output = std::env::temp_dir()
+            .join(format!("openscreen-killed-muxer-{}.mp4", std::process::id()));
+        let _ = std::fs::remove_file(&output);
+        let mut video = VideoEncoder::open(
+            VideoParams { width, height, fps, bitrate: 1_000_000 },
+            Some(Backend::Software),
+            |_, _| {},
+        )
+        .expect("the software encoder always opens");
+        let mut audio = AudioEncoder::open(128_000).expect("aac");
+        let mut muxer = Muxer::create(&output).expect("muxer");
+        let video_track = muxer.add_stream(video.codec_context()).expect("video track");
+        let audio_track = muxer.add_stream(audio.codec_context()).expect("audio track");
+        muxer.write_header().expect("header");
+
+        let stride = width as usize * 4;
+        let mut frame = vec![0u8; stride * height as usize];
+        let samples = vec![0.0f32; (AUDIO_SAMPLE_RATE / fps) as usize * AUDIO_CHANNELS];
+        for pts in 0..3 * i64::from(fps) {
+            frame.fill(pts as u8);
+            video
+                .submit(&frame, stride, ff::AV_PIX_FMT_BGRA, pts, |p| muxer.write(video_track, p))
+                .expect("video");
+            audio.push(&samples, |p| muxer.write(audio_track, p)).expect("audio");
+        }
+        std::mem::forget(muxer);
+
+        // SAFETY: ffmpeg's own demuxer on the file just written; the context is
+        // closed before the block ends.
+        let (streams, video_frames, second_frame_at) = unsafe {
+            let path = CString::new(output.as_os_str().as_encoded_bytes()).unwrap();
+            let mut input: *mut ff::AVFormatContext = ptr::null_mut();
+            let opened =
+                ff::avformat_open_input(&mut input, path.as_ptr(), ptr::null(), ptr::null_mut());
+            assert!(opened >= 0, "a killed take must open: {}", ff::err_to_string(opened));
+            let probed = ff::avformat_find_stream_info(input, ptr::null_mut());
+            assert!(probed >= 0, "stream info: {}", ff::err_to_string(probed));
+            let packet = ff::av_packet_alloc();
+            let mut video_frames = 0;
+            let mut second_frame_at = 0.0;
+            while ff::av_read_frame(input, packet) >= 0 {
+                let stream = *(*input).streams.add((*packet).stream_index as usize);
+                if (*(*stream).codecpar).codec_type == ff::AVMEDIA_TYPE_VIDEO {
+                    if video_frames == 1 {
+                        let base = (*stream).time_base;
+                        second_frame_at = (*packet).pts as f64 * f64::from(base.num)
+                            / f64::from(base.den);
+                    }
+                    video_frames += 1;
+                }
+                ff::av_packet_unref(packet);
+            }
+            let mut packet = packet;
+            ff::av_packet_free(&mut packet);
+            let streams = (*input).nb_streams;
+            ff::avformat_close_input(&mut input);
+            (streams, video_frames, second_frame_at)
+        };
+        assert_eq!(streams, 2, "both tracks are declared up front");
+        // Fragments close at the keyframes at 1 s and 2 s; only the one in
+        // flight, the last second, is lost.
+        assert!(video_frames >= 2 * fps, "only {video_frames} frames survived the kill");
+        // Without an edit list for AAC's priming, every frame after the first
+        // slides 21 ms off its capture time (see FRAGMENT_OPTIONS).
+        let one_frame = 1.0 / f64::from(fps);
+        assert!((second_frame_at - one_frame).abs() < 1e-3, "frame 1 at {second_frame_at} s");
+        let _ = std::fs::remove_file(&output);
     }
 
     #[test]

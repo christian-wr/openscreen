@@ -1,15 +1,20 @@
 {
 	"tooltips": {
 		"hideHUD": "Skrýt HUD",
+		"hideHUDTip": "Skrýt panel. Znovu ho zobrazíte z ikony v oznamovací oblasti.",
 		"closeApp": "Zavřít aplikaci",
-		"restartRecording": "Restartovat nahrávání",
-		"cancelRecording": "Zrušit nahrávání",
+		"restartRecording": "Smazat tuto nahrávku a začít novou",
+		"cancelRecording": "Zastavit a smazat tuto nahrávku",
 		"pauseRecording": "Pozastavit nahrávání",
 		"resumeRecording": "Obnovit nahrávání",
 		"useVerticalTray": "Použít svislý panel",
 		"useHorizontalTray": "Použít vodorovný panel",
-		"openStudio": "Otevřít Studio",
-		"openNotes": "Otevřít poznámky",
+		"changeSource": "Vybrat jinou obrazovku nebo okno",
+		"systemAudio": "Systémový zvuk: nahrává zvuk, který přehrává počítač",
+		"microphone": "Mikrofon: nahrává váš hlas",
+		"camera": "Kamera: nahrává vás jako samostatnou vrstvu, kterou můžete v editoru přesouvat",
+		"openStudio": "Otevřít Studio: editor vašich nahrávek",
+		"openNotes": "Otevřít poznámky: text ke čtení během nahrávání",
 		"openNotesPlaceholder": "Pište poznámky zde...",
 		"notesToolbar": {
 			"bold": "Tučně",
@@ -27,34 +32,30 @@
 			"fontSize": "Velikost písma",
 			"decreaseFontSize": "Zmenšit písmo",
 			"increaseFontSize": "Zvětšit písmo",
-			"mirror": "Zrcadlit vodorovně"
+			"mirror": "Zrcadlit vodorovně",
+			"mirrorTip": "Otočí text zrcadlově, aby se dal číst v zrcadle"
 		}
 	},
 	"audio": {
-		"enableSystemAudio": "Povolit systémový zvuk",
-		"disableSystemAudio": "Zakázat systémový zvuk",
-		"enableMicrophone": "Povolit mikrofon",
-		"disableMicrophone": "Zakázat mikrofon",
-		"defaultMicrophone": "Výchozí mikrofon",
 		"systemAudio": "Systémový zvuk",
 		"microphone": "Mikrofon",
-		"on": "Zapnuto",
-		"off": "Vypnuto",
 		"inputDevice": "Vstupní zařízení"
 	},
 	"webcam": {
-		"enableWebcam": "Povolit webkameru",
-		"disableWebcam": "Zakázat webkameru",
-		"defaultCamera": "Výchozí kamera",
 		"searching": "Hledání...",
 		"noneFound": "Kamera nenalezena",
 		"unavailable": "Kamera nedostupná",
 		"camera": "Kamera",
-		"cameraDevice": "Zařízení kamery"
+		"cameraDevice": "Zařízení kamery",
+		"quality": "Kvalita kamery",
+		"quality1080p": "1080p",
+		"quality1440p": "1440p",
+		"quality2160p": "4K"
 	},
 	"cursor": {
-		"useEditableCursorHint": "Použít upravitelný kurzor: znovu zapne automatické přiblížení a efekty kurzoru",
-		"useSystemCursorHint": "Použít systémový kurzor: vypne automatické přiblížení a efekty kurzoru"
+		"name": "Upravitelný kurzor",
+		"editableTip": "Upravitelný kurzor: nahrává se zvlášť, takže v editoru můžete změnit jeho styl a použít automatické přiblížení",
+		"systemTip": "Systémový kurzor: váš skutečný kurzor, zaznamenaný ve videu. Bez změny stylu a bez automatického přiblížení."
 	},
 	"sourceSelector": {
 		"loading": "Načítání zdrojů...",
@@ -68,10 +69,12 @@
 	"recording": {
 		"selectSource": "Vyberte prosím zdroj pro nahrávání",
 		"systemPicker": "Systém se zeptá, co sdílet",
-		"inProgress": "Nahrávání",
+		"start": "Spustit nahrávání",
+		"stop": "Zastavit a uložit nahrávku",
 		"saving": "Ukládání..."
 	},
 	"language": "Jazyk",
+	"languageWithName": "Jazyk: {{language}}",
 	"systemLanguagePrompt": {
 		"title": "Použít jazyk systému?",
 		"description": "Detekovali jsme {{language}} jako jazyk vašeho systému. Chcete přepnout OpenScreen na {{language}}?",
@@ -86,7 +89,7 @@
 	},
 	"deviceSettings": {
 		"title": "Nastavení zařízení",
-		"done": "Hotovo",
+		"close": "Zavřít",
 		"micLevel": "Úroveň vstupu",
 		"micHint": "Mluvte pro kontrolu mikrofonu",
 		"noMicrophones": "Mikrofon nenalezen",

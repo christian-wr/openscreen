@@ -21,16 +21,17 @@ their 3D models.
 
 - Every replacement theme and supported cursor state must work with the
   existing 3D cursor option.
-- Every replacement arrow and hand is a real volume, sculpted in the
+- Every replacement arrow and hand is a real volume, modelled in the
   compositor's shaders (`crates/compositor/src/sculpt.rs`): lighting, normals,
   self shadows and contact shadows respond to cursor tilt and rotation. A PNG
   face or a height map is not a model.
 - A rounded extrusion of the PNG silhouette remains the fallback for cursor
-  states that do not have a dedicated theme model. The five replacement packs
-  add style-specific volume: a glove with separate fingers, cut crystal facets,
-  puffy rubber, beveled voxels, and ceramic accents.
-- Model the arrow and hand separately for every theme. Do not apply one
-  contour, material, or roundness rule to all designs.
+  states that do not have a dedicated theme model. Each pack adds
+  style-specific volume: gloves with separate fingers, beveled voxels, flat
+  cut-paper sheets, cushions set in the rim of their drawn outline, and a
+  faceted glass crystal that refracts the picture under it.
+- Model the arrow and hand separately for every sculpted theme. Do not apply
+  one contour, material, or roundness rule to all designs.
 - Preserve the cursor hotspot through hover, tilt, yaw, click, and size changes.
 - Reuse the compositor's 3D lighting and contact shadows. The surface must
   change with the compositor camera; a static image of a 3D render is not a
@@ -40,11 +41,11 @@ their 3D models.
 
 | Theme | Arrow | Hand |
 | --- | --- | --- |
-| Studio Ink | Matte black sculpted body; ivory mark becomes a piping set in from the edge. | Ivory glove with a convex palm and separate fingers; remove the dark outline. |
-| Prism Glow | Translucent faceted crystal; no navy ink contour. | Crystal palm and distinct faceted fingers; no navy ink contour. |
-| Pop Coral | Rounded coral rubber; omit the yellow offset and navy rim. | Plump yellow rubber glove; no navy outline, accents become physical details. |
-| Pixel Candy | Keep the stepped voxel form; purple is side/back blocks, not a flat outline. | Stepped voxel fingers and palm; preserve purple as physical side/back blocks. |
-| Star Sprout | Soft mint ceramic; no heavy blue outline, raised star and leaves. | Rounded ivory glove with no blue outline; separate mint cuff, star, and leaves. |
+| Studio Ink | Black rim, raised ivory band, recessed satin black field. | Ivory glove cushion; the black outline stays as a physical rim, with black ridges between the fingers. |
+| Prism Glow | A glass crystal cut along the drawing's facets, in a thin navy rim; the picture under it shows through, refracted with a slight dispersion, privacy blurs included; the facets glow faintly in their drawn colours. Modelled from the 2D drawing alone, keeping its polygonal simplicity. | The same, a crystal hand. |
+| Pop Coral | Cut paper: a coral sheet on a navy sheet, flat tops, matte; the yellow offset becomes a flat sheet behind; the click dashes become flat pieces. | A yellow sheet on a navy sheet, flat tops, matte; the coral offset becomes a flat sheet behind; the coral click dashes become flat pieces. |
+| Pixel Candy | Simplified pixel art that reads at 20 px as at full size; the 3D model is one cube per pixel of the same grid as the sprite. | A pixel hand from the same kind of grid: index, three knuckles, thumb. |
+| Star Sprout | Puffy mint cushion; the navy outline stays as a physical rim (a navy tray and a rounded bead) around it, the star and its leaves in front, each in its own navy rim. | Puffy ivory glove in the same navy rim, with navy ridges between the fingers; separate mint cuff framed in navy; the star and leaves in front, as in `star-sprout/3d-reference.png`. |
 
 The 2D PNG may keep a drawn contour where it helps readability. Its contour
 must not be copied blindly onto the 3D material: decide per model whether it
@@ -53,7 +54,11 @@ becomes an inlay, side material, separate piece, or disappears.
 ## Review references
 
 - `contact-sheet.png`: 2D PNG themes.
-- `3d-concept.png`: visual direction only, not rendered by the app.
+- `3d-concept.png`: the 3D reference sheet the eight sculpted models follow
+  (Prism Glow's crystal follows its 2D drawing instead), not rendered by the
+  app.
+- `star-sprout/3d-reference.png`: a closer view of the Star Sprout hand; also
+  not rendered by the app.
 - `3d-direction.md`: per-theme modeling notes.
 - `README.md`: source PNG and preparation workflow.
 

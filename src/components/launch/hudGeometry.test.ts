@@ -3,6 +3,7 @@ import {
 	computeHudBarMaxHeight,
 	computeHudModalMaxHeight,
 	computeHudPopoverMaxHeight,
+	computeHudTooltipClearance,
 	computeHudWindowSize,
 	HUD_BAR_BOTTOM,
 	HUD_EDGE_SLACK,
@@ -92,6 +93,33 @@ describe("computeHudPopoverMaxHeight", () => {
 
 	it("never returns a height a popover couldn't be usable at", () => {
 		expect(computeHudPopoverMaxHeight(2000, 800)).toBe(HUD_POPOVER_MIN_HEIGHT);
+	});
+});
+
+describe("computeHudTooltipClearance", () => {
+	it("clears the padding above a button in a horizontal bar", () => {
+		expect(
+			computeHudTooltipClearance({ top: 508, right: 300 }, { top: 500, right: 900 }, "top"),
+		).toBe(8);
+	});
+
+	it("clears a vertical bar that widened to show the timer, not just the trigger", () => {
+		// Idle: the bar hugs its 34px buttons. Recording: the timer makes it about 28px wider than
+		// the Pause, Restart and Cancel buttons, which stay where they were.
+		const idle = computeHudTooltipClearance({ top: 0, right: 92 }, { top: 0, right: 100 }, "right");
+		const recording = computeHudTooltipClearance(
+			{ top: 0, right: 72 },
+			{ top: 0, right: 100 },
+			"right",
+		);
+		expect(idle).toBe(8);
+		expect(recording).toBe(28);
+	});
+
+	it("never pulls a tooltip toward the trigger", () => {
+		expect(computeHudTooltipClearance({ top: 495, right: 0 }, { top: 500, right: 0 }, "top")).toBe(
+			0,
+		);
 	});
 });
 

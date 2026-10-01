@@ -1,15 +1,13 @@
 {
 	"buttons": {
-		"addZoom": "Ajouter un zoom (Z)",
-		"suggestZooms": "Suggérer des zooms depuis le curseur",
-		"autoZoomOn": "Suggestions de zoom automatique activées — cliquez pour retirer les zooms suggérés",
-		"autoZoomOff": "Suggestions de zoom automatique désactivées — cliquez pour suggérer des zooms depuis le curseur",
-		"autoFocusAllOn": "Mise au point automatique activée pour tous les zooms — cliquez pour tout passer en manuel",
-		"autoFocusAllOff": "Activer la mise au point automatique pour tous les zooms (la caméra suit le curseur)",
-		"addTrim": "Ajouter une coupe (T)",
-		"addAnnotation": "Ajouter une annotation (A)",
-		"addSpeed": "Ajouter une vitesse (S)",
-		"addCameraFullscreen": "Ajouter Caméra plein écran (C)"
+		"addZoom": "Ajouter un zoom à l'instant actuel",
+		"autoFocusAll": "Mise au point auto pour tous les zooms",
+		"autoFocusAllTip": "Tous les zooms suivent le curseur. Désactivé : vous choisissez la mise au point de chaque zoom.",
+		"clearTimeline": "Supprimer tous les zooms, coupes, vitesses, annotations et Caméra plein écran. Clips, audio et sous-titres sont conservés.",
+		"addTrim": "Ajouter une coupe : retire une partie de la vidéo à l'instant actuel",
+		"addAnnotation": "Ajouter du texte, une flèche, une image ou un flou à l'instant actuel",
+		"addSpeed": "Ajouter un changement de vitesse à l'instant actuel",
+		"addCameraFullscreen": "Ajouter Caméra plein écran : affiche la caméra en plein écran à l'instant actuel"
 	},
 	"hints": {
 		"pressZoom": "Appuyez sur Z pour ajouter un zoom",
@@ -21,7 +19,9 @@
 	},
 	"labels": {
 		"pan": "Panoramique",
+		"panTip": "Faire défiler la timeline",
 		"zoom": "Zoom",
+		"zoomTip": "Zoomer sur la timeline",
 		"trim": "Couper",
 		"speed": "Vitesse",
 		"zoomItem": "Zoom {{index}}",
@@ -70,7 +70,7 @@
 		"arrangeClips": "Organiser les clips",
 		"arrangeClipsHint": "Glissez les clips ci-dessous pour les réorganiser ou en déposer de nouveaux",
 		"newAnnotation": "Annotation",
-		"dragToReorderHint": "Glissez pour réorganiser · double-cliquez pour modifier les points d'entrée/sortie",
+		"dragToReorderHint": "Glissez pour réorganiser. Double-cliquez pour modifier le début et la fin.",
 		"editInOutPoints": "Modifier les points d'entrée/sortie",
 		"deleteClip": "Supprimer le clip",
 		"dropToAdd": "Déposez pour ajouter à la timeline",

@@ -11,12 +11,32 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <vector>
 
 struct BgraFrameView {
     const BYTE* data = nullptr;
     int width = 0;
     int height = 0;
 };
+
+/**
+ * A planar NV12 frame: a width*height Y plane followed by an interleaved
+ * width/2 * height/2 UV plane, so width*height*3/2 bytes in total.
+ *
+ * Used for the webcam, whose camera can hand Media Foundation NV12 directly.
+ * Asking that same camera for RGB32 made the source reader decode and convert
+ * every frame, which measured at 92ms per 4K frame -- a hard ceiling near 11
+ * fps -- against 32ms for NV12.
+ */
+struct Nv12FrameView {
+    const BYTE* data = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
+// BGRA to NV12, BT.709 studio range, for every frame the encoder gets from
+// system memory. `width` must be even. Exposed for mf_encoder_color_test.
+void convertBgraToNv12Bt709(const BYTE* bgra, int stride, int width, int height, BYTE* nv12);
 
 struct AudioInputFormat {
     GUID subtype = MFAudioFormat_PCM;
@@ -118,8 +138,17 @@ public:
         int64_t timestampHns,
         const BgraFrameView* webcamFrame,
         Microsoft::WRL::ComPtr<IMFSample>& outSample);
+    // The last frame captureVideoSample read back, again, at a new time: for a
+    // tick on which WGC delivered nothing new. No GPU copy, no Map, no
+    // conversion -- the readback a static screen used to pay on every tick
+    // (getopenscreen/openscreen#925). False before any frame was captured.
+    bool repeatLastVideoSample(int64_t timestampHns, Microsoft::WRL::ComPtr<IMFSample>& outSample);
     bool captureDxgiSample(
         ID3D11Texture2D* texture,
+        int64_t timestampHns,
+        Microsoft::WRL::ComPtr<IMFSample>& outSample);
+    bool captureNv12Sample(
+        const Nv12FrameView& frame,
         int64_t timestampHns,
         Microsoft::WRL::ComPtr<IMFSample>& outSample);
     bool captureBgraSample(
@@ -230,6 +259,10 @@ private:
     DWORD videoStreamIndex_ = 0;
     DWORD audioStreamIndex_ = 0;
     bool hasAudioStream_ = false;
+    // The BGRA frame when it has to be drawn on or rescaled before the NV12
+    // conversion; reused so a frame does not allocate one.
+    std::vector<BYTE> bgraScratch_;
+    Microsoft::WRL::ComPtr<IMFMediaBuffer> lastVideoBuffer_;
     int width_ = 0;
     int height_ = 0;
     int fps_ = 60;
