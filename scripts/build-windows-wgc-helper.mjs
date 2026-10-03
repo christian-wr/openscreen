@@ -116,6 +116,14 @@ if (!fs.existsSync(webcamFormatTestPath)) {
 await run(webcamFormatTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${webcamFormatTestPath}`);
 
+const webcamConfigTestPath = path.join(BUILD_DIR, "webcam_config_test.exe");
+if (!fs.existsSync(webcamConfigTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamConfigTestPath} was not found.`);
+}
+// Guards how the helper reads the list of cameras (and the legacy single-camera fields).
+await run(webcamConfigTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamConfigTestPath}`);
+
 const frameVisibilityTestPath = path.join(BUILD_DIR, "frame_visibility_test.exe");
 if (!fs.existsSync(frameVisibilityTestPath)) {
 	throw new Error(`WGC helper build completed but ${frameVisibilityTestPath} was not found.`);
