@@ -269,6 +269,12 @@ private:
     int64_t firstTimestampHns_ = -1;
     int64_t lastTimestampHns_ = -1;
     bool finalized_ = false;
+    // Whether initialize() got as far as a successful MFStartup(). finalize()
+    // may only balance a startup this encoder made: MF's startup count is
+    // process-wide, and an encoder that was never initialized (a dropped
+    // camera's) would otherwise shut Media Foundation down under every other
+    // encoder and camera still running.
+    bool mfStarted_ = false;
     bool useDxgiInput_ = false;
     const char* videoEncoderSelection_ = kVideoEncoderSelectionDefault;
     const char* videoEncoderRuntime_ = kVideoEncoderRuntimeUnknown;

@@ -10,6 +10,7 @@
 #include "frame_visibility.h"
 #include "json_fields.h"
 #include "webcam_capture.h"
+#include "webcam_config.h"
 #include "wgc_session.h"
 
 #include <winrt/Windows.Foundation.h>
@@ -27,6 +28,7 @@
 #include <ratio>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -38,7 +40,6 @@ struct CaptureConfig {
     std::string sourceId;
     std::string windowHandle;
     std::string outputPath;
-    std::string webcamOutputPath;
     int fps = 60;
     int width = 0;
     int height = 0;
@@ -136,6 +137,49 @@ struct CaptureControl {
         while (!stopRequested.load()) {
             stopCv.wait_for(lock, std::chrono::milliseconds(200));
         }
+    }
+};
+
+// One camera of the take: its capture, its encoder and the writer-loop state that used
+// to be single variables. All cameras share the recording's T0.
+struct WebcamStream {
+    WebcamConfig config;
+    // The camera's position in the config list, kept when an earlier camera is
+    // dropped, so every event names the camera the caller asked for.
+    size_t index = 0;
+    WebcamCapture capture;
+    MFEncoder encoder;
+    bool active = false;
+    // False only for the legacy inline picture-in-picture camera, which has no
+    // file of its own and is drawn into the screen frame instead.
+    bool writeSeparate = false;
+    std::vector<BYTE> latestFrame;
+    int latestWidth = 0;
+    int latestHeight = 0;
+    uint64_t latestSequence = 0;
+    bool hasVisibleFrame = false;
+    int64_t lastTimestampHns = -1;
+    int64_t nextWriteDueHns = 0;
+    int64_t nominalIntervalHns = 0;
+    // Captured in the writer's pull block, submitted after it (issue #115).
+    Microsoft::WRL::ComPtr<IMFSample> pendingSample;
+    // Owned here because the shutdown watchdog reads the current step's name
+    // through a raw pointer from another thread.
+    std::string finalizeStepName;
+
+    // Takes the camera's newest frame if it carries a picture. Returns whether it did.
+    bool pullVisibleFrame() {
+        WebcamFrameSnapshot candidate;
+        if (!capture.copyLatestFrame(candidate, latestSequence) ||
+            !hasVisibleWebcamContent(candidate.data, capture.deliversNv12())) {
+            return false;
+        }
+        latestFrame = std::move(candidate.data);
+        latestWidth = candidate.width;
+        latestHeight = candidate.height;
+        latestSequence = candidate.sequence;
+        hasVisibleFrame = true;
+        return true;
     }
 };
 
@@ -469,7 +513,6 @@ bool parseConfig(const std::string& json, CaptureConfig& config) {
     config.webcamDeviceId = findString(json, "webcamDeviceId");
     config.webcamDeviceName = findString(json, "webcamDeviceName");
     config.webcamDirectShowClsid = findString(json, "webcamDirectShowClsid");
-    config.webcamOutputPath = findString(json, "webcamPath");
     config.webcamWidth = findInt(json, "webcamWidth", 0);
     config.webcamHeight = findInt(json, "webcamHeight", 0);
     config.webcamFps = findInt(json, "webcamFps", 0);
@@ -544,8 +587,9 @@ int wmain(int argc, wchar_t* argv[]) {
 
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
+    const std::string configJson = wideToUtf8(argv[1]);
     CaptureConfig config;
-    if (!parseConfig(wideToUtf8(argv[1]), config)) {
+    if (!parseConfig(configJson, config)) {
         std::cerr << "ERROR: Failed to parse config JSON" << std::endl;
         return 1;
     }
@@ -645,42 +689,67 @@ int wmain(int argc, wchar_t* argv[]) {
     const int pixels = width * height;
     const int bitrate = pixels >= 3840 * 2160 ? 45'000'000 : pixels >= 2560 * 1440 ? 28'000'000 : 18'000'000;
 
-    WebcamCapture webcamCapture;
-    bool webcamActive = false;
-    // Decided before initialize(), not after: it selects the capture pixel
-    // format, and only a camera going to its own file can use NV12 -- an inline
-    // picture-in-picture composite needs the frame as BGRA.
-    bool writeSeparateWebcam = config.webcamEnabled && !config.webcamOutputPath.empty();
-    if (config.webcamEnabled) {
-        if (!webcamCapture.initialize(
-                utf8ToWide(config.webcamDeviceId),
-                utf8ToWide(config.webcamDeviceName),
-                utf8ToWide(config.webcamDirectShowClsid),
-                config.webcamWidth,
-                config.webcamHeight,
-                config.webcamFps > 0 ? config.webcamFps : config.fps,
-                writeSeparateWebcam)) {
+    // Every camera of the take, in config order. The `webcams` list (or the
+    // legacy fields with a webcamPath) gives cameras that each write their own
+    // file. The legacy fields without a webcamPath are the one camera drawn
+    // into the screen frame as an inline picture-in-picture.
+    std::vector<WebcamConfig> webcamConfigs = parseWebcamConfigs(configJson);
+    if (webcamConfigs.empty() && config.webcamEnabled) {
+        WebcamConfig inlineCamera;
+        inlineCamera.deviceId = config.webcamDeviceId;
+        inlineCamera.deviceName = config.webcamDeviceName;
+        inlineCamera.directShowClsid = config.webcamDirectShowClsid;
+        inlineCamera.width = config.webcamWidth;
+        inlineCamera.height = config.webcamHeight;
+        inlineCamera.fps = config.webcamFps;
+        webcamConfigs.push_back(std::move(inlineCamera));
+    }
+
+    std::vector<std::unique_ptr<WebcamStream>> webcams;  // unique_ptr: WebcamCapture/MFEncoder are not movable
+    for (size_t index = 0; index < webcamConfigs.size(); ++index) {
+        auto stream = std::make_unique<WebcamStream>();
+        stream->config = webcamConfigs[index];
+        stream->index = index;
+        stream->finalizeStepName = "webcam-encoder-finalize-" + std::to_string(index);
+        // Decided before initialize(), not after: it selects the capture pixel
+        // format, and only a camera going to its own file can use NV12 -- an inline
+        // picture-in-picture composite needs the frame as BGRA.
+        stream->writeSeparate = !stream->config.outputPath.empty();
+        if (!stream->capture.initialize(
+                utf8ToWide(stream->config.deviceId),
+                utf8ToWide(stream->config.deviceName),
+                utf8ToWide(stream->config.directShowClsid),
+                stream->config.width,
+                stream->config.height,
+                stream->config.fps > 0 ? stream->config.fps : config.fps,
+                stream->writeSeparate)) {
             // Non-fatal: a screen+audio recording the user can still use is far
             // better than losing the whole recording because one camera device
             // didn't match. Report it so the renderer can inform the user (and,
             // historically, fall back to a browser-recorded webcam sidecar), but
-            // let capture continue without a native webcam track.
-            std::cerr << "WARNING: Failed to initialize native webcam capture; continuing without webcam"
-                      << std::endl;
-            std::cout << "{\"event\":\"warning\",\"code\":\"webcam-unavailable\",\"message\":"
-                         "\"Failed to initialize native webcam capture\"}"
-                      << std::endl;
-            config.webcamEnabled = false;
-            writeSeparateWebcam = false;
-        } else {
-            std::cout << "{\"event\":\"webcam-format\",\"schemaVersion\":2,\"width\":" << webcamCapture.width()
-                      << ",\"height\":" << webcamCapture.height()
-                      << ",\"fps\":" << webcamCapture.fps()
-                      << ",\"deviceName\":\"" << jsonEscape(wideToUtf8(webcamCapture.selectedDeviceName()))
-                      << "\"}" << std::endl;
-            // writeSeparateWebcam was decided above, before the pixel format.
+            // let capture continue without this camera's track. `code` stays
+            // ahead of `index`: older readers match on the `"code":…` substring.
+            std::cerr << "WARNING: Failed to initialize native webcam capture for camera " << index
+                      << "; continuing without it" << std::endl;
+            std::cout << "{\"event\":\"warning\",\"code\":\"webcam-unavailable\",\"index\":" << index
+                      << ",\"deviceName\":\"" << jsonEscape(stream->config.deviceName)
+                      << "\",\"message\":\"Failed to initialize native webcam capture\"}" << std::endl;
+            continue;
         }
+        std::cout << "{\"event\":\"webcam-format\",\"schemaVersion\":2,\"index\":" << index
+                  << ",\"width\":" << stream->capture.width()
+                  << ",\"height\":" << stream->capture.height()
+                  << ",\"fps\":" << stream->capture.fps()
+                  << ",\"deviceName\":\"" << jsonEscape(wideToUtf8(stream->capture.selectedDeviceName()))
+                  << "\"}" << std::endl;
+        stream->nominalIntervalHns =
+            static_cast<int64_t>(10'000'000ULL / std::max(1, stream->capture.fps()));
+        webcams.push_back(std::move(stream));
     }
+    // Only the legacy single camera without a file of its own is composited
+    // into the screen frame; every listed camera writes separately.
+    WebcamStream* const inlineWebcam =
+        webcams.size() == 1 && !webcams[0]->writeSeparate ? webcams[0].get() : nullptr;
 
     WasapiLoopbackCapture loopbackCapture;
     WasapiLoopbackCapture microphoneCapture;
@@ -805,13 +874,13 @@ int wmain(int argc, wchar_t* argv[]) {
     //
     // The other two conditions are unchanged and still required: software
     // encoding and inline webcam PiP both need the frame in system memory,
-    // which the DXGI path does not produce. config.webcamEnabled, not
-    // webcamActive -- the latter is only set once webcam capture has started,
-    // well after this.
+    // which the DXGI path does not produce. Decided from the initialized
+    // cameras, not from `active` -- that is only set once webcam capture has
+    // started, well after this.
     encoderOptions.useDxgiInput =
         readEnvInt("OPENSCREEN_WGC_ENABLE_DXGI_INPUT", 0) == 1 &&
         !config.preferSoftwareEncoder &&
-        (!config.webcamEnabled || writeSeparateWebcam);
+        inlineWebcam == nullptr;
 
     MFEncoder encoder;
     if (!encoder.initialize(
@@ -850,8 +919,10 @@ int wmain(int argc, wchar_t* argv[]) {
               // on stop.
               << ",\"videoEncoderRuntime\":\"" << encoder.videoEncoderRuntime()
               << "\"}" << std::endl;
-    MFEncoder webcamEncoder;
-    if (writeSeparateWebcam) {
+    for (const auto& stream : webcams) {
+        if (!stream->writeSeparate) {
+            continue;
+        }
         MFEncoderOptions webcamEncoderOptions = encoderOptions;
         webcamEncoderOptions.injectDefaultSinkWriterFailureOnce = false;
         webcamEncoderOptions.useDxgiInput = false;
@@ -860,23 +931,25 @@ int wmain(int argc, wchar_t* argv[]) {
         // above 640x480; now that the capture runs at the camera's real
         // resolution, 8 Mbit/s starves a 1440p or 2160p frame badly enough to
         // undo the extra pixels. The tiers mirror the screen ladder above.
-        const int webcamPixels = std::max(1, webcamCapture.width()) * std::max(1, webcamCapture.height());
+        const int webcamPixels =
+            std::max(1, stream->capture.width()) * std::max(1, stream->capture.height());
         const int webcamBitrate = webcamPixels >= 3840 * 2160   ? 40'000'000
                                   : webcamPixels >= 2560 * 1440 ? 24'000'000
                                   : webcamPixels >= 1920 * 1080 ? 16'000'000
                                   : webcamPixels >= 1280 * 720  ? 8'000'000
                                                                 : 4'000'000;
-        if (!webcamEncoder.initialize(
-                utf8ToWide(config.webcamOutputPath),
-                webcamCapture.width(),
-                webcamCapture.height(),
-                webcamCapture.fps(),
+        if (!stream->encoder.initialize(
+                utf8ToWide(stream->config.outputPath),
+                stream->capture.width(),
+                stream->capture.height(),
+                stream->capture.fps(),
                 webcamBitrate,
                 session.device(),
                 session.context(),
                 nullptr,
                 webcamEncoderOptions)) {
-            std::cerr << "ERROR: Failed to initialize native webcam encoder" << std::endl;
+            std::cerr << "ERROR: Failed to initialize native webcam encoder for camera "
+                      << stream->index << std::endl;
             return 1;
         }
     }
@@ -903,11 +976,6 @@ int wmain(int argc, wchar_t* argv[]) {
     // them is the next bug report, and neither is worth a log line each.
     std::atomic<uint64_t> contendedFrames = 0;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> latestFrameTexture;
-    std::vector<BYTE> latestWebcamFrame;
-    int latestWebcamWidth = 0;
-    int latestWebcamHeight = 0;
-    uint64_t latestWebcamSequence = 0;
-    bool hasVisibleWebcamFrame = false;
 
     // Legacy-path-only state. frameMutex guards latestFrameTexture/
     // legacyLatestFrameTimestampHns between WGC's callback thread (writer)
@@ -962,7 +1030,6 @@ int wmain(int argc, wchar_t* argv[]) {
             std::chrono::duration<double>(1.0 / config.fps));
         uint64_t frameIndex = 0;
         int64_t lastEncodedVideoTimestampHns = -1;
-        int64_t lastWebcamTimestampHns = -1;
         // Media Foundation's H.264 encoder MFT does not honor irregular input
         // sample times for a VFR source: it numbers output samples
         // sequentially at its configured nominal frame rate regardless of the
@@ -973,18 +1040,17 @@ int wmain(int argc, wchar_t* argv[]) {
         // webcam encoder on a real-time-paced cadence (duplicating the
         // latest available camera frame when the camera hasn't produced a
         // newer one yet), so "sample N is at N/fps" is actually correct.
-        int64_t nextWebcamWriteDueHns = 0;
-        const int64_t nominalWebcamIntervalHns =
-            static_cast<int64_t>(10'000'000ULL / std::max(1, webcamCapture.fps()));
+        // The cadence state is per camera: see WebcamStream.
         auto nextFrameDue = std::chrono::steady_clock::now();
         int64_t firstFrameTimestampHns = -1;
         int64_t latestFrameTimestampHns = 0;
 
         while (!control.stopRequested && !encodeFailed) {
             Microsoft::WRL::ComPtr<IMFSample> videoSample;
-            Microsoft::WRL::ComPtr<IMFSample> webcamSample;
             bool hasVideoSample = false;
-            bool hasWebcamSample = false;
+            for (const auto& stream : webcams) {
+                stream->pendingSample.Reset();
+            }
             // Whether the picture this tick encodes differs from the last one:
             // a new WGC frame, or a new camera frame drawn into it. The legacy
             // callback path cannot tell, so it always reads back.
@@ -1061,22 +1127,20 @@ int wmain(int argc, wchar_t* argv[]) {
                         continue;
                     }
                 }
-                if (webcamActive) {
-                    WebcamFrameSnapshot candidateWebcamFrame;
-                    if (webcamCapture.copyLatestFrame(candidateWebcamFrame, latestWebcamSequence) &&
-                        hasVisibleWebcamContent(candidateWebcamFrame.data, webcamCapture.deliversNv12())) {
-                        latestWebcamFrame = std::move(candidateWebcamFrame.data);
-                        latestWebcamWidth = candidateWebcamFrame.width;
-                        latestWebcamHeight = candidateWebcamFrame.height;
-                        latestWebcamSequence = candidateWebcamFrame.sequence;
-                        hasVisibleWebcamFrame = true;
-                        pictureChanged = pictureChanged || !writeSeparateWebcam;
+                // Screen first, then every camera, as before there was more than one.
+                for (const auto& stream : webcams) {
+                    if (stream->active && stream->pullVisibleFrame()) {
+                        pictureChanged = pictureChanged || !stream->writeSeparate;
                     }
                 }
-                const BgraFrameView webcamFrame{
-                    hasVisibleWebcamFrame && !latestWebcamFrame.empty() ? latestWebcamFrame.data() : nullptr,
-                    latestWebcamWidth,
-                    latestWebcamHeight,
+                // The frame composited into the screen picture, for the legacy
+                // inline camera only.
+                const BgraFrameView inlineWebcamFrame{
+                    inlineWebcam && inlineWebcam->hasVisibleFrame && !inlineWebcam->latestFrame.empty()
+                        ? inlineWebcam->latestFrame.data()
+                        : nullptr,
+                    inlineWebcam ? inlineWebcam->latestWidth : 0,
+                    inlineWebcam ? inlineWebcam->latestHeight : 0,
                 };
                 const int64_t syntheticTimestampHns =
                     static_cast<int64_t>((frameIndex * 10'000'000ULL) / config.fps);
@@ -1094,16 +1158,24 @@ int wmain(int argc, wchar_t* argv[]) {
                     frameTimestampHns =
                         lastEncodedVideoTimestampHns + static_cast<int64_t>(10'000'000ULL / config.fps);
                 }
-                if (writeSeparateWebcam && webcamFrame.data) {
-                    // Anchor to the same recording-start origin as screen video/audio,
-                    // using real elapsed host-clock time (not a synthetic frame-index
-                    // clock) so a long recording can't accumulate clock-origin drift.
-                    const auto elapsedSinceStart = std::chrono::steady_clock::now() - control.recordingStartedAt;
-                    const int64_t elapsedHns = std::chrono::duration_cast<
-                        std::chrono::duration<int64_t, std::ratio<1, 10'000'000>>>(elapsedSinceStart)
-                                                    .count();
-                    const int64_t targetElapsedHns =
-                        std::max<int64_t>(0, elapsedHns - control.pausedDurationHns());
+                // Anchor to the same recording-start origin as screen video/audio,
+                // using real elapsed host-clock time (not a synthetic frame-index
+                // clock) so a long recording can't accumulate clock-origin drift.
+                // Read once per tick: every camera of this tick shares it.
+                int64_t targetElapsedHns = -1;
+                for (const auto& stream : webcams) {
+                    if (!stream->active || !stream->writeSeparate || !stream->hasVisibleFrame ||
+                        stream->latestFrame.empty()) {
+                        continue;
+                    }
+                    if (targetElapsedHns < 0) {
+                        const auto elapsedSinceStart =
+                            std::chrono::steady_clock::now() - control.recordingStartedAt;
+                        const int64_t elapsedHns = std::chrono::duration_cast<
+                            std::chrono::duration<int64_t, std::ratio<1, 10'000'000>>>(elapsedSinceStart)
+                                                        .count();
+                        targetElapsedHns = std::max<int64_t>(0, elapsedHns - control.pausedDurationHns());
+                    }
                     // The H.264 encoder MFT does not honor irregular per-sample
                     // timestamps for a VFR source -- it numbers output samples
                     // sequentially at its configured nominal rate regardless of the
@@ -1112,35 +1184,40 @@ int wmain(int argc, wchar_t* argv[]) {
                     // to feed the encoder *at* that nominal cadence, duplicating
                     // the latest available camera frame when the camera hasn't
                     // produced a newer one yet (VFR capture -> CFR encode resampling).
-                    if (targetElapsedHns >= nextWebcamWriteDueHns) {
-                        int64_t webcamTimestampHns = targetElapsedHns;
-                        if (lastWebcamTimestampHns >= 0 && webcamTimestampHns <= lastWebcamTimestampHns) {
-                            webcamTimestampHns = lastWebcamTimestampHns + nominalWebcamIntervalHns;
-                        }
-                        // Capture the sample here, but submit it to the sink
-                        // writer OUTSIDE this block below (issue #115) so a
-                        // slow WriteSample can't hold up the next frame pull.
-                        hasWebcamSample =
-                            webcamCapture.deliversNv12()
-                                ? webcamEncoder.captureNv12Sample(
-                                      Nv12FrameView{
-                                          webcamFrame.data, webcamFrame.width, webcamFrame.height},
-                                      webcamTimestampHns,
-                                      webcamSample)
-                                : webcamEncoder.captureBgraSample(
-                                      webcamFrame, webcamTimestampHns, webcamSample);
-                        if (!hasWebcamSample) {
-                            encodeFailed = true;
-                            control.requestStop();
-                            break;
-                        }
-                        lastWebcamTimestampHns = webcamTimestampHns;
-                        nextWebcamWriteDueHns += nominalWebcamIntervalHns;
-                        if (nextWebcamWriteDueHns <= targetElapsedHns) {
-                            // Fell behind (e.g. coming out of a pause, or a stall) --
-                            // resync to now instead of trying to catch up frame-by-frame.
-                            nextWebcamWriteDueHns = targetElapsedHns + nominalWebcamIntervalHns;
-                        }
+                    if (targetElapsedHns < stream->nextWriteDueHns) {
+                        continue;
+                    }
+                    int64_t webcamTimestampHns = targetElapsedHns;
+                    if (stream->lastTimestampHns >= 0 && webcamTimestampHns <= stream->lastTimestampHns) {
+                        webcamTimestampHns = stream->lastTimestampHns + stream->nominalIntervalHns;
+                    }
+                    const BgraFrameView webcamFrame{
+                        stream->latestFrame.data(), stream->latestWidth, stream->latestHeight};
+                    // Capture the sample here, but submit it to the sink
+                    // writer OUTSIDE this block below (issue #115) so a
+                    // slow WriteSample can't hold up the next frame pull.
+                    const bool captured =
+                        stream->capture.deliversNv12()
+                            ? stream->encoder.captureNv12Sample(
+                                  Nv12FrameView{webcamFrame.data, webcamFrame.width, webcamFrame.height},
+                                  webcamTimestampHns,
+                                  stream->pendingSample)
+                            : stream->encoder.captureBgraSample(
+                                  webcamFrame, webcamTimestampHns, stream->pendingSample);
+                    if (!captured) {
+                        // One camera failing costs that camera, not the take.
+                        std::cerr << "ERROR: Failed to capture a sample for camera " << stream->index
+                                  << "; disabling it" << std::endl;
+                        stream->pendingSample.Reset();
+                        stream->active = false;
+                        continue;
+                    }
+                    stream->lastTimestampHns = webcamTimestampHns;
+                    stream->nextWriteDueHns += stream->nominalIntervalHns;
+                    if (stream->nextWriteDueHns <= targetElapsedHns) {
+                        // Fell behind (e.g. coming out of a pause, or a stall) --
+                        // resync to now instead of trying to catch up frame-by-frame.
+                        stream->nextWriteDueHns = targetElapsedHns + stream->nominalIntervalHns;
                     }
                 }
                 if (testStallReadbackMs > 0) {
@@ -1178,7 +1255,7 @@ int wmain(int argc, wchar_t* argv[]) {
                         captured = encoder.captureVideoSample(
                             latestFrameTexture.Get(),
                             frameTimestampHns,
-                            !writeSeparateWebcam && webcamFrame.data ? &webcamFrame : nullptr,
+                            inlineWebcamFrame.data ? &inlineWebcamFrame : nullptr,
                             videoSample);
                     }
                     if (!captured) {
@@ -1218,10 +1295,15 @@ int wmain(int argc, wchar_t* argv[]) {
             // Stop detection has nothing to do with this ordering -- that is
             // CaptureControl::stopMutex/stopCv, checked by the loop condition
             // above, unrelated to sample submission (issue #252).
-            if (hasWebcamSample && !webcamEncoder.submitVideoSample(webcamSample.Get())) {
-                encodeFailed = true;
-                control.requestStop();
-                break;
+            for (const auto& stream : webcams) {
+                if (stream->pendingSample && !stream->encoder.submitVideoSample(stream->pendingSample.Get())) {
+                    // Disables this camera only; the screen and the other
+                    // cameras keep recording.
+                    std::cerr << "ERROR: Failed to submit a sample for camera " << stream->index
+                              << "; disabling it" << std::endl;
+                    stream->active = false;
+                }
+                stream->pendingSample.Reset();
             }
             if (hasVideoSample && !encoder.submitVideoSample(videoSample.Get())) {
                 encodeFailed = true;
@@ -1347,8 +1429,14 @@ int wmain(int argc, wchar_t* argv[]) {
         stopRenderKeepAliveIfActive();
         return 1;
     }
-    if (config.webcamEnabled) {
-        if (!webcamCapture.start()) {
+    const auto stopWebcamCaptures = [&]() {
+        for (const auto& stream : webcams) {
+            stream->capture.stop();
+        }
+    };
+    for (const auto& stream : webcams) {
+        if (!stream->capture.start()) {
+            stopWebcamCaptures();
             microphoneCapture.stop();
             loopbackCapture.stop();
             stopDeviceWatchIfActive();
@@ -1356,32 +1444,43 @@ int wmain(int argc, wchar_t* argv[]) {
             if (audioMixer) {
                 audioMixer->stop();
             }
-            std::cerr << "ERROR: Failed to start native webcam capture" << std::endl;
+            std::cerr << "ERROR: Failed to start native webcam capture for camera " << stream->index
+                      << std::endl;
             return 1;
         }
-        webcamActive = true;
+        stream->active = true;
+    }
+    if (!webcams.empty()) {
+        // One 3 s budget for all cameras together, not 3 s each: they warm up
+        // in parallel, and the screen recording should not start later per camera.
         const auto webcamDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-        while (std::chrono::steady_clock::now() < webcamDeadline && !hasVisibleWebcamFrame) {
-            WebcamFrameSnapshot candidateWebcamFrame;
-            if (webcamCapture.copyLatestFrame(candidateWebcamFrame, latestWebcamSequence) &&
-                hasVisibleWebcamContent(candidateWebcamFrame.data, webcamCapture.deliversNv12())) {
-                latestWebcamFrame = std::move(candidateWebcamFrame.data);
-                latestWebcamWidth = candidateWebcamFrame.width;
-                latestWebcamHeight = candidateWebcamFrame.height;
-                latestWebcamSequence = candidateWebcamFrame.sequence;
-                hasVisibleWebcamFrame = true;
+        const auto allVisible = [&]() {
+            return std::all_of(webcams.begin(), webcams.end(), [](const auto& stream) {
+                return stream->hasVisibleFrame;
+            });
+        };
+        while (std::chrono::steady_clock::now() < webcamDeadline && !allVisible()) {
+            for (const auto& stream : webcams) {
+                if (!stream->hasVisibleFrame) {
+                    stream->pullVisibleFrame();
+                }
+            }
+            if (allVisible()) {
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-        if (!hasVisibleWebcamFrame) {
-            std::cerr << "WARNING: Native webcam started but no visible frame was available before screen capture"
-                      << std::endl;
+        for (const auto& stream : webcams) {
+            if (!stream->hasVisibleFrame) {
+                std::cerr << "WARNING: Native webcam " << stream->index
+                          << " started but no visible frame was available before screen capture"
+                          << std::endl;
+            }
         }
     }
 
     if (!session.start()) {
-        webcamCapture.stop();
+        stopWebcamCaptures();
         microphoneCapture.stop();
         loopbackCapture.stop();
         stopDeviceWatchIfActive();
@@ -1431,7 +1530,7 @@ int wmain(int argc, wchar_t* argv[]) {
         loopbackCapture.stop();
         stopDeviceWatchIfActive();
         stopRenderKeepAliveIfActive();
-        webcamCapture.stop();
+        stopWebcamCaptures();
         if (audioMixer) {
             audioMixer->stop();
         }
@@ -1588,7 +1687,7 @@ int wmain(int argc, wchar_t* argv[]) {
         logStopStep("render-keepalive");
     }
     beginStopStep("webcam", stepBudgetMs);
-    webcamCapture.stop();
+    stopWebcamCaptures();
     logStopStep("webcam");
     beginStopStep("audio-mixer", stepBudgetMs);
     if (audioMixer) {
@@ -1684,20 +1783,47 @@ int wmain(int argc, wchar_t* argv[]) {
     if (!encodeFailed && screenFinalized) {
         std::cout << "{\"event\":\"recording-stopped\",\"schemaVersion\":2,\"screenPath\":\""
                   << jsonEscape(config.outputPath) << "\"";
-        if (writeSeparateWebcam) {
-            std::cout << ",\"webcamPath\":\"" << jsonEscape(config.webcamOutputPath) << "\"";
+        // `webcamPath` stays for camera 0, as before; `webcamPaths` lists every
+        // camera still recording at stop, in index order. Both are printed
+        // before the camera files are finalized, for the reason above -- so they
+        // name the files that were being written, and a camera whose finalize
+        // fails below is reported on stderr, not removed from this list.
+        std::vector<const WebcamStream*> recordedWebcams;
+        for (const auto& stream : webcams) {
+            if (stream->writeSeparate && stream->active) {
+                recordedWebcams.push_back(stream.get());
+            }
+        }
+        if (!recordedWebcams.empty() && recordedWebcams.front()->index == 0) {
+            std::cout << ",\"webcamPath\":\"" << jsonEscape(recordedWebcams.front()->config.outputPath)
+                      << "\"";
+        }
+        if (!recordedWebcams.empty()) {
+            std::cout << ",\"webcamPaths\":[";
+            for (size_t i = 0; i < recordedWebcams.size(); ++i) {
+                std::cout << (i == 0 ? "\"" : ",\"") << jsonEscape(recordedWebcams[i]->config.outputPath)
+                          << "\"";
+            }
+            std::cout << "]";
         }
         std::cout << "}" << std::endl;
         std::cout << "Recording stopped. Output path: " << config.outputPath << std::endl;
     }
 
+    // Every camera that wrote a file is finalized, including one disabled
+    // mid-take: what it wrote before failing is still worth a playable index.
     bool webcamFinalized = true;
-    if (writeSeparateWebcam) {
-        beginStopStep("webcam-encoder-finalize", shutdownBudgetMs);
-        webcamFinalized = webcamEncoder.finalize();
-        logStopStep("webcam-encoder-finalize");
-        if (!webcamFinalized) {
-            std::cerr << "ERROR: Failed to finalize the webcam recording" << std::endl;
+    for (const auto& stream : webcams) {
+        if (!stream->writeSeparate) {
+            continue;
+        }
+        beginStopStep(stream->finalizeStepName.c_str(), shutdownBudgetMs);
+        const bool finalized = stream->encoder.finalize();
+        logStopStep(stream->finalizeStepName.c_str());
+        if (!finalized) {
+            std::cerr << "ERROR: Failed to finalize the webcam recording for camera " << stream->index
+                      << std::endl;
+            webcamFinalized = false;
         }
     }
 

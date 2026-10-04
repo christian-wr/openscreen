@@ -85,6 +85,17 @@ Current V2 JSON shape:
 
 The current helper implementation supports display/window video capture, system audio loopback, selected-microphone capture, Media Foundation webcam capture, and a DirectShow webcam fallback for virtual cameras that are not exposed through Media Foundation. Webcam frames are currently composed into the primary MP4 as a bottom-right picture-in-picture overlay. Browser `deviceId` values do not always map to Media Foundation symbolic links or WASAPI endpoint IDs, so the renderer passes both browser IDs and user-visible device names. For microphones, the helper tries the requested WASAPI endpoint ID first, then resolves an active capture endpoint by `microphoneDeviceName`, then falls back to the default endpoint. For webcams, Electron resolves a matching DirectShow filter CLSID for the selected label; the helper uses Media Foundation first, then that exact DirectShow filter when the requested camera is absent from Media Foundation.
 
+Several cameras: a `webcams` list records up to four cameras, each into its own MP4, all on the same T0 as the screen and audio. Each entry takes `camDeviceId`, `camDeviceName`, `camClsid` (the DirectShow filter CLSID), `camWidth`, `camHeight`, `camFps` and `camPath`; an entry without `camPath` is skipped. When the list is present and non-empty it replaces the legacy `webcam*` fields; without it those fields still describe one camera, which writes to `webcamPath` when one is given and is drawn into the screen as the inline picture-in-picture otherwise.
+
+```json
+"webcams": [
+  { "camDeviceId": "…", "camDeviceName": "Camera A", "camClsid": "{…}", "camWidth": 1920, "camHeight": 1080, "camFps": 30, "camPath": "C:\\path\\recording-123-webcam.mp4" },
+  { "camDeviceId": "…", "camDeviceName": "Camera B", "camClsid": "", "camWidth": 1280, "camHeight": 720, "camFps": 30, "camPath": "C:\\path\\recording-123-webcam-2.mp4" }
+]
+```
+
+Every per-camera event carries the camera's `index` in that list: `webcam-format` (`{"event":"webcam-format","schemaVersion":2,"index":0,"width":…,"height":…,"fps":…,"deviceName":"…"}`) for each camera that opened, and `{"event":"warning","code":"webcam-unavailable","index":1,"deviceName":"…","message":"…"}` for each that did not (`code` comes before `index` so older substring readers still match). A camera that cannot be opened is dropped and the rest of the take goes on; a camera whose encoder rejects a sample mid-take is disabled on its own, without stopping the screen or the other cameras. `recording-stopped` keeps `webcamPath` (camera 0, when it recorded) and adds `webcamPaths`, the files of every camera still recording at stop, in index order. Both are printed before the camera files are finalized (see the stop sequence), so a camera whose finalize fails is reported on stderr and by a non-zero exit, not removed from the list. Each camera finalizes in its own `[stop-timing]` step, `webcam-encoder-finalize-<index>`.
+
 Container: recordings are written as fragmented MP4 (`MFCreateFMPEG4MediaSink` + `MFCreateSinkWriterFromMediaSink`, `MF_MPEG4SINK_MIN_FRAGMENT_DURATION` = 1s) rather than plain MP4. A plain MP4 has no index until `IMFSinkWriter::Finalize()` writes `moov` at the very end, so when the shutdown watchdog force-exits a wedged helper the file on disk holds every frame and no way to read them — that is why issues #252 / #292 / #327 cost the whole recording rather than the frozen tail of it. A fragmented MP4 writes its index up front and its samples in self-describing `moof`+`mdat` pairs, so the same kill leaves a file that plays up to the last complete fragment. This does not fix the freeze; it removes the data loss the freeze causes. Because the fragmented sink needs both output media types at construction, the sink writer is built from a media sink instead of from a URL, and the helper reads the video/audio stream positions back off the sink rather than assuming them. If any of that is unavailable on a machine, the helper retries with the plain container and says so — `container` in the `encoder-selection` event is `fragmented-mp4` or `mp4`, and it reports what was used, not what was asked for.
 
 Encoder selection: by default the helper keeps the existing sink-writer path first. If that path fails while setting up H.264, it retries with the Microsoft software H.264 encoder (`mfh264enc.dll`). The key of this retry is registering that encoder locally in the helper process via `MFTRegisterLocalByCLSID`, which makes a software H.264 encoder available even when the machine's hardware encoders are missing or broken; hardware transforms are disabled for the retry only as a secondary guard so the sink writer prefers the locally registered software encoder, not as the fallback mechanism itself. Set `preferSoftwareEncoder: true` in the helper JSON, or set `OPENSCREEN_WGC_PREFER_SOFTWARE_ENCODER=true` before launching Electron, to force the software path from the first attempt.
@@ -124,6 +135,12 @@ To validate a specific native webcam manually:
 $env:OPENSCREEN_WGC_TEST_WEBCAM_DEVICE_NAME = "NVIDIA Broadcast"
 npm run test:wgc-webcam:win
 Remove-Item Env:OPENSCREEN_WGC_TEST_WEBCAM_DEVICE_NAME
+```
+
+To check that a camera which cannot be opened costs only itself, record the real camera next to a nonexistent second one listed through `webcams`:
+
+```powershell
+npm run test:wgc-helper:win -- --webcam --missing-second-webcam
 ```
 
 To validate a specific native microphone manually:
