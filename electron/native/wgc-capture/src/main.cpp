@@ -442,6 +442,13 @@ void reportCaptureAdapters(ID3D11Device* device, HMONITOR targetMonitor) {
 
 
 
+// `code` stays ahead of `index`: older readers match on the `"code":…` substring.
+void printWebcamUnavailable(size_t index, const std::string& deviceName, const char* message) {
+    std::cout << "{\"event\":\"warning\",\"code\":\"webcam-unavailable\",\"index\":" << index
+              << ",\"deviceName\":\"" << jsonEscape(deviceName) << "\",\"message\":\"" << message << "\"}"
+              << std::endl;
+}
+
 std::string parseWindowHandleFromSourceId(const std::string& sourceId) {
     constexpr char prefix[] = "window:";
     if (sourceId.rfind(prefix, 0) != 0) {
@@ -727,13 +734,11 @@ int wmain(int argc, wchar_t* argv[]) {
             // better than losing the whole recording because one camera device
             // didn't match. Report it so the renderer can inform the user (and,
             // historically, fall back to a browser-recorded webcam sidecar), but
-            // let capture continue without this camera's track. `code` stays
-            // ahead of `index`: older readers match on the `"code":…` substring.
+            // let capture continue without this camera's track.
             std::cerr << "WARNING: Failed to initialize native webcam capture for camera " << index
                       << "; continuing without it" << std::endl;
-            std::cout << "{\"event\":\"warning\",\"code\":\"webcam-unavailable\",\"index\":" << index
-                      << ",\"deviceName\":\"" << jsonEscape(stream->config.deviceName)
-                      << "\",\"message\":\"Failed to initialize native webcam capture\"}" << std::endl;
+            printWebcamUnavailable(
+                index, stream->config.deviceName, "Failed to initialize native webcam capture");
             continue;
         }
         std::cout << "{\"event\":\"webcam-format\",\"schemaVersion\":2,\"index\":" << index
@@ -748,8 +753,38 @@ int wmain(int argc, wchar_t* argv[]) {
     }
     // Only the legacy single camera without a file of its own is composited
     // into the screen frame; every listed camera writes separately.
-    WebcamStream* const inlineWebcam =
+    WebcamStream* inlineWebcam =
         webcams.size() == 1 && !webcams[0]->writeSeparate ? webcams[0].get() : nullptr;
+    // A camera that opened but whose encoder or capture then would not start
+    // costs that camera, not the take -- with the screen and up to four cameras,
+    // running out of hardware encoder sessions is the likeliest way to get here.
+    // Only before the video writer runs: the vector is not touched after that.
+    const auto dropWebcam = [&](WebcamStream& stream, const char* message) {
+        std::cerr << "WARNING: " << message << " for camera " << stream.index << "; continuing without it"
+                  << std::endl;
+        printWebcamUnavailable(stream.index, stream.config.deviceName, message);
+        stream.capture.stop();
+        if (stream.writeSeparate) {
+            // Balances whatever initialize() got through, then removes the
+            // file it may have created: nothing was ever written to it.
+            stream.encoder.finalize();
+            DeleteFileW(utf8ToWide(stream.config.outputPath).c_str());
+        }
+        stream.active = false;
+        if (inlineWebcam == &stream) {
+            inlineWebcam = nullptr;
+        }
+    };
+    const auto eraseDroppedWebcams = [&](const std::vector<const WebcamStream*>& dropped) {
+        webcams.erase(
+            std::remove_if(
+                webcams.begin(),
+                webcams.end(),
+                [&](const std::unique_ptr<WebcamStream>& stream) {
+                    return std::find(dropped.begin(), dropped.end(), stream.get()) != dropped.end();
+                }),
+            webcams.end());
+    };
 
     WasapiLoopbackCapture loopbackCapture;
     WasapiLoopbackCapture microphoneCapture;
@@ -919,6 +954,7 @@ int wmain(int argc, wchar_t* argv[]) {
               // on stop.
               << ",\"videoEncoderRuntime\":\"" << encoder.videoEncoderRuntime()
               << "\"}" << std::endl;
+    std::vector<const WebcamStream*> droppedWebcams;
     for (const auto& stream : webcams) {
         if (!stream->writeSeparate) {
             continue;
@@ -948,11 +984,11 @@ int wmain(int argc, wchar_t* argv[]) {
                 session.context(),
                 nullptr,
                 webcamEncoderOptions)) {
-            std::cerr << "ERROR: Failed to initialize native webcam encoder for camera "
-                      << stream->index << std::endl;
-            return 1;
+            dropWebcam(*stream, "Failed to initialize native webcam encoder");
+            droppedWebcams.push_back(stream.get());
         }
     }
+    eraseDroppedWebcams(droppedWebcams);
 
     // By default, no mutex guards frame handoff: writeVideoFrames is the
     // only thread that ever touches WGC or latestFrameTexture. It pulls each
@@ -1434,22 +1470,16 @@ int wmain(int argc, wchar_t* argv[]) {
             stream->capture.stop();
         }
     };
+    droppedWebcams.clear();
     for (const auto& stream : webcams) {
         if (!stream->capture.start()) {
-            stopWebcamCaptures();
-            microphoneCapture.stop();
-            loopbackCapture.stop();
-            stopDeviceWatchIfActive();
-            stopRenderKeepAliveIfActive();
-            if (audioMixer) {
-                audioMixer->stop();
-            }
-            std::cerr << "ERROR: Failed to start native webcam capture for camera " << stream->index
-                      << std::endl;
-            return 1;
+            dropWebcam(*stream, "Failed to start native webcam capture");
+            droppedWebcams.push_back(stream.get());
+            continue;
         }
         stream->active = true;
     }
+    eraseDroppedWebcams(droppedWebcams);
     if (!webcams.empty()) {
         // One 3 s budget for all cameras together, not 3 s each: they warm up
         // in parallel, and the screen recording should not start later per camera.

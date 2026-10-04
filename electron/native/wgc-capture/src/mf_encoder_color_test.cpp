@@ -15,12 +15,14 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -358,10 +360,87 @@ void checkRepeatedFrames(ID3D11Device* device, ID3D11DeviceContext* context) {
     }
 }
 
+// An encoder that was never initialized -- a camera the helper dropped before
+// its encoder was set up -- must not touch Media Foundation when it is
+// finalized or destroyed. Its finalize() used to call an unmatched MFShutdown(),
+// which in the helper left every other encoder writing nothing (Finalize:
+// MF_E_SINK_NO_SAMPLES_PROCESSED). With an initialized encoder alive, as here,
+// that takes MF's count to zero under a live sink writer, and the live encoder
+// then blocks instead of failing -- so the whole sequence runs on its own thread
+// with a deadline, and a regression fails this test instead of hanging the
+// build. Needs no ffmpeg.
+void checkUninitializedEncoderLeavesOthersRunning() {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    if (FAILED(D3D11CreateDevice(
+            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
+            D3D11_SDK_VERSION, &device, nullptr, &context)) &&
+        FAILED(D3D11CreateDevice(
+            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
+            D3D11_SDK_VERSION, &device, nullptr, &context))) {
+        skip("uninitialized-encoder-leaves-mf-running", "no D3D11 device");
+        return;
+    }
+    char tempDir[MAX_PATH]{};
+    GetTempPathA(MAX_PATH, tempDir);
+    const std::string path = std::string(tempDir) + "openscreen-mf-encoder-uninitialized-peer.mp4";
+    DeleteFileA(path.c_str());
+
+    // 0 running, 1 passed, 2 failed, 3 skipped.
+    std::atomic<int> outcome = 0;
+    std::thread worker([&] {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        {
+            MFEncoder live;
+            if (!live.initialize(
+                    widen(path), kWidth, kHeight, 30, 2'000'000, device.Get(), context.Get(), nullptr, {})) {
+                outcome = 3;
+            } else {
+                {
+                    MFEncoder neverInitialized;
+                    neverInitialized.finalize();
+                }  // and destroyed, which finalizes again
+                Microsoft::WRL::ComPtr<IMFSample> probe;
+                std::vector<BYTE> bgra(static_cast<size_t>(kWidth) * kHeight * 4, 0x80);
+                const BgraFrameView frame{bgra.data(), kWidth, kHeight};
+                bool wrote = SUCCEEDED(MFCreateSample(&probe));
+                for (int i = 0; i < kFrames && wrote; i += 1) {
+                    Microsoft::WRL::ComPtr<IMFSample> sample;
+                    wrote = live.captureBgraSample(frame, static_cast<int64_t>(i) * 333'333, sample) &&
+                            live.submitVideoSample(sample.Get());
+                }
+                outcome = wrote && live.finalize() ? 1 : 2;
+            }
+        }
+        CoUninitialize();
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (outcome == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (outcome == 0) {
+        expect("uninitialized-encoder-leaves-mf-running", false, "the live encoder blocked in Media Foundation");
+        std::cout << "ran " << g_ran << " tests\n" << g_failed << " failed" << std::endl;
+        // The blocked thread can be neither joined nor safely abandoned.
+        TerminateProcess(GetCurrentProcess(), 1);
+    }
+    worker.join();
+    DeleteFileA(path.c_str());
+    if (outcome == 3) {
+        skip("uninitialized-encoder-leaves-mf-running", "encoder initialize failed on this host");
+        return;
+    }
+    expect("uninitialized-encoder-leaves-mf-running", outcome == 1, "write or finalize failed");
+}
+
 } // namespace
 
 int main() {
     checkConverterAgainstReference();
+    if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
+        checkUninitializedEncoderLeavesOthersRunning();
+        CoUninitialize();
+    }
     if (!toolsAvailable()) {
         skip("mf-encoder-color", "ffprobe/ffmpeg not on PATH");
         return g_failed == 0 ? 0 : 1;
