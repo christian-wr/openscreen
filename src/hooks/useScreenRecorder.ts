@@ -813,6 +813,15 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					}),
 				);
 			}
+			// Kept in the take, but shorter than it: the helper disabled these
+			// cameras mid-take, so the editor shows them ending early.
+			if (result.webcamsStoppedEarly?.length) {
+				toast.warning(
+					tLaunchRef.current("webcam.camerasStoppedEarly", {
+						names: result.webcamsStoppedEarly.join(", "),
+					}),
+				);
+			}
 			if (result.session) {
 				await window.electronAPI.setCurrentRecordingSession(result.session);
 			} else if (result.path) {

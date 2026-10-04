@@ -276,18 +276,33 @@ export function readWebcamFormatAt(
 }
 
 /**
+ * The `webcamPaths` list of the last `recording-stopped` event, or null when
+ * there is no such event or it carried no `webcamPaths` key.
+ *
+ * Null is the signal that matters: only a helper that sends the key says which
+ * cameras were still recording at stop, so only then may a camera missing from
+ * it be called one that stopped early. An old helper, or a stop without the
+ * event, must read as "unknown", never as "every camera stopped".
+ */
+export function readReportedWebcamPaths(output: string): string[] | null {
+	const event = readHelperEvents(output, "recording-stopped").at(-1);
+	if (!event || !Array.isArray(event.webcamPaths)) {
+		return null;
+	}
+	return event.webcamPaths.filter((entry): entry is string => typeof entry === "string");
+}
+
+/**
  * Camera files the helper reported at stop: `webcamPaths`, else the single
  * legacy `webcamPath`, else none.
  */
 export function readStoppedWebcamPaths(output: string): string[] {
+	const reported = readReportedWebcamPaths(output);
+	if (reported) {
+		return reported;
+	}
 	const event = readHelperEvents(output, "recording-stopped").at(-1);
-	if (!event) {
-		return [];
-	}
-	if (Array.isArray(event.webcamPaths)) {
-		return event.webcamPaths.filter((entry): entry is string => typeof entry === "string");
-	}
-	return typeof event.webcamPath === "string" && event.webcamPath ? [event.webcamPath] : [];
+	return typeof event?.webcamPath === "string" && event.webcamPath ? [event.webcamPath] : [];
 }
 
 /**

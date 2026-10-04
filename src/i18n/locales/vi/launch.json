@@ -51,6 +51,7 @@
 		"additionalCameras": "Camera bổ sung",
 		"additionalCamerasHint": "Chỉ với tính năng quay gốc của Windows",
 		"camerasNotRecorded": "Không được ghi: {{names}}",
+		"camerasStoppedEarly": "Đã dừng sớm: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

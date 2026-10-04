@@ -234,3 +234,36 @@ export function collectStoppedWebcams(input: {
 	}
 	return { ...(camera1 ? { camera1 } : {}), additional, dropped };
 }
+
+/** A path compared the way Windows does: case-insensitive, either separator. */
+function comparablePath(filePath: string) {
+	return filePath.replace(/[\\/]+/g, "\\").toLowerCase();
+}
+
+/**
+ * Labels of the cameras that stopped early: their file was kept (size > 0, the
+ * same test as {@link collectStoppedWebcams}) but the helper did not list it in
+ * `recording-stopped.webcamPaths`, the cameras still recording at stop. That is
+ * a camera the helper disabled mid-take; its partial file stays in the take,
+ * and the user is told which camera it was.
+ *
+ * `helperWebcamPaths` is null when the event carried no `webcamPaths` key (an
+ * old helper, or no event at all) — then nothing is known and nothing is
+ * flagged. Camera 1 counts like any other, so its entry needs a real label.
+ */
+export function labelsOfWebcamsStoppedEarly(input: {
+	requested: Array<{ path: string; label: string }>;
+	sizes: Map<string, number>;
+	helperWebcamPaths: string[] | null;
+}): string[] {
+	if (!input.helperWebcamPaths) {
+		return [];
+	}
+	const stillRecording = new Set(input.helperWebcamPaths.map(comparablePath));
+	return input.requested
+		.filter(
+			(camera) =>
+				(input.sizes.get(camera.path) ?? 0) > 0 && !stillRecording.has(comparablePath(camera.path)),
+		)
+		.map((camera) => camera.label);
+}

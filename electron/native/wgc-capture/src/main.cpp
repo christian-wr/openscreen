@@ -1832,8 +1832,13 @@ int wmain(int argc, wchar_t* argv[]) {
         // before the camera files are finalized, for the reason above -- so they
         // name the files that were being written, and a camera whose finalize
         // fails below is reported on stderr, not removed from this list.
+        // `webcamPaths` is printed, possibly empty, whenever a camera wrote a
+        // file of its own: its presence is how the app knows a camera missing
+        // from it stopped early, rather than an older helper that never sent it.
         std::vector<const WebcamStream*> recordedWebcams;
+        bool anySeparateWebcam = false;
         for (const auto& stream : webcams) {
+            anySeparateWebcam = anySeparateWebcam || stream->writeSeparate;
             if (stream->writeSeparate && stream->active) {
                 recordedWebcams.push_back(stream.get());
             }
@@ -1842,7 +1847,7 @@ int wmain(int argc, wchar_t* argv[]) {
             std::cout << ",\"webcamPath\":\"" << jsonEscape(recordedWebcams.front()->config.outputPath)
                       << "\"";
         }
-        if (!recordedWebcams.empty()) {
+        if (anySeparateWebcam) {
             std::cout << ",\"webcamPaths\":[";
             for (size_t i = 0; i < recordedWebcams.size(); ++i) {
                 std::cout << (i == 0 ? "\"" : ",\"") << jsonEscape(recordedWebcams[i]->config.outputPath)

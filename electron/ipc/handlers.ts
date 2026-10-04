@@ -123,6 +123,7 @@ import {
 	NATIVE_WINDOWS_SALVAGEABLE_OUTPUT_BYTES,
 	readMicrophoneDefaulted,
 	readMicrophoneUnavailable,
+	readReportedWebcamPaths,
 	readSecondaryWindowsApplied,
 	readStoppedWebcamPaths,
 	readUnavailableWebcamIndices,
@@ -137,6 +138,7 @@ import {
 	dedupeAdditionalWebcams,
 	isWebcamSidecarFile,
 	labelsOfUnavailableAdditionalWebcams,
+	labelsOfWebcamsStoppedEarly,
 	stripWebcamSuffix,
 	webcamOutputPath,
 } from "../recording/nativeWindowsWebcams";
@@ -763,6 +765,8 @@ let nativeWindowsCaptureWebcamTargetPath: string | null = null;
  * the label it is reported under. Only paths generated here ever land in it.
  */
 let nativeWindowsCaptureAdditionalWebcamTargets: Array<{ path: string; label: string }> = [];
+/** Camera 1's label for notices: its device name, else "Camera 1". */
+let nativeWindowsCaptureWebcamLabel = "Camera 1";
 /**
  * Files of cameras the helper dropped at start. The helper deletes them, but a
  * delete that failed leaves a 0-byte stub; stop and discard remove it if empty.
@@ -795,6 +799,7 @@ function resetNativeWindowsCaptureState() {
 	nativeWindowsCaptureTargetPath = null;
 	nativeWindowsCaptureWebcamTargetPath = null;
 	nativeWindowsCaptureAdditionalWebcamTargets = [];
+	nativeWindowsCaptureWebcamLabel = "Camera 1";
 	nativeWindowsCaptureDroppedWebcamPaths = [];
 	nativeWindowsCaptureRecordingId = null;
 	nativeWindowsCursorOffsetMs = 0;
@@ -3021,6 +3026,7 @@ export function registerIpcHandlers(
 				nativeWindowsCaptureAdditionalWebcamTargets = additionalWebcams.map(
 					({ label, path: cameraPath }) => ({ label, path: cameraPath }),
 				);
+				nativeWindowsCaptureWebcamLabel = request.webcam.deviceName?.trim() || "Camera 1";
 				nativeWindowsCaptureDroppedWebcamPaths = [];
 				nativeWindowsCaptureRecordingId = recordingId;
 				nativeWindowsCursorOffsetMs = 0;
@@ -3487,6 +3493,7 @@ export function registerIpcHandlers(
 		const preferredPath = nativeWindowsCaptureTargetPath;
 		const preferredWebcamPath = nativeWindowsCaptureWebcamTargetPath;
 		const additionalWebcamTargets = nativeWindowsCaptureAdditionalWebcamTargets;
+		const camera1Label = nativeWindowsCaptureWebcamLabel;
 		const droppedWebcamPaths = nativeWindowsCaptureDroppedWebcamPaths;
 		// Start-dropped cameras ride along so a discard or a failed stop also
 		// removes a stub the helper could not delete (both are empty).
@@ -3637,7 +3644,7 @@ export function registerIpcHandlers(
 			// (getopenscreen/openscreen#387). Every camera is judged by its own file,
 			// not by the helper's list at stop (see `collectStoppedWebcams`).
 			const requestedWebcams = [
-				...(preferredWebcamPath ? [{ path: preferredWebcamPath, label: "" }] : []),
+				...(preferredWebcamPath ? [{ path: preferredWebcamPath, label: camera1Label }] : []),
 				...additionalWebcamTargets,
 			];
 			const webcamSizes = new Map<string, number>();
@@ -3663,6 +3670,19 @@ export function registerIpcHandlers(
 				console.warn("[native-wgc] additional cameras produced nothing usable", {
 					dropped: stoppedWebcams.dropped,
 					helperWebcamPaths: readStoppedWebcamPaths(nativeWindowsCaptureOutput),
+				});
+			}
+			// A camera the helper disabled mid-take keeps its partial file (it is
+			// in the take) but is named, so the user knows why it ends early. Only
+			// a helper that sends `webcamPaths` can tell; otherwise nothing is said.
+			const webcamsStoppedEarly = labelsOfWebcamsStoppedEarly({
+				requested: requestedWebcams,
+				sizes: webcamSizes,
+				helperWebcamPaths: readReportedWebcamPaths(nativeWindowsCaptureOutput),
+			});
+			if (webcamsStoppedEarly.length > 0) {
+				console.warn("[native-wgc] cameras stopped before the end of the take", {
+					webcamsStoppedEarly,
 				});
 			}
 			await removeEmptyNativeWindowsWebcamFiles(droppedWebcamPaths);
@@ -3706,6 +3726,7 @@ export function registerIpcHandlers(
 				// the silence this change exists to end.
 				webcamDropped: Boolean(preferredWebcamPath) && !webcamVideoPath,
 				...(stoppedWebcams.dropped.length > 0 ? { droppedWebcams: stoppedWebcams.dropped } : {}),
+				...(webcamsStoppedEarly.length > 0 ? { webcamsStoppedEarly } : {}),
 				message: recovered
 					? "Native Windows recording recovered from a failed stop"
 					: "Native Windows recording session stored successfully",

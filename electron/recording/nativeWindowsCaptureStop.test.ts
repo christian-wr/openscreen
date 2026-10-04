@@ -7,6 +7,7 @@ import {
 	NATIVE_WINDOWS_SALVAGEABLE_OUTPUT_BYTES,
 	readMicrophoneDefaulted,
 	readMicrophoneUnavailable,
+	readReportedWebcamPaths,
 	readSecondaryWindowsApplied,
 	readStoppedPath,
 	readStoppedWebcamPaths,
@@ -591,6 +592,18 @@ describe("per-camera helper events", () => {
 			"a.mp4",
 		]);
 		expect(readStoppedWebcamPaths('{"event":"recording-stopped"}')).toEqual([]);
+	});
+
+	it("tells a reported webcamPaths list apart from its absence", () => {
+		expect(
+			readReportedWebcamPaths('{"event":"recording-stopped","webcamPaths":["a.mp4","b.mp4"]}'),
+		).toEqual(["a.mp4", "b.mp4"]);
+		expect(readReportedWebcamPaths('{"event":"recording-stopped","webcamPaths":[]}')).toEqual([]);
+		// An old helper sends only the legacy path; that is "unknown", not "none".
+		expect(
+			readReportedWebcamPaths('{"event":"recording-stopped","webcamPath":"a.mp4"}'),
+		).toBeNull();
+		expect(readReportedWebcamPaths("Recording stopped. Output path: s.mp4")).toBeNull();
 	});
 
 	it("reads JSON-escaped Windows paths behind a prefix", () => {

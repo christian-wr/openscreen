@@ -6,6 +6,7 @@ import {
 	dedupeAdditionalWebcams,
 	isWebcamSidecarFile,
 	labelsOfUnavailableAdditionalWebcams,
+	labelsOfWebcamsStoppedEarly,
 	stripWebcamSuffix,
 	webcamOutputPath,
 } from "./nativeWindowsWebcams";
@@ -73,6 +74,55 @@ describe("nativeWindowsWebcams", () => {
 		expect(
 			dedupeAdditionalWebcams({ deviceName: "USB Camera" }, [{ deviceName: "USB Camera" }]),
 		).toEqual([]);
+	});
+
+	describe("labelsOfWebcamsStoppedEarly", () => {
+		const front = String.raw`C:\Rec\r-webcam.mp4`;
+		const desk = String.raw`C:\Rec\r-webcam-2.mp4`;
+		const side = String.raw`C:\Rec\r-webcam-3.mp4`;
+		const requested = [
+			{ path: front, label: "Front" },
+			{ path: desk, label: "Desk" },
+			{ path: side, label: "Side" },
+		];
+		const sizes = new Map([
+			[front, 100],
+			[desk, 100],
+			[side, 0],
+		]);
+
+		it("names a kept camera the helper no longer listed, camera 1 included", () => {
+			expect(
+				labelsOfWebcamsStoppedEarly({
+					requested,
+					sizes,
+					helperWebcamPaths: [desk],
+				}),
+			).toEqual(["Front"]);
+		});
+
+		it("leaves out a camera whose file was not kept: that one was not recorded", () => {
+			expect(labelsOfWebcamsStoppedEarly({ requested, sizes, helperWebcamPaths: [] })).toEqual([
+				"Front",
+				"Desk",
+			]);
+		});
+
+		it("flags nothing without a webcamPaths key", () => {
+			expect(labelsOfWebcamsStoppedEarly({ requested, sizes, helperWebcamPaths: null })).toEqual(
+				[],
+			);
+		});
+
+		it("matches paths regardless of case and separator", () => {
+			expect(
+				labelsOfWebcamsStoppedEarly({
+					requested,
+					sizes,
+					helperWebcamPaths: ["c:/rec/R-WEBCAM.mp4", String.raw`c:\REC//r-webcam-2.MP4`],
+				}),
+			).toEqual([]);
+		});
 	});
 
 	it("drops an empty additional camera file and names it", () => {

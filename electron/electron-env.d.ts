@@ -183,6 +183,11 @@ interface Window {
 			 * `webcamDropped`.
 			 */
 			droppedWebcams?: string[];
+			/**
+			 * Labels of cameras (camera 1 included) that the helper disabled mid-take.
+			 * Their partial files are kept in the session; the user is told which.
+			 */
+			webcamsStoppedEarly?: string[];
 		}>;
 		pauseNativeWindowsRecording: () => Promise<{
 			success: boolean;

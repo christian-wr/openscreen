@@ -51,6 +51,7 @@
 		"additionalCameras": "추가 카메라",
 		"additionalCamerasHint": "Windows 기본 녹화에서만 사용할 수 있습니다",
 		"camerasNotRecorded": "녹화되지 않음: {{names}}",
+		"camerasStoppedEarly": "중간에 중지됨: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

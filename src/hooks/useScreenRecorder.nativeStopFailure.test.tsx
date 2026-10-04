@@ -137,4 +137,20 @@ describe("useScreenRecorder native Windows stop failure", () => {
 		expect(api.switchToEditor).toHaveBeenCalled();
 		expect(view.result.current.recording).toBe(false);
 	});
+
+	it("names the cameras that stopped early and still opens the editor", async () => {
+		vi.mocked(toast.warning).mockClear();
+		api.stopNativeWindowsRecording.mockResolvedValue({
+			success: true,
+			path: "C:\\rec\\a.mp4",
+			webcamsStoppedEarly: ["Front", "Desk"],
+		});
+
+		const view = renderHook(() => useScreenRecorder());
+		await startNativeRecording(view);
+		await pressStop(view);
+
+		expect(toast.warning).toHaveBeenCalledWith("webcam.camerasStoppedEarly");
+		expect(api.switchToEditor).toHaveBeenCalled();
+	});
 });
