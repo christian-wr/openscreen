@@ -156,6 +156,23 @@ export const cameraTrackSchema = z
 	.nullable()
 	.default(null);
 
+// Cameras 2-4 of a multi-camera recording. Camera 1 stays `cameraTrack`; these only
+// store the extra files (the editor still shows camera 1) and mirror its fields.
+//
+// Optional and absent on every document written before multi-camera recording,
+// exactly like `cameraTrack.width`: additive, so no schema-version bump, and an
+// older build simply drops the key on save.
+export const additionalCameraTrackSchema = z.object({
+	sourcePath: z.string().min(1),
+	startMs: z.number().nonnegative().default(0),
+	offsetMs: z.number().int().default(0),
+	visible: z.boolean().default(true),
+	width: z.number().int().positive().optional(),
+	height: z.number().int().positive().optional(),
+	label: z.string().default(""),
+});
+export type AxcutAdditionalCameraTrack = z.infer<typeof additionalCameraTrackSchema>;
+
 // Why a media can never be transcribed. Only the DETERMINISTIC verdicts live
 // here: a container with no audio track (a screen recording captured with no
 // mic and no system audio — the common case) fails identically on every
@@ -190,6 +207,7 @@ export const assetSchema = z.object({
 	// no schema-version bump (an older build simply drops the key on save).
 	transcriptionFailure: assetTranscriptionFailureSchema.nullish(),
 	cameraTrack: cameraTrackSchema,
+	additionalCameraTracks: z.array(additionalCameraTrackSchema).max(3).optional(),
 });
 
 // A crop is a sub-rectangle of the source video, expressed as fractions
