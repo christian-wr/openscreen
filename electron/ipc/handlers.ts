@@ -4960,6 +4960,9 @@ export function registerIpcHandlers(
 					return { success: false, error: "Video path has not been approved" };
 				}
 				const resolution = await resolveMediaLinksForVideo(normalized);
+				// Additional cameras are only returned alongside camera 1. That relies
+				// on R6 (extras are recorded only while camera 1 is on), so extras
+				// without camera 1 means camera 1's file came out empty.
 				if (!resolution.webcamVideoPath) {
 					return { success: false, error: "No camera attached to this recording" };
 				}

@@ -243,6 +243,9 @@ export async function registerMediaLinks(
 	videoPath: string,
 	links: MediaLinksToRegister,
 ): Promise<void> {
+	// Extras alone register nothing. That relies on R6: additional cameras are
+	// recorded only while camera 1 is on, so a take with extras but no camera 1
+	// is one whose camera 1 file came out empty — a rare loss accepted here.
 	if (!links.webcamVideoPath && !links.cursorTelemetryPath) return;
 	const { additionalWebcams: rawAdditionalWebcams, ...linksWithoutAdditional } = links;
 	const additionalWebcams = normalizeAdditionalWebcams(rawAdditionalWebcams);
