@@ -1,0 +1,179 @@
+import { describe, expect, it } from "vitest";
+import {
+	buildHelperWebcamConfig,
+	collectStoppedWebcams,
+	dedupeAdditionalWebcams,
+	isWebcamSidecarFile,
+	labelsOfUnavailableAdditionalWebcams,
+	stripWebcamSuffix,
+	webcamOutputPath,
+} from "./nativeWindowsWebcams";
+
+describe("nativeWindowsWebcams", () => {
+	it("names camera files", () => {
+		expect(webcamOutputPath("C:\\r", "rec-", 7, 1)).toMatch(/rec-7-webcam\.mp4$/);
+		expect(webcamOutputPath("C:\\r", "rec-", 7, 3)).toMatch(/rec-7-webcam-3\.mp4$/);
+	});
+
+	it("recognizes every camera file of a recording and nothing else", () => {
+		for (const f of ["rec-7-webcam.mp4", "rec-7-webcam-2.mp4", "rec-7-webcam-4.webm"]) {
+			expect(isWebcamSidecarFile(f)).toBe(true);
+		}
+		for (const f of ["rec-7.mp4", "rec-7-webcamera.mp4", "rec-7-webcam-x.mp4"]) {
+			expect(isWebcamSidecarFile(f)).toBe(false);
+		}
+		expect(stripWebcamSuffix("rec-7-webcam-2")).toBe("rec-7");
+		expect(stripWebcamSuffix("rec-7-webcam")).toBe("rec-7");
+		expect(stripWebcamSuffix("rec-7")).toBe("rec-7");
+	});
+
+	it("dedupes a device that equals camera 1, duplicates, and caps at three", () => {
+		const extras = [
+			{ deviceId: "a", deviceName: "Front" },
+			{ deviceId: "b", deviceName: "Desk" },
+			{ deviceId: "b", deviceName: "Desk" },
+			{ deviceName: "Side" },
+			{ deviceName: "Top" },
+			{ deviceName: "Fifth" },
+		];
+		expect(
+			dedupeAdditionalWebcams({ deviceId: "a", deviceName: "Front" }, extras).map(
+				(e) => e.deviceName,
+			),
+		).toEqual(["Desk", "Side", "Top"]);
+	});
+
+	it("drops extras that name no device at all", () => {
+		expect(dedupeAdditionalWebcams(null, [{ deviceName: "  " }, { deviceName: "Desk" }])).toEqual([
+			{ deviceName: "Desk" },
+		]);
+	});
+
+	it("skips malformed entries from IPC", () => {
+		const junk = [
+			null,
+			{ deviceName: 3 },
+			{ deviceId: 4, deviceName: "X" },
+			{ deviceName: "Desk" },
+		];
+		expect(dedupeAdditionalWebcams(null, junk as unknown as Array<{ deviceName: string }>)).toEqual(
+			[{ deviceName: "Desk" }],
+		);
+	});
+
+	it("drops an empty additional camera file and names it", () => {
+		const r = collectStoppedWebcams({
+			camera1Enabled: true,
+			requested: [
+				{ path: "w.mp4", label: "Front" },
+				{ path: "w-2.mp4", label: "Desk" },
+				{ path: "w-3.mp4", label: "Side" },
+			],
+			sizes: new Map([
+				["w.mp4", 100],
+				["w-2.mp4", 0],
+				["w-3.mp4", 50],
+			]),
+		});
+		expect(r).toEqual({
+			camera1: "w.mp4",
+			additional: [{ path: "w-3.mp4", label: "Side" }],
+			dropped: ["Desk"],
+		});
+	});
+
+	it("keeps camera 1 and reports a camera whose file never appeared as not recorded", () => {
+		const r = collectStoppedWebcams({
+			camera1Enabled: true,
+			requested: [
+				{ path: "w.mp4", label: "Front" },
+				{ path: "w-2.mp4", label: "Desk" },
+			],
+			sizes: new Map([["w.mp4", 100]]),
+		});
+		expect(r).toEqual({ camera1: "w.mp4", additional: [], dropped: ["Desk"] });
+	});
+
+	it("keeps extras when camera 1 is lost, leaving camera 1 out of dropped", () => {
+		const r = collectStoppedWebcams({
+			camera1Enabled: true,
+			requested: [
+				{ path: "w.mp4", label: "Front" },
+				{ path: "w-2.mp4", label: "Desk" },
+			],
+			sizes: new Map([
+				["w.mp4", 0],
+				["w-2.mp4", 10],
+			]),
+		});
+		expect(r).toEqual({ additional: [{ path: "w-2.mp4", label: "Desk" }], dropped: [] });
+	});
+
+	it("maps unavailable helper indices to the labels of the extras", () => {
+		const requested = [
+			{ path: "w.mp4", label: "Front" },
+			{ path: "w-2.mp4", label: "Desk" },
+			{ path: "w-3.mp4", label: "Side" },
+		];
+		expect(labelsOfUnavailableAdditionalWebcams(requested, [0, 2, 2, 9])).toEqual(["Side"]);
+	});
+
+	it("builds a start config with the legacy fields and a list of every camera", () => {
+		const config = buildHelperWebcamConfig({
+			camera1: {
+				enabled: true,
+				deviceId: "id-1",
+				deviceName: "Front",
+				width: 1280,
+				height: 720,
+				fps: 30,
+			},
+			camera1Clsid: "{c1}",
+			camera1Path: "C:\\r\\rec-7-webcam.mp4",
+			extras: [
+				{ deviceId: "id-2", deviceName: "Desk", clsid: null, path: "C:\\r\\rec-7-webcam-2.mp4" },
+			],
+		});
+		const parsed = JSON.parse(JSON.stringify(config));
+		expect(parsed).toMatchObject({
+			webcamEnabled: true,
+			webcamDeviceId: "id-1",
+			webcamDeviceName: "Front",
+			webcamDirectShowClsid: "{c1}",
+			webcamWidth: 1280,
+			webcamHeight: 720,
+			webcamFps: 30,
+		});
+		expect(parsed.webcams).toEqual([
+			{
+				camDeviceId: "id-1",
+				camDeviceName: "Front",
+				camClsid: "{c1}",
+				camWidth: 1280,
+				camHeight: 720,
+				camFps: 30,
+				camPath: "C:\\r\\rec-7-webcam.mp4",
+			},
+			{
+				camDeviceId: "id-2",
+				camDeviceName: "Desk",
+				camClsid: null,
+				camWidth: 1280,
+				camHeight: 720,
+				camFps: 30,
+				camPath: "C:\\r\\rec-7-webcam-2.mp4",
+			},
+		]);
+	});
+
+	it("sends no camera list while camera 1 is off", () => {
+		const config = buildHelperWebcamConfig({
+			camera1: { enabled: false, width: 1280, height: 720, fps: 30 },
+			camera1Clsid: null,
+			camera1Path: "C:\\r\\rec-7-webcam.mp4",
+			extras: [{ deviceName: "Desk", clsid: null, path: "C:\\r\\rec-7-webcam-2.mp4" }],
+		});
+		expect(config.webcamEnabled).toBe(false);
+		expect(config.webcams).toEqual([]);
+	});
+});

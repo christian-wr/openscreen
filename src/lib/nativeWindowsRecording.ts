@@ -34,6 +34,11 @@ export type NativeWindowsRecordingRequest = {
 		height: number;
 		fps: number;
 	};
+	/**
+	 * Cameras 2-4, recorded at camera 1's size and rate. Only sent while camera 1
+	 * is enabled; the main process drops duplicates of camera 1 and caps the list.
+	 */
+	additionalWebcams?: Array<{ deviceId?: string; deviceName: string }>;
 	cursor: {
 		mode: import("./recordingSession").CursorCaptureMode;
 	};
@@ -60,6 +65,11 @@ export type NativeWindowsRecordingStartResult = {
 	 * but the user has to be told, or they discover it in the editor.
 	 */
 	webcamUnavailable?: boolean;
+	/**
+	 * Device names of additional cameras (2-4) the helper could not open; this
+	 * take records without them. Camera 1 is reported by `webcamUnavailable`.
+	 */
+	unavailableWebcams?: string[];
 	/**
 	 * A microphone was asked for but could not be named, so the helper captured
 	 * whatever Windows calls the default input. The take is fine; the voice on it

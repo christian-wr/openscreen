@@ -124,11 +124,21 @@ import {
 	readMicrophoneDefaulted,
 	readMicrophoneUnavailable,
 	readSecondaryWindowsApplied,
-	readWebcamFormat,
-	readWebcamUnavailable,
+	readStoppedWebcamPaths,
+	readUnavailableWebcamIndices,
+	readWebcamFormatAt,
 	terminateNativeWindowsCapture,
 	waitForNativeWindowsCaptureStop,
 } from "../recording/nativeWindowsCaptureStop";
+import {
+	buildHelperWebcamConfig,
+	collectStoppedWebcams,
+	dedupeAdditionalWebcams,
+	isWebcamSidecarFile,
+	labelsOfUnavailableAdditionalWebcams,
+	stripWebcamSuffix,
+	webcamOutputPath,
+} from "../recording/nativeWindowsWebcams";
 import { patchWebmDurationOnDisk } from "../recording/webm-duration";
 import { reindexRecordingOnDisk } from "../recording/webm-seek-index";
 import {
@@ -744,6 +754,11 @@ let nativeWindowsCaptureProcess: ChildProcessWithoutNullStreams | null = null;
 let nativeWindowsCaptureOutput = "";
 let nativeWindowsCaptureTargetPath: string | null = null;
 let nativeWindowsCaptureWebcamTargetPath: string | null = null;
+/**
+ * Cameras 2-4 of the running take, in helper order after camera 1, each with
+ * the label it is reported under. Only paths generated here ever land in it.
+ */
+let nativeWindowsCaptureAdditionalWebcamTargets: Array<{ path: string; label: string }> = [];
 let nativeWindowsCaptureRecordingId: number | null = null;
 let nativeWindowsCursorOffsetMs = 0;
 let nativeWindowsCursorCaptureMode: CursorCaptureMode = "editable-overlay";
@@ -770,6 +785,7 @@ function resetNativeWindowsCaptureState() {
 	nativeWindowsCaptureProcess = null;
 	nativeWindowsCaptureTargetPath = null;
 	nativeWindowsCaptureWebcamTargetPath = null;
+	nativeWindowsCaptureAdditionalWebcamTargets = [];
 	nativeWindowsCaptureRecordingId = null;
 	nativeWindowsCursorOffsetMs = 0;
 	nativeWindowsCursorCaptureMode = "editable-overlay";
@@ -797,12 +813,12 @@ async function salvageNativeWindowsFragmentedCapture(screenVideoPath: string | n
  */
 async function removeNativeWindowsCaptureOutputs(
 	screenVideoPath: string | null,
-	webcamVideoPath: string | null,
+	webcamVideoPaths: Array<string | null>,
 	options: { onlyIfUnusable?: boolean } = {},
 ) {
 	const targets = [
 		screenVideoPath,
-		webcamVideoPath,
+		...webcamVideoPaths,
 		screenVideoPath ? `${screenVideoPath}.cursor.json` : null,
 	];
 
@@ -1758,9 +1774,7 @@ function setCurrentRecordingSessionState(session: RecordingSession | null) {
 
 function getSessionManifestPathForVideo(videoPath: string) {
 	const parsedPath = path.parse(videoPath);
-	const baseName = parsedPath.name.endsWith("-webcam")
-		? parsedPath.name.slice(0, -"-webcam".length)
-		: parsedPath.name;
+	const baseName = stripWebcamSuffix(parsedPath.name);
 	return path.join(parsedPath.dir, `${baseName}${RECORDING_SESSION_SUFFIX}`);
 }
 
@@ -2856,10 +2870,7 @@ export function registerIpcHandlers(
 						? request.recordingId
 						: Date.now();
 				const outputPath = path.join(RECORDINGS_DIR, `${RECORDING_FILE_PREFIX}${recordingId}.mp4`);
-				const webcamOutputPath = path.join(
-					RECORDINGS_DIR,
-					`${RECORDING_FILE_PREFIX}${recordingId}-webcam.mp4`,
-				);
+				const webcamPath = webcamOutputPath(RECORDINGS_DIR, RECORDING_FILE_PREFIX, recordingId, 1);
 				const sourceDisplay =
 					request.source.type === "display" && typeof request.source.displayId === "number"
 						? (screen.getAllDisplays().find((display) => display.id === request.source.displayId) ??
@@ -2878,6 +2889,22 @@ export function registerIpcHandlers(
 				const webcamDirectShowClsid = request.webcam.enabled
 					? await resolveDirectShowWebcamClsid(request.webcam.deviceName)
 					: null;
+				// Cameras 2-4 only while camera 1 is on: its toggle governs every
+				// camera. Files are numbered from 2 in the order they are sent.
+				const additionalWebcams = request.webcam.enabled
+					? await Promise.all(
+							dedupeAdditionalWebcams(
+								request.webcam,
+								Array.isArray(request.additionalWebcams) ? request.additionalWebcams : [],
+							).map(async (extra, i) => ({
+								deviceId: extra.deviceId,
+								deviceName: extra.deviceName,
+								label: extra.deviceName?.trim() || `Camera ${i + 2}`,
+								clsid: await resolveDirectShowWebcamClsid(extra.deviceName),
+								path: webcamOutputPath(RECORDINGS_DIR, RECORDING_FILE_PREFIX, recordingId, i + 2),
+							})),
+						)
+					: [];
 				const cursorCaptureMode =
 					normalizeCursorCaptureMode(request.cursor?.mode) ?? "editable-overlay";
 				const envPreferSoftwareEncoder = (process.env.OPENSCREEN_WGC_PREFER_SOFTWARE_ENCODER ?? "")
@@ -2909,13 +2936,12 @@ export function registerIpcHandlers(
 					microphoneDeviceId: request.audio.microphone.deviceId ?? null,
 					microphoneDeviceName: request.audio.microphone.deviceName ?? null,
 					microphoneGain: request.audio.microphone.gain,
-					webcamEnabled: request.webcam.enabled,
-					webcamDeviceId: request.webcam.deviceId ?? null,
-					webcamDeviceName: request.webcam.deviceName ?? null,
-					webcamDirectShowClsid,
-					webcamWidth: request.webcam.width,
-					webcamHeight: request.webcam.height,
-					webcamFps: request.webcam.fps,
+					...buildHelperWebcamConfig({
+						camera1: request.webcam,
+						camera1Clsid: webcamDirectShowClsid,
+						camera1Path: webcamPath,
+						extras: additionalWebcams,
+					}),
 					captureCursor: cursorCaptureMode === "system",
 					cursorCaptureMode,
 					hideDesktopIcons:
@@ -2923,7 +2949,7 @@ export function registerIpcHandlers(
 						appSettings.getSnapshot().recording.hideDesktopIcons,
 					outputs: {
 						screenPath: outputPath,
-						webcamPath: webcamOutputPath,
+						webcamPath,
 					},
 					source: {
 						type: request.source.type,
@@ -2945,6 +2971,10 @@ export function registerIpcHandlers(
 					source: request.source,
 					audio: request.audio,
 					webcam: request.webcam,
+					additionalWebcams: additionalWebcams.map(({ label, path: cameraPath }) => ({
+						label,
+						path: cameraPath,
+					})),
 					encoder: { preferSoftwareEncoder },
 					cursor: { mode: cursorCaptureMode },
 					// Both spaces, deliberately: the helper's own errors quote the physical
@@ -2959,7 +2989,10 @@ export function registerIpcHandlers(
 				await fs.mkdir(RECORDINGS_DIR, { recursive: true });
 				nativeWindowsCaptureOutput = "";
 				nativeWindowsCaptureTargetPath = outputPath;
-				nativeWindowsCaptureWebcamTargetPath = request.webcam.enabled ? webcamOutputPath : null;
+				nativeWindowsCaptureWebcamTargetPath = request.webcam.enabled ? webcamPath : null;
+				nativeWindowsCaptureAdditionalWebcamTargets = additionalWebcams.map(
+					({ label, path: cameraPath }) => ({ label, path: cameraPath }),
+				);
 				nativeWindowsCaptureRecordingId = recordingId;
 				nativeWindowsCursorOffsetMs = 0;
 				nativeWindowsCursorCaptureMode = cursorCaptureMode;
@@ -2995,7 +3028,13 @@ export function registerIpcHandlers(
 					cursorCaptureMode === "editable-overlay"
 						? Math.max(0, captureStartedAtMs - cursorStartTimeMs)
 						: 0;
-				const webcamFormat = readWebcamFormat(nativeWindowsCaptureOutput);
+				// Index-aware readers: with several cameras the helper prints one
+				// format line and possibly one unavailable warning per camera, and
+				// only index 0 (or no index, from an old helper) is camera 1.
+				const webcamFormat = readWebcamFormatAt(nativeWindowsCaptureOutput, 0);
+				const unavailableWebcamIndices = new Set(
+					readUnavailableWebcamIndices(nativeWindowsCaptureOutput),
+				);
 				const encoderSelection = readNativeWindowsEncoderSelection(nativeWindowsCaptureOutput);
 				// Captured now because stop may have no helper left to ask. A helper
 				// killed mid-recording is exactly the case where this matters most.
@@ -3004,6 +3043,9 @@ export function registerIpcHandlers(
 					captureStartedAtMs,
 					cursorOffsetMs: nativeWindowsCursorOffsetMs,
 					webcamFormat,
+					additionalWebcamFormats: nativeWindowsCaptureAdditionalWebcamTargets.map((_, i) =>
+						readWebcamFormatAt(nativeWindowsCaptureOutput, i + 1),
+					),
 					encoderSelection,
 					// Logged only: menus missing from a window take on Windows before 11
 					// 24H2 are a platform limit, not something to put in front of the user.
@@ -3023,8 +3065,7 @@ export function registerIpcHandlers(
 				// missing `webcamFormat`: absence of the format line also means "the
 				// line could not be parsed", which would put a red toast on a recording
 				// whose camera is working perfectly.
-				const webcamUnavailable =
-					request.webcam.enabled && readWebcamUnavailable(nativeWindowsCaptureOutput);
+				const webcamUnavailable = request.webcam.enabled && unavailableWebcamIndices.has(0);
 				// Same shape as the camera notice: the helper records the Windows
 				// default input rather than failing, so this take is usable but is
 				// almost certainly the wrong microphone.
@@ -3042,6 +3083,28 @@ export function registerIpcHandlers(
 						deviceName: request.webcam.deviceName,
 					});
 				}
+				// Helper indices follow the `webcams` list: camera 1 at 0, extras after.
+				const startedWebcams = [
+					{ path: webcamPath, label: request.webcam.deviceName ?? "" },
+					...nativeWindowsCaptureAdditionalWebcamTargets,
+				];
+				const unavailableWebcams = request.webcam.enabled
+					? labelsOfUnavailableAdditionalWebcams(startedWebcams, [...unavailableWebcamIndices])
+					: [];
+				if (unavailableWebcams.length > 0) {
+					console.warn(
+						"[native-wgc] recording without additional cameras the helper could not open",
+						{
+							unavailableWebcams,
+						},
+					);
+					// Already reported now; the helper deleted their files, so leaving
+					// them in the targets would report them a second time at stop.
+					nativeWindowsCaptureAdditionalWebcamTargets =
+						nativeWindowsCaptureAdditionalWebcamTargets.filter(
+							(_, i) => !unavailableWebcamIndices.has(i + 1),
+						);
+				}
 
 				return {
 					success: true,
@@ -3051,6 +3114,7 @@ export function registerIpcHandlers(
 					videoEncoderSelection: encoderSelection?.video ?? null,
 					videoEncoderRuntime: encoderSelection?.videoEncoderRuntime ?? null,
 					webcamUnavailable,
+					...(unavailableWebcams.length > 0 ? { unavailableWebcams } : {}),
 					microphoneDefaulted,
 				};
 			} catch (error) {
@@ -3386,6 +3450,11 @@ export function registerIpcHandlers(
 		const proc = nativeWindowsCaptureProcess;
 		const preferredPath = nativeWindowsCaptureTargetPath;
 		const preferredWebcamPath = nativeWindowsCaptureWebcamTargetPath;
+		const additionalWebcamTargets = nativeWindowsCaptureAdditionalWebcamTargets;
+		const allWebcamPaths = [
+			preferredWebcamPath,
+			...additionalWebcamTargets.map((target) => target.path),
+		];
 		const recordingId = nativeWindowsCaptureRecordingId ?? Date.now();
 		const cursorCaptureMode = nativeWindowsCursorCaptureMode;
 
@@ -3408,7 +3477,7 @@ export function registerIpcHandlers(
 				if (!exited) {
 					detachNativeWindowsCaptureOutputDrain();
 				}
-				await removeNativeWindowsCaptureOutputs(preferredPath, preferredWebcamPath);
+				await removeNativeWindowsCaptureOutputs(preferredPath, allWebcamPaths);
 				return { success: true, discarded: true };
 			} finally {
 				// Unconditional. Killing a wedged helper can itself throw, and
@@ -3482,7 +3551,7 @@ export function registerIpcHandlers(
 					// explain. Size-gate it anyway: throwing away a recording to tidy
 					// up after a failed stop is the worse mistake of the two, and the
 					// gate is the same one the salvage check above uses.
-					await removeNativeWindowsCaptureOutputs(preferredPath, preferredWebcamPath, {
+					await removeNativeWindowsCaptureOutputs(preferredPath, allWebcamPaths, {
 						onlyIfUnusable: true,
 					});
 					// The helper log goes to console/diagnostics above, not into this
@@ -3518,31 +3587,56 @@ export function registerIpcHandlers(
 				shiftPendingCursorTelemetry(nativeWindowsCursorOffsetMs);
 				await writePendingCursorTelemetry(screenVideoPath);
 			}
-			let webcamVideoPath: string | undefined;
-			if (preferredWebcamPath) {
-				try {
-					// Size, not just existence. A camera that opened but delivered no
-					// frame still gets a file created for it, and its `Finalize()` then
-					// fails, leaving nought bytes on disk. Admitting that file put a
-					// camera track in the document pointing at something no demuxer can
-					// read, and the preview compositor answers an unreadable camera by
-					// drawing the SCREEN recording inside the little camera rectangle —
-					// which is how a webcam that never recorded showed up as the desktop
-					// duplicated into its own corner (getopenscreen/openscreen#387).
-					const webcamStat = await fs.stat(preferredWebcamPath);
-					webcamVideoPath = webcamStat.size > 0 ? preferredWebcamPath : undefined;
-					if (!webcamVideoPath) {
-						console.warn("[native-wgc] the webcam file is empty; saving without a camera", {
-							path: preferredWebcamPath,
-						});
-					}
-				} catch {
-					webcamVideoPath = undefined;
+			// Size, not just existence. A camera that opened but delivered no frame
+			// still gets a file created for it, and its `Finalize()` then fails,
+			// leaving nought bytes on disk. Admitting that file put a camera track in
+			// the document pointing at something no demuxer can read, and the preview
+			// compositor answers an unreadable camera by drawing the SCREEN recording
+			// inside the little camera rectangle — which is how a webcam that never
+			// recorded showed up as the desktop duplicated into its own corner
+			// (getopenscreen/openscreen#387). Every camera is judged by its own file,
+			// not by the helper's list at stop (see `collectStoppedWebcams`).
+			const requestedWebcams = [
+				...(preferredWebcamPath ? [{ path: preferredWebcamPath, label: "" }] : []),
+				...additionalWebcamTargets,
+			];
+			const webcamSizes = new Map<string, number>();
+			for (const camera of requestedWebcams) {
+				const stat = await fs.stat(camera.path).catch(() => null);
+				if (stat) {
+					webcamSizes.set(camera.path, stat.size);
 				}
 			}
-			const session: RecordingSession = webcamVideoPath
-				? { screenVideoPath, webcamVideoPath, createdAt: recordingId, cursorCaptureMode }
-				: { screenVideoPath, createdAt: recordingId, cursorCaptureMode };
+			const stoppedWebcams = collectStoppedWebcams({
+				camera1Enabled: Boolean(preferredWebcamPath),
+				requested: requestedWebcams,
+				sizes: webcamSizes,
+			});
+			const webcamVideoPath = stoppedWebcams.camera1;
+			const additionalWebcams = stoppedWebcams.additional;
+			if (preferredWebcamPath && !webcamVideoPath && webcamSizes.has(preferredWebcamPath)) {
+				console.warn("[native-wgc] the webcam file is empty; saving without a camera", {
+					path: preferredWebcamPath,
+				});
+			}
+			if (stoppedWebcams.dropped.length > 0) {
+				console.warn("[native-wgc] additional cameras produced nothing usable", {
+					dropped: stoppedWebcams.dropped,
+					helperWebcamPaths: readStoppedWebcamPaths(nativeWindowsCaptureOutput),
+				});
+			}
+			// Generated by the start handler, never taken from the renderer or the
+			// helper; approved like the session's other media.
+			for (const extra of additionalWebcams) {
+				approveFilePath(extra.path);
+			}
+			const session: RecordingSession = {
+				screenVideoPath,
+				...(webcamVideoPath ? { webcamVideoPath } : {}),
+				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
+				createdAt: recordingId,
+				cursorCaptureMode,
+			};
 			setCurrentRecordingSessionState(session);
 			currentProjectPath = null;
 
@@ -3551,7 +3645,11 @@ export function registerIpcHandlers(
 				`${path.parse(screenVideoPath).name}${RECORDING_SESSION_SUFFIX}`,
 			);
 			await fs.writeFile(sessionManifestPath, JSON.stringify(session, null, 2), "utf-8");
-			await registerRecordingMediaLinks(screenVideoPath, { webcamVideoPath, cursorCaptureMode });
+			await registerRecordingMediaLinks(screenVideoPath, {
+				webcamVideoPath,
+				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
+				cursorCaptureMode,
+			});
 
 			return {
 				success: true,
@@ -3566,6 +3664,7 @@ export function registerIpcHandlers(
 				// unreported, the user would find out in the editor — which is exactly
 				// the silence this change exists to end.
 				webcamDropped: Boolean(preferredWebcamPath) && !webcamVideoPath,
+				...(stoppedWebcams.dropped.length > 0 ? { droppedWebcams: stoppedWebcams.dropped } : {}),
 				message: recovered
 					? "Native Windows recording recovered from a failed stop"
 					: "Native Windows recording session stored successfully",
@@ -4034,7 +4133,7 @@ export function registerIpcHandlers(
 
 			const files = await fs.readdir(RECORDINGS_DIR);
 			const videoFiles = files.filter(
-				(file) => file.endsWith(".webm") && !file.endsWith("-webcam.webm"),
+				(file) => file.endsWith(".webm") && !isWebcamSidecarFile(file),
 			);
 
 			if (videoFiles.length === 0) {

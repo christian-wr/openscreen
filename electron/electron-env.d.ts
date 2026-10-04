@@ -177,6 +177,11 @@ interface Window {
 			 * saved without it. Still a success — the screen video is intact.
 			 */
 			webcamDropped?: boolean;
+			/**
+			 * Device names of additional cameras (2-4) that produced nothing usable
+			 * and were left out of the session. Camera 1 is `webcamDropped`.
+			 */
+			droppedWebcams?: string[];
 		}>;
 		pauseNativeWindowsRecording: () => Promise<{
 			success: boolean;
