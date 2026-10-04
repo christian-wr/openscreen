@@ -131,6 +131,7 @@ import {
 	waitForNativeWindowsCaptureStop,
 } from "../recording/nativeWindowsCaptureStop";
 import {
+	additionalWebcamLabels,
 	buildHelperWebcamConfig,
 	collectStoppedWebcams,
 	dedupeAdditionalWebcams,
@@ -2891,20 +2892,22 @@ export function registerIpcHandlers(
 					: null;
 				// Cameras 2-4 only while camera 1 is on: its toggle governs every
 				// camera. Files are numbered from 2 in the order they are sent.
-				const additionalWebcams = request.webcam.enabled
-					? await Promise.all(
-							dedupeAdditionalWebcams(
-								request.webcam,
-								Array.isArray(request.additionalWebcams) ? request.additionalWebcams : [],
-							).map(async (extra, i) => ({
-								deviceId: extra.deviceId,
-								deviceName: extra.deviceName,
-								label: extra.deviceName?.trim() || `Camera ${i + 2}`,
-								clsid: await resolveDirectShowWebcamClsid(extra.deviceName),
-								path: webcamOutputPath(RECORDINGS_DIR, RECORDING_FILE_PREFIX, recordingId, i + 2),
-							})),
+				const keptExtras = request.webcam.enabled
+					? dedupeAdditionalWebcams(
+							request.webcam,
+							Array.isArray(request.additionalWebcams) ? request.additionalWebcams : [],
 						)
 					: [];
+				const extraLabels = additionalWebcamLabels(request.webcam.deviceName, keptExtras);
+				const additionalWebcams = await Promise.all(
+					keptExtras.map(async (extra, i) => ({
+						deviceId: extra.deviceId,
+						deviceName: extra.deviceName,
+						label: extraLabels[i],
+						clsid: await resolveDirectShowWebcamClsid(extra.deviceName),
+						path: webcamOutputPath(RECORDINGS_DIR, RECORDING_FILE_PREFIX, recordingId, i + 2),
+					})),
+				);
 				const cursorCaptureMode =
 					normalizeCursorCaptureMode(request.cursor?.mode) ?? "editable-overlay";
 				const envPreferSoftwareEncoder = (process.env.OPENSCREEN_WGC_PREFER_SOFTWARE_ENCODER ?? "")

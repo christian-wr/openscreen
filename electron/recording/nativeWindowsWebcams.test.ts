@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	additionalWebcamLabels,
 	buildHelperWebcamConfig,
 	collectStoppedWebcams,
 	dedupeAdditionalWebcams,
@@ -116,6 +117,28 @@ describe("nativeWindowsWebcams", () => {
 			{ path: "w-3.mp4", label: "Side" },
 		];
 		expect(labelsOfUnavailableAdditionalWebcams(requested, [0, 2, 2, 9])).toEqual(["Side"]);
+	});
+
+	it("labels extras by device name, else Camera <n>", () => {
+		expect(additionalWebcamLabels("Front", [{ deviceName: "Desk" }, { deviceName: "  " }])).toEqual(
+			["Desk", "Camera 3"],
+		);
+	});
+
+	it("tells cameras with the same name apart by occurrence, counting camera 1", () => {
+		expect(
+			additionalWebcamLabels("USB Camera", [
+				{ deviceName: "USB Camera" },
+				{ deviceName: "Desk" },
+				{ deviceName: " USB Camera " },
+			]),
+		).toEqual(["USB Camera (2)", "Desk", "USB Camera (3)"]);
+		expect(
+			additionalWebcamLabels(undefined, [
+				{ deviceName: "USB Camera" },
+				{ deviceName: "USB Camera" },
+			]),
+		).toEqual(["USB Camera", "USB Camera (2)"]);
 	});
 
 	it("builds a start config with the legacy fields and a list of every camera", () => {

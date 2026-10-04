@@ -93,6 +93,32 @@ export function dedupeAdditionalWebcams<T extends { deviceId?: string; deviceNam
 }
 
 /**
+ * Labels of the additional cameras, in order: the device name, else
+ * `Camera <n>` (n counts camera 1, so the first extra is camera 2).
+ *
+ * Two webcams of the same model report the same name, and a label is all the
+ * user is told about a camera that could not be opened or was dropped. So a
+ * label already used — by camera 1 or an earlier extra — gets " (2)", " (3)"
+ * by occurrence. Camera 1's own label is never changed.
+ */
+export function additionalWebcamLabels(
+	camera1Name: string | undefined,
+	extras: Array<{ deviceName: string }>,
+): string[] {
+	const seen = new Map<string, number>();
+	const camera1Label = camera1Name?.trim();
+	if (camera1Label) {
+		seen.set(camera1Label, 1);
+	}
+	return extras.map((extra, i) => {
+		const label = extra.deviceName.trim() || `Camera ${i + 2}`;
+		const occurrence = (seen.get(label) ?? 0) + 1;
+		seen.set(label, occurrence);
+		return occurrence > 1 ? `${label} (${occurrence})` : label;
+	});
+}
+
+/**
  * The camera part of the helper config: the unchanged legacy `webcam*` fields
  * for camera 1 plus the `webcams` list (camera 1 first, then the extras).
  *

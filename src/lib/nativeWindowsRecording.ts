@@ -66,8 +66,9 @@ export type NativeWindowsRecordingStartResult = {
 	 */
 	webcamUnavailable?: boolean;
 	/**
-	 * Device names of additional cameras (2-4) the helper could not open; this
-	 * take records without them. Camera 1 is reported by `webcamUnavailable`.
+	 * Labels (device name, else `Camera <n>`) of additional cameras (2-4) the
+	 * helper could not open; this take records without them. Camera 1 is
+	 * reported by `webcamUnavailable`.
 	 */
 	unavailableWebcams?: string[];
 	/**

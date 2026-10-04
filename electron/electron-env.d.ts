@@ -178,8 +178,9 @@ interface Window {
 			 */
 			webcamDropped?: boolean;
 			/**
-			 * Device names of additional cameras (2-4) that produced nothing usable
-			 * and were left out of the session. Camera 1 is `webcamDropped`.
+			 * Labels (device name, else `Camera <n>`) of additional cameras (2-4) that
+			 * produced nothing usable and were left out of the session. Camera 1 is
+			 * `webcamDropped`.
 			 */
 			droppedWebcams?: string[];
 		}>;
