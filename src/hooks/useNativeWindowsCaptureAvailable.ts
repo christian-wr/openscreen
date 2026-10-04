@@ -17,7 +17,9 @@ export function useNativeWindowsCaptureAvailable(): boolean {
 			.then((result) => {
 				if (!cancelled) setAvailable(result.success && result.available);
 			})
-			.catch(() => {});
+			.catch((error) => {
+				console.warn("Could not probe native Windows capture:", error);
+			});
 		return () => {
 			cancelled = true;
 		};
