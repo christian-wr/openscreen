@@ -207,7 +207,9 @@ export const assetSchema = z.object({
 	// no schema-version bump (an older build simply drops the key on save).
 	transcriptionFailure: assetTranscriptionFailureSchema.nullish(),
 	cameraTrack: cameraTrackSchema,
-	additionalCameraTracks: z.array(additionalCameraTrackSchema).max(3).optional(),
+	// No fixed limit on purpose: the recorder caps at three today, but a
+	// validator that ships with a cap cannot be loosened for older builds.
+	additionalCameraTracks: z.array(additionalCameraTrackSchema).optional(),
 });
 
 // A crop is a sub-rectangle of the source video, expressed as fractions

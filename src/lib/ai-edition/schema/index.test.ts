@@ -295,11 +295,11 @@ describe("axcut-schema v8", () => {
 			expect(additionalCameraTrackSchema.safeParse({ sourcePath: "" }).success).toBe(false);
 		});
 
-		it("rejects more than three additional cameras", () => {
+		it("accepts more than three additional cameras: the list has no fixed limit", () => {
 			const entries = Array.from({ length: 5 }, (_, i) => ({ sourcePath: `/c${i}.mp4` }));
-			expect(assetSchema.safeParse({ ...base, additionalCameraTracks: entries }).success).toBe(
-				false,
-			);
+			const parsed = assetSchema.safeParse({ ...base, additionalCameraTracks: entries });
+			expect(parsed.success).toBe(true);
+			expect(parsed.data?.additionalCameraTracks).toHaveLength(5);
 		});
 	});
 
