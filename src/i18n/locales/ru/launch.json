@@ -48,6 +48,9 @@
 		"camera": "Камера",
 		"cameraDevice": "Устройство камеры",
 		"quality": "Качество камеры",
+		"additionalCameras": "Дополнительные камеры",
+		"additionalCamerasHint": "Только при встроенной записи в Windows",
+		"camerasNotRecorded": "Не записаны: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

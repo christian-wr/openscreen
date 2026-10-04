@@ -12,11 +12,13 @@ import {
 	type MicrophoneDevice,
 	useMicrophoneDevices,
 } from "../../hooks/useMicrophoneDevices";
+import { useNativeWindowsCaptureAvailable } from "../../hooks/useNativeWindowsCaptureAvailable";
 import { usePortalOwnsSource } from "../../hooks/usePortalOwnsSource";
 import { useRememberedSourceName } from "../../hooks/useRememberedSourceName";
 import { useScreenRecorder } from "../../hooks/useScreenRecorder";
 import type { WebcamQualityId } from "../../hooks/webcamCaptureTarget";
 import { requestCameraAccess } from "../../lib/requestCameraAccess";
+import type { AdditionalCameraChoice } from "./AdditionalCamerasList";
 import {
 	HudCameraButton,
 	HudCursorButton,
@@ -119,6 +121,8 @@ export function LaunchWindow() {
 		setWebcamQuality,
 		webcamDeviceName,
 		setWebcamDeviceName,
+		webcamAdditionalDevices,
+		setWebcamAdditionalDevices,
 		cursorCaptureMode,
 		setCursorCaptureMode,
 		softwareEncoderFallbackNoticeVisible,
@@ -156,6 +160,7 @@ export function LaunchWindow() {
 	 */
 	const portalOwnsSource = usePortalOwnsSource();
 
+	const nativeWindowsCapture = useNativeWindowsCaptureAvailable();
 	const isVertical = trayLayout === "vertical";
 	const isPopoverOpen = isLanguageMenuOpen || isDeviceSettingsOpen;
 	const controlsLocked = recording || saving;
@@ -861,6 +866,7 @@ export function LaunchWindow() {
 			camDeviceId?: string;
 			camDeviceName?: string;
 			camQuality?: WebcamQualityId;
+			camAdditionalDevices?: AdditionalCameraChoice[];
 			micEnabled?: boolean;
 			micDeviceId?: string;
 			micDeviceName?: string;
@@ -940,6 +946,17 @@ export function LaunchWindow() {
 			persistRecordingPrefs({ camQuality: quality });
 		},
 		[controlsLocked, persistRecordingPrefs, setWebcamQuality],
+	);
+
+	const handleChangeAdditionalCameras = useCallback(
+		(next: AdditionalCameraChoice[]) => {
+			// Same guard as the quality: a panel left open mid-take must not rewrite what the take
+			// was started with.
+			if (controlsLocked) return;
+			setWebcamAdditionalDevices(next);
+			persistRecordingPrefs({ camAdditionalDevices: next });
+		},
+		[controlsLocked, persistRecordingPrefs, setWebcamAdditionalDevices],
 	);
 
 	const toggleDeviceSettings = useCallback(() => {
@@ -1093,6 +1110,28 @@ export function LaunchWindow() {
 			},
 		}),
 		[t, tCommon],
+	);
+
+	const additionalCameras = useMemo(
+		() =>
+			webcamEnabled
+				? {
+						selected: webcamAdditionalDevices,
+						onChange: handleChangeAdditionalCameras,
+						disabled: !nativeWindowsCapture,
+						labels: {
+							title: t("webcam.additionalCameras"),
+							hint: t("webcam.additionalCamerasHint"),
+						},
+					}
+				: undefined,
+		[
+			handleChangeAdditionalCameras,
+			nativeWindowsCapture,
+			t,
+			webcamAdditionalDevices,
+			webcamEnabled,
+		],
 	);
 
 	const versionLabel = appInfo ? t("deviceSettings.version", { version: appInfo.version }) : null;
@@ -1321,6 +1360,7 @@ export function LaunchWindow() {
 								canCheckForUpdates={(appInfo?.canCheckForUpdates ?? false) && !recording}
 								checkingForUpdates={isCheckingForUpdates}
 								cameraQuality={webcamQuality}
+								additionalCameras={additionalCameras}
 								onSelectCameraQuality={handleSelectCameraQuality}
 								onSelectMic={handleSelectMicDevice}
 								onSelectCamera={handleSelectCameraDevice}

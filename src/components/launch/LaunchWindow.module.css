@@ -322,6 +322,16 @@
 	outline: none;
 }
 
+.languageMenuItem:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.languageMenuItem:disabled:hover {
+	background: transparent;
+	color: rgba(255, 255, 255, 0.72);
+}
+
 .languageMenuItemActive {
 	background: rgba(16, 185, 129, 0.14);
 	color: #ffffff;

@@ -165,4 +165,59 @@ describe("app settings store", () => {
 
 		expect(new AppSettingsStore(dir).getSnapshot().recording.camQuality).toBe("2160p");
 	});
+
+	it("reads a missing additional camera list as empty", () => {
+		const dir = temp();
+		writeFileSync(
+			path.join(dir, "recording-settings.json"),
+			JSON.stringify({ camEnabled: true }),
+			"utf8",
+		);
+
+		expect(new AppSettingsStore(dir).getSnapshot().recording.camAdditionalDevices).toEqual([]);
+	});
+
+	it("drops additional camera entries without a name and keeps at most three", () => {
+		const store = new AppSettingsStore(temp());
+		store.setRecordingPreferences({
+			camAdditionalDevices: [
+				{ id: "a", name: "A" },
+				{ id: null, name: "B" },
+				{ id: "x", name: "" },
+				{ id: "c", name: "C" },
+				{ id: "d", name: "D" },
+				{ id: "e", name: "E" },
+			],
+		});
+
+		expect(store.getSnapshot().recording.camAdditionalDevices).toEqual([
+			{ id: "a", name: "A" },
+			{ id: null, name: "B" },
+			{ id: "c", name: "C" },
+		]);
+	});
+
+	it("ignores junk in a stored additional camera list", () => {
+		const dir = temp();
+		writeFileSync(
+			path.join(dir, "recording-settings.json"),
+			JSON.stringify({
+				camAdditionalDevices: [null, 3, "x", { name: 5 }, { id: 7, name: "Kept" }, { name: "Ok" }],
+			}),
+			"utf8",
+		);
+
+		expect(new AppSettingsStore(dir).getSnapshot().recording.camAdditionalDevices).toEqual([
+			{ id: null, name: "Kept" },
+			{ id: null, name: "Ok" },
+		]);
+	});
+
+	it("rejects an additional camera list that is not a list", () => {
+		const store = new AppSettingsStore(temp());
+
+		expect(() => store.setRecordingPreferences({ camAdditionalDevices: "x" as never })).toThrow(
+			TypeError,
+		);
+	});
 });

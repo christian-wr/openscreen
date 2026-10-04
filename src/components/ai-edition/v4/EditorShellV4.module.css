@@ -1000,6 +1000,50 @@
 	border-color: var(--border-hi);
 	background: var(--surface-2);
 }
+/* Cameras 2-4, under the camera row: one checkbox line per extra camera. */
+.recExtraCams {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 10px 16px 13px;
+	border-bottom: 1px solid var(--border-soft);
+}
+.recExtraCamsTitle {
+	color: var(--fg-2);
+	font-size: 13px;
+	font-weight: 500;
+	margin-bottom: 4px;
+}
+.recExtraCam {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 10px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	background: var(--surface-hi);
+	color: var(--fg);
+	font-size: 12.5px;
+	cursor: pointer;
+	text-align: left;
+}
+.recExtraCam:hover:not(:disabled) {
+	border-color: var(--border-hi);
+	background: var(--surface-2);
+}
+.recExtraCam:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.recExtraCamOn {
+	border-color: var(--border-hi);
+}
+.recExtraCamsHint {
+	color: var(--muted);
+	font-size: 12px;
+	margin-top: 4px;
+}
 .recSelect {
 	height: 32px;
 	max-width: 200px;

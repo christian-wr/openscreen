@@ -15,6 +15,8 @@ export interface RecordingPreferences {
 	camEnabled: boolean;
 	camDeviceId: string | null;
 	camDeviceName: string | null;
+	/** Cameras 2-4 of a native Windows recording, in the order they were picked. At most three. */
+	camAdditionalDevices: Array<{ id: string | null; name: string }>;
 	/** Capture resolution for the camera. See WEBCAM_QUALITY_PRESETS. */
 	camQuality: WebcamQualityId;
 	systemAudioEnabled: boolean;
@@ -38,6 +40,7 @@ export const DEFAULT_RECORDING_PREFERENCES: RecordingPreferences = {
 	camEnabled: false,
 	camDeviceId: null,
 	camDeviceName: null,
+	camAdditionalDevices: [],
 	camQuality: DEFAULT_WEBCAM_QUALITY,
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
@@ -101,6 +104,22 @@ const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" 
 const nullableString = (value: unknown, fallback: string | null) =>
 	value === null || typeof value === "string" ? value : fallback;
 
+const MAX_ADDITIONAL_CAMERAS = 3;
+
+/** Keeps the entries that name a camera, in order, up to the cap; everything else is junk. */
+function additionalCameras(value: unknown): RecordingPreferences["camAdditionalDevices"] {
+	if (!Array.isArray(value)) return [];
+	const kept: RecordingPreferences["camAdditionalDevices"] = [];
+	for (const entry of value) {
+		if (kept.length >= MAX_ADDITIONAL_CAMERAS) break;
+		if (!entry || typeof entry !== "object") continue;
+		const { id, name } = entry as Record<string, unknown>;
+		if (typeof name !== "string" || name.length === 0) continue;
+		kept.push({ id: typeof id === "string" ? id : null, name });
+	}
+	return kept;
+}
+
 function parseRecording(raw: RawSettings): RecordingPreferences {
 	return {
 		micEnabled: bool(raw.micEnabled, DEFAULT_RECORDING_PREFERENCES.micEnabled),
@@ -109,6 +128,7 @@ function parseRecording(raw: RawSettings): RecordingPreferences {
 		camEnabled: bool(raw.camEnabled, DEFAULT_RECORDING_PREFERENCES.camEnabled),
 		camDeviceId: nullableString(raw.camDeviceId, DEFAULT_RECORDING_PREFERENCES.camDeviceId),
 		camDeviceName: nullableString(raw.camDeviceName, DEFAULT_RECORDING_PREFERENCES.camDeviceName),
+		camAdditionalDevices: additionalCameras(raw.camAdditionalDevices),
 		// Unset in every settings file written before the camera had a quality
 		// setting, and `webcamQualityFrom` answers those with the default.
 		camQuality: webcamQualityFrom(raw.camQuality),
@@ -169,6 +189,10 @@ function validateRecordingPatch(patch: Partial<RecordingPreferences>): void {
 		if ((key.endsWith("Enabled") || key === "hideDesktopIcons") && typeof value !== "boolean") {
 			throw new TypeError(`${key} must be a boolean`);
 		}
+		if (key === "camAdditionalDevices") {
+			if (!Array.isArray(value)) throw new TypeError("camAdditionalDevices must be a list");
+			continue;
+		}
 		if (
 			(key.endsWith("DeviceId") || key.endsWith("DeviceName")) &&
 			value !== null &&
@@ -207,6 +231,9 @@ export class AppSettingsStore {
 		const next = Object.fromEntries(
 			Object.entries(patch).filter(([, value]) => value !== undefined),
 		) as Partial<RecordingPreferences>;
+		if (next.camAdditionalDevices) {
+			next.camAdditionalDevices = additionalCameras(next.camAdditionalDevices);
+		}
 		atomicWrite(this.userData, { ...raw, ...current, ...next });
 		return this.getSnapshot();
 	}

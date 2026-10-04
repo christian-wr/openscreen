@@ -13,6 +13,7 @@ import {
 	ZoomIn,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { AdditionalCamerasList } from "@/components/launch/AdditionalCamerasList";
 import { AudioLevelMeter } from "@/components/ui/audio-level-meter";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useScopedT } from "@/contexts/I18nContext";
@@ -21,6 +22,7 @@ import { useCameraDevices } from "@/hooks/useCameraDevices";
 import { useCameraPreviewStream } from "@/hooks/useCameraPreviewStream";
 import { useEditableCursorAvailable } from "@/hooks/useEditableCursorAvailable";
 import { useMicrophoneDevices } from "@/hooks/useMicrophoneDevices";
+import { useNativeWindowsCaptureAvailable } from "@/hooks/useNativeWindowsCaptureAvailable";
 import { usePortalOwnsSource } from "@/hooks/usePortalOwnsSource";
 import { canRecordMicrophone, getPlatform } from "@/utils/platformUtils";
 import styles from "./EditorShellV4.module.css";
@@ -32,6 +34,7 @@ interface RecordingPrefsState {
 	camEnabled: boolean;
 	camDeviceId: string | null;
 	camDeviceName: string | null;
+	camAdditionalDevices: Array<{ id: string | null; name: string }>;
 	systemAudioEnabled: boolean;
 	cursorCaptureMode: "editable-overlay" | "system";
 	hideDesktopIcons: boolean;
@@ -45,6 +48,7 @@ const DEFAULT_PREFS: RecordingPrefsState = {
 	camEnabled: false,
 	camDeviceId: null,
 	camDeviceName: null,
+	camAdditionalDevices: [],
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
 	hideDesktopIcons: false,
@@ -79,6 +83,8 @@ export function RecStage({
 	onClose?: () => void;
 }) {
 	const t = useScopedT("editor");
+	const tLaunch = useScopedT("launch");
+	const nativeWindowsCapture = useNativeWindowsCaptureAvailable();
 	const [prefs, setPrefsState] = useState<RecordingPrefsState>(DEFAULT_PREFS);
 	// Bumped by every local change and every pushed snapshot, so the re-read after a
 	// failed write can tell that something newer has landed since.
@@ -477,6 +483,30 @@ export function RecStage({
 							</button>
 						</div>
 					</div>
+
+					{/* Cameras 2-4 are recorded beside camera 1 by the native Windows helper only, so the
+					    list waits for camera 1 and, without that helper, stays visible but disabled. */}
+					{prefs.camEnabled && camDevices.devices.length > 1 ? (
+						<div className={styles.recExtraCams}>
+							<AdditionalCamerasList
+								devices={camDevices.devices}
+								primaryDeviceId={prefs.camDeviceId ?? camDevices.selectedDeviceId}
+								selected={prefs.camAdditionalDevices}
+								onChange={(next) => updatePrefs({ camAdditionalDevices: next })}
+								disabled={!nativeWindowsCapture}
+								labels={{
+									title: tLaunch("webcam.additionalCameras"),
+									hint: tLaunch("webcam.additionalCamerasHint"),
+								}}
+								classes={{
+									title: styles.recExtraCamsTitle,
+									item: styles.recExtraCam,
+									itemActive: styles.recExtraCamOn,
+									hint: styles.recExtraCamsHint,
+								}}
+							/>
+						</div>
+					) : null}
 
 					{/* Without its native helper the browser records, and it always draws the system cursor
 					    into the video: there is nothing to switch, so neither this row nor Auto-zoom, which

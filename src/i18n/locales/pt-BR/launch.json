@@ -48,6 +48,9 @@
 		"camera": "Câmera",
 		"cameraDevice": "Dispositivo de câmera",
 		"quality": "Qualidade da câmera",
+		"additionalCameras": "Câmeras adicionais",
+		"additionalCamerasHint": "Somente com a gravação nativa do Windows",
+		"camerasNotRecorded": "Não gravadas: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

@@ -48,6 +48,9 @@
 		"camera": "الكاميرا",
 		"cameraDevice": "جهاز الكاميرا",
 		"quality": "جودة الكاميرا",
+		"additionalCameras": "كاميرات إضافية",
+		"additionalCamerasHint": "فقط مع التسجيل الأصلي في Windows",
+		"camerasNotRecorded": "لم يتم تسجيلها: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"
