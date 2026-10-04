@@ -62,6 +62,19 @@ describe("nativeWindowsWebcams", () => {
 		);
 	});
 
+	it("never matches an extra with an id to an id-less camera 1 by name", () => {
+		// Two cameras of the same model: same name, and camera 1 came without an id.
+		expect(
+			dedupeAdditionalWebcams({ deviceName: "USB Camera" }, [
+				{ deviceId: "b", deviceName: "USB Camera" },
+			]),
+		).toEqual([{ deviceId: "b", deviceName: "USB Camera" }]);
+		// Without an id on either side the name is all there is, and it still matches.
+		expect(
+			dedupeAdditionalWebcams({ deviceName: "USB Camera" }, [{ deviceName: "USB Camera" }]),
+		).toEqual([]);
+	});
+
 	it("drops an empty additional camera file and names it", () => {
 		const r = collectStoppedWebcams({
 			camera1Enabled: true,

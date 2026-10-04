@@ -47,10 +47,18 @@ export interface HelperWebcamEntry {
 
 type DeviceRef = { deviceId?: string; deviceName?: string };
 
-/** Same device: by id when both sides carry one, otherwise by name. */
+/**
+ * Same device: by id when both sides carry one, otherwise by name — but only
+ * when neither carries an id. Two webcams of the same model share a name, so an
+ * id on one side and none on the other says nothing about whether they are the
+ * same device, and matching by name there would silently drop the second one.
+ */
 function isSameDevice(a: DeviceRef, b: DeviceRef) {
 	if (a.deviceId && b.deviceId) {
 		return a.deviceId === b.deviceId;
+	}
+	if (a.deviceId || b.deviceId) {
+		return false;
 	}
 	const name = a.deviceName?.trim();
 	return Boolean(name) && name === b.deviceName?.trim();
