@@ -124,6 +124,14 @@ if (!fs.existsSync(webcamConfigTestPath)) {
 await run(webcamConfigTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${webcamConfigTestPath}`);
 
+const deviceSelectionTestPath = path.join(BUILD_DIR, "device_selection_test.exe");
+if (!fs.existsSync(deviceSelectionTestPath)) {
+	throw new Error(`WGC helper build completed but ${deviceSelectionTestPath} was not found.`);
+}
+// Guards that two cameras of the same model in one take open two devices, not one twice.
+await run(deviceSelectionTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${deviceSelectionTestPath}`);
+
 const frameVisibilityTestPath = path.join(BUILD_DIR, "frame_visibility_test.exe");
 if (!fs.existsSync(frameVisibilityTestPath)) {
 	throw new Error(`WGC helper build completed but ${frameVisibilityTestPath} was not found.`);

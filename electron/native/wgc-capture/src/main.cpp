@@ -713,6 +713,10 @@ int wmain(int argc, wchar_t* argv[]) {
     }
 
     std::vector<std::unique_ptr<WebcamStream>> webcams;  // unique_ptr: WebcamCapture/MFEncoder are not movable
+    // The devices this take's cameras opened, so two cameras of the same model
+    // (same name, and a browser id that matches no device) open two devices
+    // rather than the first one twice. A camera dropped later keeps its claim.
+    DeviceClaims deviceClaims;
     for (size_t index = 0; index < webcamConfigs.size(); ++index) {
         auto stream = std::make_unique<WebcamStream>();
         stream->config = webcamConfigs[index];
@@ -729,7 +733,8 @@ int wmain(int argc, wchar_t* argv[]) {
                 stream->config.width,
                 stream->config.height,
                 stream->config.fps > 0 ? stream->config.fps : config.fps,
-                stream->writeSeparate)) {
+                stream->writeSeparate,
+                deviceClaims)) {
             // Non-fatal: a screen+audio recording the user can still use is far
             // better than losing the whole recording because one camera device
             // didn't match. Report it so the renderer can inform the user (and,

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "device_selection.h"
+
 #include <Windows.h>
 
 #include <atomic>
@@ -57,7 +59,8 @@ public:
         const std::wstring& directShowClsid,
         int requestedWidth,
         int requestedHeight,
-        int requestedFps);
+        int requestedFps,
+        const DeviceClaims& claims);
     bool start();
     void stop();
     bool copyLatestFrame(WebcamFrameSnapshot& destination, uint64_t lastSeenSequence);
@@ -66,6 +69,11 @@ public:
     int height() const;
     int fps() const;
     const std::wstring& selectedDeviceName() const;
+    /**
+     * The opened device's DevicePath (the moniker's display name when it has
+     * none, the filter CLSID when no moniker names it), for the take's claims.
+     */
+    const std::wstring& deviceIdentity() const;
     void storeFrame(const BYTE* buffer, long length);
 
 private:
@@ -123,4 +131,5 @@ private:
     bool sourceTopDown_ = false;
     PixelFormat pixelFormat_ = PixelFormat::Bgra;
     std::wstring selectedDeviceName_;
+    std::wstring deviceIdentity_;
 };

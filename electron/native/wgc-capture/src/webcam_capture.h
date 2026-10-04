@@ -1,5 +1,6 @@
 #pragma once
 
+#include "device_selection.h"
 #include "dshow_webcam_capture.h"
 
 #include <Windows.h>
@@ -22,6 +23,14 @@ public:
     WebcamCapture(const WebcamCapture&) = delete;
     WebcamCapture& operator=(const WebcamCapture&) = delete;
 
+    /**
+     * Opens the requested camera, skipping devices in `claims`.
+     *
+     * `claims` belongs to the take: every camera of it is initialized against
+     * the same set, in config order, and one that opens adds its device. That
+     * is what sends a second camera of the same model to the second device
+     * instead of the busy first one. An empty set selects exactly as before.
+     */
     bool initialize(
         const std::wstring& deviceId,
         const std::wstring& deviceName,
@@ -29,7 +38,8 @@ public:
         int requestedWidth,
         int requestedHeight,
         int requestedFps,
-        bool preferNv12);
+        bool preferNv12,
+        DeviceClaims& claims);
     bool start();
     void stop();
     bool copyLatestFrame(WebcamFrameSnapshot& destination, uint64_t lastSeenSequence);
@@ -48,7 +58,10 @@ public:
     const std::wstring& selectedDeviceName() const;
 
 private:
-    bool selectDevice(const std::wstring& deviceId, const std::wstring& deviceName);
+    bool selectDevice(
+        const std::wstring& deviceId,
+        const std::wstring& deviceName,
+        const DeviceClaims& claims);
     bool configureReader(int requestedWidth, int requestedHeight, int requestedFps, bool preferNv12);
     void captureLoop();
 
@@ -86,6 +99,7 @@ private:
     /** Where the loop's wall time goes, in microseconds. */
     uint64_t readSampleUs_ = 0;
     uint64_t storeUs_ = 0;
-    int selectedMatchScore_ = 0;
     std::wstring selectedDeviceName_;
+    /** The symbolic link of the device this capture opened, for the take's claims. */
+    std::wstring selectedIdentity_;
 };
