@@ -773,7 +773,16 @@ int wmain(int argc, wchar_t* argv[]) {
             // Balances whatever initialize() got through, then removes the
             // file it may have created: nothing was ever written to it.
             stream.encoder.finalize();
-            DeleteFileW(utf8ToWide(stream.config.outputPath).c_str());
+            // A file that never got created is fine; one that could not be
+            // removed is left as a 0-byte stub, which the app cleans up.
+            if (!DeleteFileW(utf8ToWide(stream.config.outputPath).c_str())) {
+                const DWORD deleteError = GetLastError();
+                if (deleteError != ERROR_FILE_NOT_FOUND) {
+                    std::cerr << "WARNING: Could not remove the dropped camera file "
+                              << stream.config.outputPath << " (GetLastError=" << deleteError << ")"
+                              << std::endl;
+                }
+            }
         }
         stream.active = false;
         if (inlineWebcam == &stream) {
