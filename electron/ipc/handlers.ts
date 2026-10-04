@@ -34,7 +34,9 @@ import {
 } from "../../src/lib/nativeMacRecording";
 import type { NativeWindowsRecordingRequest } from "../../src/lib/nativeWindowsRecording";
 import {
+	type AdditionalWebcam,
 	type CursorCaptureMode,
+	type FindRecordingCameraResult,
 	normalizeCursorCaptureMode,
 	normalizeProjectMedia,
 	normalizeRecordingSession,
@@ -598,9 +600,25 @@ async function getApprovedProjectSession(
 		throw new Error("Project references an invalid or unsupported webcam video path");
 	}
 
-	return webcamVideoPath
-		? { screenVideoPath, webcamVideoPath, createdAt: Date.now() }
-		: { screenVideoPath, createdAt: Date.now() };
+	// Additional cameras go through the same approval as camera 1; one that no
+	// longer resolves is dropped rather than failing the whole project.
+	const additionalWebcams: AdditionalWebcam[] = [];
+	for (const extra of media.additionalWebcams ?? []) {
+		const approved = await approveReadableVideoPath(
+			await resolveWithSiblingFallback(extra.path),
+			trustedDirs,
+		);
+		if (approved) {
+			additionalWebcams.push({ path: approved, label: extra.label });
+		}
+	}
+
+	return {
+		screenVideoPath,
+		...(webcamVideoPath ? { webcamVideoPath } : {}),
+		...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
+		createdAt: Date.now(),
+	};
 }
 
 type SelectedSource = {
@@ -1341,6 +1359,7 @@ async function registerRecordingMediaLinks(
 	options: {
 		webcamVideoPath?: string;
 		webcamOffsetMs?: number;
+		additionalWebcams?: AdditionalWebcam[];
 		cursorCaptureMode?: CursorCaptureMode;
 	},
 ) {
@@ -1354,6 +1373,9 @@ async function registerRecordingMediaLinks(
 			...(options.webcamVideoPath ? { webcamVideoPath: options.webcamVideoPath } : {}),
 			...(options.webcamVideoPath && Number.isFinite(options.webcamOffsetMs)
 				? { webcamOffsetMs: options.webcamOffsetMs }
+				: {}),
+			...(options.additionalWebcams?.length
+				? { additionalWebcams: options.additionalWebcams }
 				: {}),
 			...(hasCursorTelemetry ? { cursorTelemetryPath } : {}),
 			...(options.cursorCaptureMode ? { cursorCaptureMode: options.cursorCaptureMode } : {}),
@@ -1792,9 +1814,33 @@ async function loadRecordedSessionForVideoPath(
 			}
 		}
 
+		if (session.additionalWebcams) {
+			const approvedExtras: AdditionalWebcam[] = [];
+			for (const extra of session.additionalWebcams) {
+				let extraPath: string | null = extra.path;
+				if (!isPathAllowed(extraPath)) {
+					extraPath = await approveReadableVideoPath(extraPath, [
+						path.dirname(manifestPath),
+						RECORDINGS_DIR,
+					]);
+				}
+				if (extraPath) {
+					approvedExtras.push({ path: extraPath, label: extra.label });
+				}
+			}
+			if (approvedExtras.length > 0) {
+				session.additionalWebcams = approvedExtras;
+			} else {
+				delete session.additionalWebcams;
+			}
+		}
+
 		approveFilePath(session.screenVideoPath);
 		if (session.webcamVideoPath) {
 			approveFilePath(session.webcamVideoPath);
+		}
+		for (const extra of session.additionalWebcams ?? []) {
+			approveFilePath(extra.path);
 		}
 		return session;
 	} catch (error) {
@@ -1815,6 +1861,7 @@ async function loadRecordedSessionForVideoPath(
 async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 	webcamVideoPath?: string;
 	webcamOffsetMs?: number;
+	additionalWebcams?: AdditionalWebcam[];
 	cursorTelemetryPath?: string;
 	resolvedVia: "sidecar" | "fingerprint" | "none";
 }> {
@@ -1825,6 +1872,7 @@ async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 		.then(() => true)
 		.catch(() => false);
 
+	const sessionAdditionalWebcams = session?.additionalWebcams ?? [];
 	if (session?.webcamVideoPath || hasCursorTelemetry) {
 		// Opportunistic backfill so the link survives a later move even if this
 		// recording predates the registry, or if its sidecar doesn't travel with it.
@@ -1832,6 +1880,9 @@ async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 			...(session?.webcamVideoPath ? { webcamVideoPath: session.webcamVideoPath } : {}),
 			...(session?.webcamVideoPath && Number.isFinite(session.webcamOffsetMs)
 				? { webcamOffsetMs: session.webcamOffsetMs }
+				: {}),
+			...(sessionAdditionalWebcams.length > 0
+				? { additionalWebcams: sessionAdditionalWebcams }
 				: {}),
 			...(hasCursorTelemetry ? { cursorTelemetryPath } : {}),
 		}).catch((error) => console.warn("[media-links] backfill failed:", error));
@@ -1842,6 +1893,9 @@ async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 						webcamVideoPath: session.webcamVideoPath,
 						webcamOffsetMs: session.webcamOffsetMs ?? 0,
 					}
+				: {}),
+			...(sessionAdditionalWebcams.length > 0
+				? { additionalWebcams: sessionAdditionalWebcams }
 				: {}),
 			...(hasCursorTelemetry ? { cursorTelemetryPath } : {}),
 			resolvedVia: "sidecar",
@@ -1856,8 +1910,19 @@ async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 				webcamVideoPath =
 					(await approveReadableVideoPath(webcamVideoPath, [RECORDINGS_DIR])) ?? undefined;
 			}
+			const additionalWebcams: AdditionalWebcam[] = [];
+			for (const extra of links.additionalWebcams ?? []) {
+				let extraPath: string | null = extra.path;
+				if (!isPathAllowed(extraPath)) {
+					extraPath = await approveReadableVideoPath(extraPath, [RECORDINGS_DIR]);
+				}
+				if (extraPath) {
+					additionalWebcams.push({ path: extraPath, label: extra.label });
+				}
+			}
 			return {
 				...(webcamVideoPath ? { webcamVideoPath, webcamOffsetMs: links.webcamOffsetMs ?? 0 } : {}),
+				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
 				...(links.cursorTelemetryPath ? { cursorTelemetryPath: links.cursorTelemetryPath } : {}),
 				resolvedVia: "fingerprint",
 			};
@@ -4727,15 +4792,7 @@ export function registerIpcHandlers(
 	// `addAsset` in the new editor's project store.
 	ipcMain.handle(
 		"find-recording-camera",
-		async (
-			_event,
-			videoPath: string,
-		): Promise<{
-			success: boolean;
-			webcamVideoPath?: string;
-			offsetMs?: number;
-			error?: string;
-		}> => {
+		async (_event, videoPath: string): Promise<FindRecordingCameraResult> => {
 			try {
 				const normalized = normalizeVideoSourcePath(videoPath);
 				if (!normalized || !isPathAllowed(normalized)) {
@@ -4749,6 +4806,9 @@ export function registerIpcHandlers(
 					success: true,
 					webcamVideoPath: resolution.webcamVideoPath,
 					offsetMs: resolution.webcamOffsetMs ?? 0,
+					...(resolution.additionalWebcams?.length
+						? { additionalWebcams: resolution.additionalWebcams }
+						: {}),
 				};
 			} catch (err) {
 				return {

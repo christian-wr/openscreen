@@ -19,7 +19,11 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { CursorCaptureMode } from "../../src/lib/recordingSession";
+import {
+	type AdditionalWebcam,
+	type CursorCaptureMode,
+	normalizeAdditionalWebcams,
+} from "../../src/lib/recordingSession";
 
 // ponytail: `baseDir` is passed in by every caller (RECORDINGS_DIR in
 // electron/ipc/handlers.ts) rather than imported here, so this module has no
@@ -40,6 +44,7 @@ export interface MediaLinkEntry {
 	fingerprint: MediaFingerprint;
 	webcamVideoPath?: string;
 	webcamOffsetMs?: number;
+	additionalWebcams?: AdditionalWebcam[];
 	cursorTelemetryPath?: string;
 	cursorCaptureMode?: CursorCaptureMode;
 	updatedAt: string;
@@ -98,6 +103,7 @@ function normalizeEntry(candidate: unknown): MediaLinkEntry | null {
 	if (!candidate || typeof candidate !== "object") return null;
 	const raw = candidate as Partial<MediaLinkEntry>;
 	const fp = raw.fingerprint;
+	const additionalWebcams = normalizeAdditionalWebcams(raw.additionalWebcams);
 	if (
 		typeof raw.lastKnownPath !== "string" ||
 		!fp ||
@@ -116,6 +122,7 @@ function normalizeEntry(candidate: unknown): MediaLinkEntry | null {
 		},
 		...(typeof raw.webcamVideoPath === "string" ? { webcamVideoPath: raw.webcamVideoPath } : {}),
 		...(typeof raw.webcamOffsetMs === "number" ? { webcamOffsetMs: raw.webcamOffsetMs } : {}),
+		...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
 		...(typeof raw.cursorTelemetryPath === "string"
 			? { cursorTelemetryPath: raw.cursorTelemetryPath }
 			: {}),
@@ -220,6 +227,7 @@ async function updateRegistry(
 export interface MediaLinksToRegister {
 	webcamVideoPath?: string;
 	webcamOffsetMs?: number;
+	additionalWebcams?: AdditionalWebcam[];
 	cursorTelemetryPath?: string;
 	cursorCaptureMode?: CursorCaptureMode;
 }
@@ -236,6 +244,8 @@ export async function registerMediaLinks(
 	links: MediaLinksToRegister,
 ): Promise<void> {
 	if (!links.webcamVideoPath && !links.cursorTelemetryPath) return;
+	const { additionalWebcams: rawAdditionalWebcams, ...linksWithoutAdditional } = links;
+	const additionalWebcams = normalizeAdditionalWebcams(rawAdditionalWebcams);
 	const fingerprint = await computeFingerprint(videoPath);
 	await updateRegistry(baseDir, (file) => {
 		const existingIndex = file.entries.findIndex((e) =>
@@ -244,7 +254,8 @@ export async function registerMediaLinks(
 		const entry: MediaLinkEntry = {
 			lastKnownPath: videoPath,
 			fingerprint,
-			...links,
+			...linksWithoutAdditional,
+			...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
 			updatedAt: new Date().toISOString(),
 		};
 		const entries =
@@ -258,6 +269,7 @@ export async function registerMediaLinks(
 export interface MediaLinksLookup {
 	webcamVideoPath?: string;
 	webcamOffsetMs?: number;
+	additionalWebcams?: AdditionalWebcam[];
 	cursorTelemetryPath?: string;
 	cursorCaptureMode?: CursorCaptureMode;
 }
@@ -314,6 +326,7 @@ export async function findRelocatedMediaByStoredPath(
 		screenVideoPath: match.lastKnownPath,
 		...(match.webcamVideoPath ? { webcamVideoPath: match.webcamVideoPath } : {}),
 		...(typeof match.webcamOffsetMs === "number" ? { webcamOffsetMs: match.webcamOffsetMs } : {}),
+		...(match.additionalWebcams?.length ? { additionalWebcams: match.additionalWebcams } : {}),
 		...(match.cursorTelemetryPath ? { cursorTelemetryPath: match.cursorTelemetryPath } : {}),
 		...(match.cursorCaptureMode ? { cursorCaptureMode: match.cursorCaptureMode } : {}),
 	};
@@ -358,6 +371,7 @@ export async function findMediaLinksByFingerprint(
 	return {
 		...(match.webcamVideoPath ? { webcamVideoPath: match.webcamVideoPath } : {}),
 		...(typeof match.webcamOffsetMs === "number" ? { webcamOffsetMs: match.webcamOffsetMs } : {}),
+		...(match.additionalWebcams?.length ? { additionalWebcams: match.additionalWebcams } : {}),
 		...(match.cursorTelemetryPath ? { cursorTelemetryPath: match.cursorTelemetryPath } : {}),
 		...(match.cursorCaptureMode ? { cursorCaptureMode: match.cursorCaptureMode } : {}),
 	};

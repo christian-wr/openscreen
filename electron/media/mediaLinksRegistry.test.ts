@@ -187,6 +187,29 @@ describe("mediaLinksRegistry", () => {
 			}
 		});
 
+		it("round-trips additional cameras and resolves old records without them", async () => {
+			const screenPath = path.join(tempDir, "multi.webm");
+			const oldScreenPath = path.join(tempDir, "old.webm");
+			await writeFileOfSize(screenPath, 5000, "m");
+			await writeFileOfSize(oldScreenPath, 5000, "o");
+			const additionalWebcams = [
+				{ path: path.join(tempDir, "multi-webcam-2.mp4"), label: "Desk" },
+				{ path: path.join(tempDir, "multi-webcam-3.mp4"), label: "" },
+			];
+			await registerMediaLinks(tempDir, screenPath, {
+				webcamVideoPath: path.join(tempDir, "multi-webcam.mp4"),
+				additionalWebcams,
+			});
+			await registerMediaLinks(tempDir, oldScreenPath, {
+				webcamVideoPath: path.join(tempDir, "old-webcam.mp4"),
+			});
+
+			const resolved = await findMediaLinksByFingerprint(tempDir, screenPath);
+			expect(resolved?.additionalWebcams).toEqual(additionalWebcams);
+			const old = await findMediaLinksByFingerprint(tempDir, oldScreenPath);
+			expect(old).not.toHaveProperty("additionalWebcams");
+		});
+
 		it("returns null when there is no matching fingerprint", async () => {
 			const unknownPath = path.join(tempDir, "unknown.webm");
 			await writeFileOfSize(unknownPath, 1000, "z");

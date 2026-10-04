@@ -353,12 +353,9 @@ interface Window {
 			/** Why this recording ended before it was stopped, when it did. */
 			warning?: string;
 		}>;
-		findRecordingCamera: (videoPath: string) => Promise<{
-			success: boolean;
-			webcamVideoPath?: string;
-			offsetMs?: number;
-			error?: string;
-		}>;
+		findRecordingCamera: (
+			videoPath: string,
+		) => Promise<import("../src/lib/recordingSession").FindRecordingCameraResult>;
 		readBinaryFile: (filePath: string) => Promise<{
 			success: boolean;
 			data?: ArrayBuffer;
