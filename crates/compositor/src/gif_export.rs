@@ -256,6 +256,7 @@ fn export_gif_inner(
 
 		let mut screen_decs: HashMap<String, Decoder> = HashMap::new();
 		let mut webcam_decs: HashMap<String, Decoder> = HashMap::new();
+		let mut extra_decs: HashMap<String, Decoder> = HashMap::new();
 		screen_decs.insert(clips[0].screen.clone(), unsafe {
 			Decoder::open_for_export(&clips[0].screen, gpu)?
 		});
@@ -270,6 +271,7 @@ fn export_gif_inner(
 				&scene,
 				&mut screen_decs,
 				&mut webcam_decs,
+				&mut extra_decs,
 				&mut |frame_index| {
 					control.check()?;
 					// CPU readback of the staged RT (RGBA8 tightly-packed,

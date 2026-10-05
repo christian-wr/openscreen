@@ -840,6 +840,9 @@ impl Compositor {
 
     pub fn set_scene(&self, s: Option<Scene>) {
         *self.scene.borrow_mut() = s;
+        // A new scene can drop the regions that drew an extra camera: forget its frames so a
+        // stale pointer is never drawn before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
     }
 
     pub fn set_cursor(&self, track: crate::cursor::CursorTrack) {
@@ -941,6 +944,9 @@ impl Compositor {
     /// IOSurface, pas par pointeur Rust. `flush()` est donc la vidange elle-même.
     pub fn clear_srv_cache(&self) {
         self.metal_texture_cache.flush();
+        // The extra cameras' frames belong to the decoders just closed: forget them too, so
+        // a stale pointer is never read before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
     }
 
     /// Frames for cameras 1..=3 (index 0 = scene camera 1). A null or missing entry means that

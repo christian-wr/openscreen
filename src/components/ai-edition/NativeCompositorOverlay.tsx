@@ -4,7 +4,7 @@ import { readSpeedRegions } from "@/lib/ai-edition/document/timeline";
 import { noteUiProbeClipSwitch } from "@/lib/ai-edition/perf/uiFrameProbe";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
-import { assetCameraSource } from "@/lib/ai-edition/timeline/camera";
+import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { findActiveSpeedRegion, type SpeedRegion } from "@/lib/ai-edition/timeline/speed";
 import { resolveNativePosition } from "@/lib/ai-edition/timeline/timelineMap";
 import {
@@ -279,6 +279,7 @@ export function NativeCompositorOverlay() {
 			camera.offsetSec,
 			activeClipIndex,
 			activeSourceTimeSec,
+			assetAdditionalCameraSources(asset),
 		)
 			.then(() => {
 				if (pendingTargetClipIdRef.current !== targetClipId) {
@@ -355,6 +356,7 @@ export function NativeCompositorOverlay() {
 			camera.offsetSec,
 			activeClipIndex,
 			activeSourceTimeSec,
+			assetAdditionalCameraSources(asset),
 		).catch((error: unknown) => {
 			console.warn("[compositor-view] re-anchoring the preview failed:", error);
 		});

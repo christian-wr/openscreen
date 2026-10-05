@@ -26,7 +26,7 @@ import {
 	appendAutoZoomSuggestions,
 	collectAutoZoomSuggestionsForDocument,
 } from "@/lib/ai-edition/timeline/apply-auto-zooms";
-import { assetCameraSource } from "@/lib/ai-edition/timeline/camera";
+import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import type { CliDoneResult, CliExportRequest } from "@/lib/cliContracts";
 import { GIF_SIZE_PRESETS, type GifSizePreset } from "@/lib/exporter";
@@ -79,7 +79,7 @@ function replaceExtension(filePath: string, newExtension: string): string {
 /** Mirrors ExportDialog.buildNativeClipList: trim-narrowed visible clips mapped
  * onto the native multiclip contract. Kept in lock-step with
  * buildSceneDescription so export and scene agree on the clip stream. */
-function buildNativeClipList(axcutDocument: AxcutDocument): CompositorClipInput[] {
+export function buildNativeClipList(axcutDocument: AxcutDocument): CompositorClipInput[] {
 	const assetById = new Map(axcutDocument.assets.map((asset) => [asset.id, asset]));
 	return resolveVisibleClips(axcutDocument).flatMap((clip) => {
 		const asset = assetById.get(clip.assetId);
@@ -87,6 +87,8 @@ function buildNativeClipList(axcutDocument: AxcutDocument): CompositorClipInput[
 			return [];
 		}
 		const camera = assetCameraSource(asset);
+		// Cameras 2-4, only sent when the asset has any (same rule as `buildSceneDescription`).
+		const additionalCameras = assetAdditionalCameraSources(asset);
 		const sourceEndSec = resolveClipSourceEndSec(clip, asset);
 		return [
 			{
@@ -96,6 +98,7 @@ function buildNativeClipList(axcutDocument: AxcutDocument): CompositorClipInput[
 				sourceEndSec,
 				webcamOffsetSec: camera.offsetSec,
 				hasAudio: true,
+				...(additionalCameras.length > 0 ? { additionalCameras } : {}),
 			},
 		];
 	});

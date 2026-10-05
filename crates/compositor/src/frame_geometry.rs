@@ -447,7 +447,9 @@ pub(crate) fn extra_camera_base_cb(valid: [f32; 2]) -> LayerCB {
 /// The video draw of one planned camera layer: `base` (camera 0's `webcam_video_cb`, or
 /// `extra_camera_base_cb` for the others) moved to the plan's rect, with its corners, its
 /// source rect (`camera_source_rect`), its homography and its transparency (`1 - opacity`).
-/// Planned layers have no motion trail: `dst_prev = dst` and one tap.
+/// Planned layers have no motion trail: `dst_prev = dst` and one tap. The exception is camera
+/// 0's untouched default layer (the plan's rect is `base.dst`, fully opaque — what a frame
+/// outside every layout region plans): it keeps `base`'s trail, as on today's path.
 pub(crate) fn camera_layer_cb(
     plan: &crate::camera_layers::CameraLayerPlan,
     camera: Option<&crate::scene::SceneCamera>,
@@ -460,6 +462,12 @@ pub(crate) fn camera_layer_cb(
     let min_px = quad_px[0].min(quad_px[1]);
     let src = camera_source_rect(camera, visible_px, tex_px, quad_px[0] / quad_px[1].max(0.0001));
     let cover = base.cover[0];
+    let untouched = plan.dst == base.dst && plan.opacity >= 1.0;
+    let (dst_prev, mb) = if untouched {
+        (base.dst_prev, base.mb)
+    } else {
+        (plan.dst, [1.0, 0.0, base.mb[2], base.mb[3]])
+    };
     with_camera_homography(
         LayerCB {
             dst: plan.dst,
@@ -467,8 +475,8 @@ pub(crate) fn camera_layer_cb(
             quad_px,
             radius_px: plan.radius_frac * min_px,
             src_prev: src,
-            dst_prev: plan.dst,
-            mb: [1.0, 0.0, base.mb[2], base.mb[3]],
+            dst_prev,
+            mb,
             cover: [cover, 0.04 * min_px * cover, base.cover[2], base.cover[3]],
             persp: [[0.0; 4]; 3],
             layer_fx: [1.0 - plan.opacity.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
@@ -7690,6 +7698,40 @@ mod tests {
         let both = crate::scene::SceneCamera { mirror: Some(true), ..turned.clone() };
         let b = camera_layer_cb(&plan, Some(&both), visible, tex, render, &base).src;
         assert_eq!(b, [plain.src[0], plain.src[3], plain.src[2], plain.src[1]]);
+    }
+
+    /// Camera 0's default layer, planned outside every layout region at its own rect and fully
+    /// opaque, keeps its motion trail; moved or faded, it draws without one (R8).
+    #[test]
+    fn camera_0s_untouched_layer_keeps_its_trail() {
+        let render = [1920.0, 1080.0];
+        let base = LayerCB {
+            dst: [0.7, 0.7, 0.2, 0.2],
+            dst_prev: [0.65, 0.7, 0.2, 0.2],
+            mb: [8.0, 0.5, 1.0, 0.0],
+            ..Default::default()
+        };
+        let plan = crate::camera_layers::CameraLayerPlan {
+            camera: 0,
+            dst: base.dst,
+            radius_frac: 0.2,
+            shape: 0,
+            opacity: 1.0,
+            fills_frame: false,
+        };
+        let kept = camera_layer_cb(&plan, None, [64.0; 2], [64.0; 2], render, &base);
+        assert_eq!(kept.dst_prev, base.dst_prev);
+        assert_eq!(kept.mb, base.mb);
+
+        let moved = crate::camera_layers::CameraLayerPlan { dst: [0.1, 0.1, 0.2, 0.2], ..plan };
+        let m = camera_layer_cb(&moved, None, [64.0; 2], [64.0; 2], render, &base);
+        assert_eq!(m.dst_prev, moved.dst);
+        assert_eq!(m.mb, [1.0, 0.0, 1.0, 0.0]);
+
+        let faded = crate::camera_layers::CameraLayerPlan { opacity: 0.5, ..plan };
+        let f = camera_layer_cb(&faded, None, [64.0; 2], [64.0; 2], render, &base);
+        assert_eq!(f.dst_prev, faded.dst);
+        assert_eq!(f.mb, [1.0, 0.0, 1.0, 0.0]);
     }
 
     /// A homography with a NaN or an infinity in it counts as none.

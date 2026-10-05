@@ -14,6 +14,7 @@ import type {
 } from "../../../src/native/contracts";
 import type { GifExportJob } from "../../ipc/gifExportJobs";
 import type {
+	ClipCameraInput,
 	ClipInput,
 	CompositorBackend,
 	CompositorParamValue,
@@ -775,12 +776,21 @@ export class CompositorViewService {
 		webcamOffsetSec: number,
 		clipIndex: number,
 		sourceTimeSec: number,
+		additionalCameras: ClipCameraInput[] = [],
 	): void {
 		const addon = this.ensureAddon();
 		if (!addon) {
 			return;
 		}
-		addon.setActiveClip(id, screenPath, webcamPath, webcamOffsetSec, clipIndex, sourceTimeSec);
+		addon.setActiveClip(
+			id,
+			screenPath,
+			webcamPath,
+			webcamOffsetSec,
+			clipIndex,
+			sourceTimeSec,
+			additionalCameras,
+		);
 	}
 
 	destroyView(id: number): void {

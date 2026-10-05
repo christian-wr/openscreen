@@ -23,8 +23,9 @@
 //! le napi — le `gen` est l'identité de la frame (cf. `LatestFrame`).
 
 use crate::compositor::{Compositor, LiveParams};
+use crate::ffi::AVFrame;
 use crate::regions::{speed_at, ProgrammeClock};
-use crate::scene::Scene;
+use crate::scene::{Scene, SceneCameraLayoutRegion, SceneClipCamera};
 use crate::config::{self, Cfg};
 use crate::cursor::CursorTrack;
 use crate::d3d::{Backend, Gpu};
@@ -33,6 +34,10 @@ use crate::pipeline::Decoder;
 #[cfg(windows)]
 use crate::shared_frames::SharedRing;
 use crate::shared_frames::{SharedFrame, SlotBook};
+use crate::extra_cameras::{
+    cameras_in_regions, extra_camera_active, extra_camera_keys, extra_frame_list, has_camera_file,
+    opened_or_skipped, seek_extra_camera, step_extra_camera, ExtraCameraKeys,
+};
 use crate::timeline_walk::{frame_step, FrameStep, NextFrameTime};
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -72,6 +77,9 @@ struct PrefetchedClip {
     /// des paires ouvertes plusieurs bascules plus tôt. Cf. `open_webcam_or_stand_in`.
     webcam_decoder_is_real: bool,
     webcam_offset_sec: f64,
+    /// The clip's extra cameras (index k-1 = camera k) and what they were opened for.
+    extra: Vec<Option<ExtraCamera>>,
+    extra_keys: ExtraCameraKeys,
     idx: u32,
     /// Piste curseur du clip à venir, préchargée ici pour la même raison que les décodeurs :
     /// sans ça, la bascule à la frontière restait synchrone sur CE point précis (lecture +
@@ -149,16 +157,99 @@ fn should_draw_webcam(webcam_path: &str, screen_path: &str, decoder_is_real: boo
     webcam_is_real(webcam_path, screen_path) && decoder_is_real
 }
 
+/// An extra camera (k >= 1) of the active clip, decoded only near the layout regions that show
+/// it (`extra_camera_active`).
+struct ExtraCamera {
+    dec: Decoder,
+    offset_sec: f64,
+    /// The last step or seek left a frame to draw. Read by `Player::recompose`.
+    shown: bool,
+    /// Camera source time past which the file has no frame left (`step_extra_camera`).
+    ended_at: Option<f64>,
+}
+
+impl ExtraCamera {
+    /// `step_extra_camera` toward `target` (camera source time).
+    unsafe fn step_to(&mut self, target: f64) -> Result<*const AVFrame> {
+        let frame = step_extra_camera(&mut self.dec, &mut self.ended_at, target)?;
+        self.shown = !frame.is_null();
+        Ok(frame)
+    }
+
+    /// `seek_extra_camera` to `target` (camera source time).
+    unsafe fn seek(&mut self, target: f64) -> Result<*const AVFrame> {
+        let frame = seek_extra_camera(&mut self.dec, &mut self.ended_at, target)?;
+        self.shown = !frame.is_null();
+        Ok(frame)
+    }
+}
+
+/// The extra cameras clip `clip_index` opens: those its own layout regions
+/// (`Scene::for_clip_window`) draw and that the clip has a file for.
+fn extra_cameras_for_clip(scene: &Scene, clip_index: usize) -> Vec<usize> {
+    let Some(clip) = scene.clips.get(clip_index) else {
+        return Vec::new();
+    };
+    // The common case — no layout region anywhere — skips the windowing copy of the scene.
+    if scene.camera_layout_regions.is_empty() || clip.additional_cameras.is_empty() {
+        return Vec::new();
+    }
+    cameras_in_regions(&scene_for_clip(scene, clip_index).camera_layout_regions)
+        .into_iter()
+        .filter(|&k| has_camera_file(clip.additional_cameras.get(k - 1)))
+        .collect()
+}
+
+/// `extra_camera_keys` for clip `clip_index` of `scene`, from the clip's own camera files.
+fn scene_extra_camera_keys(scene: &Scene, clip_index: usize) -> ExtraCameraKeys {
+    let sources = scene.clips.get(clip_index).map(|c| c.additional_cameras.as_slice()).unwrap_or(&[]);
+    extra_camera_keys(&extra_cameras_for_clip(scene, clip_index), sources)
+}
+
+/// The windowed layout regions of clip `clip_index` (what `camera_layers_at` plans from).
+fn clip_layout_regions(scene: &Scene, clip_index: usize) -> Vec<SceneCameraLayoutRegion> {
+    if scene.camera_layout_regions.is_empty() {
+        return Vec::new();
+    }
+    scene_for_clip(scene, clip_index).camera_layout_regions
+}
+
+fn same_extra_key(a: &Option<SceneClipCamera>, b: &Option<SceneClipCamera>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.path == b.path && (a.offset_sec - b.offset_sec).abs() < 1e-9,
+        _ => false,
+    }
+}
+
+fn same_extra_keys(a: &[Option<SceneClipCamera>], b: &[Option<SceneClipCamera>]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_extra_key(a, b))
+}
+
+/// Opens the extra cameras `keys` asks for, without seeking them: they are positioned when
+/// they become active (`Player::advance_extras`).
+unsafe fn open_extra_cameras(keys: &[Option<SceneClipCamera>], gpu: &Gpu) -> Vec<Option<ExtraCamera>> {
+    keys.iter()
+        .map(|key| {
+            let key = key.as_ref()?;
+            let dec = opened_or_skipped(&key.path, Decoder::open(&key.path, gpu))?;
+            Some(ExtraCamera { dec, offset_sec: key.offset_sec, shown: false, ended_at: None })
+        })
+        .collect()
+}
+
 unsafe fn open_and_seek_clip(
     screen_path: &str,
     webcam_path: &str,
     webcam_offset_sec: f64,
+    extra_keys: &[Option<SceneClipCamera>],
     source_time_sec: f64,
     gpu: &Gpu,
 ) -> Result<PrefetchedClip> {
     let source_time_sec = source_time_sec.max(0.0);
     let mut sdec = Decoder::open(screen_path, gpu)?;
     let (mut wdec, webcam_decoder_is_real) = open_webcam_or_stand_in(screen_path, webcam_path, gpu)?;
+    let extra = open_extra_cameras(extra_keys, gpu);
     let sf = sdec.seek_to_or_last(source_time_sec)?;
     if webcam_decoder_is_real && wdec.seek_to(webcam_seek_time(source_time_sec, webcam_offset_sec))?.is_null() {
         wdec.seek_to(0.0)?;
@@ -168,7 +259,16 @@ unsafe fn open_and_seek_clip(
     }
     let idx = (source_time_sec * sdec.fps()).round().max(0.0) as u32;
     let cursor_track = CursorTrack::load(&format!("{screen_path}.cursor.json"), 0.0, 24.0 * 3600.0).ok();
-    Ok(PrefetchedClip { sdec, wdec, webcam_decoder_is_real, webcam_offset_sec, idx, cursor_track })
+    Ok(PrefetchedClip {
+        sdec,
+        wdec,
+        webcam_decoder_is_real,
+        webcam_offset_sec,
+        extra,
+        extra_keys: extra_keys.to_vec(),
+        idx,
+        cursor_track,
+    })
 }
 
 /// Nombre de paires de décodeurs INACTIVES gardées ouvertes en plus de la paire active.
@@ -180,11 +280,29 @@ unsafe fn open_and_seek_clip(
 /// les timelines 2-4 clips, à baisser si la VRAM serre.
 const DECODER_POOL_CAP: usize = 3;
 
-/// Une paire de décodeurs mise de côté, prête à être réactivée sans réouverture.
-struct PooledClip {
+/// What a set of open decoders was opened for: the screen, camera 0 and the extra cameras.
+/// A pooled set is reused only for the same key, extra cameras included — a pooled pair
+/// opened without camera 2 must not stand in for a clip whose layout shows it.
+#[derive(Clone)]
+struct ClipKey {
     screen_path: String,
     webcam_path: String,
     webcam_offset_sec: f64,
+    extras: ExtraCameraKeys,
+}
+
+impl ClipKey {
+    fn matches(&self, other: &ClipKey) -> bool {
+        self.screen_path == other.screen_path
+            && self.webcam_path == other.webcam_path
+            && (self.webcam_offset_sec - other.webcam_offset_sec).abs() < 1e-9
+            && same_extra_keys(&self.extras, &other.extras)
+    }
+}
+
+/// Une paire de décodeurs mise de côté, prête à être réactivée sans réouverture.
+struct PooledClip {
+    key: ClipKey,
     clip: PrefetchedClip,
 }
 
@@ -226,21 +344,15 @@ unsafe fn seek_pair(
 unsafe fn swap_clip_pooled(
     player: &mut Player,
     pool: &mut Vec<PooledClip>,
-    request: &ActiveClipRequest,
-    active_screen: &str,
-    active_webcam: &str,
-    active_webcam_offset_sec: f64,
+    request: &ClipKey,
+    source_time_sec: f64,
+    active: &ClipKey,
 ) -> Result<()> {
     let timing = std::env::var("OPENSCREEN_CLIPSWITCH_TIMING").is_ok();
     let t0 = std::time::Instant::now();
-    let t = request.source_time_sec.max(0.0);
-    let matches = |p: &PooledClip| {
-        p.screen_path == request.screen_path
-            && p.webcam_path == request.webcam_path
-            && (p.webcam_offset_sec - request.webcam_offset_sec).abs() < 1e-9
-    };
+    let t = source_time_sec.max(0.0);
     let mut hit = false;
-    let incoming: PrefetchedClip = match pool.iter().position(&matches) {
+    let incoming: PrefetchedClip = match pool.iter().position(|p| p.key.matches(request)) {
         Some(i) => {
             let mut pooled = pool.remove(i);
             // Reseek les décodeurs poolés AVANT de les installer. Échec → on les jette et on
@@ -257,25 +369,16 @@ unsafe fn swap_clip_pooled(
                 pooled.clip
             } else {
                 drop(pooled);
-                player.open_clip(&request.screen_path, &request.webcam_path, request.webcam_offset_sec, t)?
+                player.open_clip(request, t)?
             }
         }
-        None => player.open_clip(&request.screen_path, &request.webcam_path, request.webcam_offset_sec, t)?,
+        None => player.open_clip(request, t)?,
     };
     let outgoing = player.swap_active(incoming);
     // Met la paire quittée en pool : dédup par clé (jamais deux entrées d'un même média), puis
     // éviction LRU (le plus ancien, en tête, part en premier).
-    pool.retain(|p| {
-        !(p.screen_path == active_screen
-            && p.webcam_path == active_webcam
-            && (p.webcam_offset_sec - active_webcam_offset_sec).abs() < 1e-9)
-    });
-    pool.push(PooledClip {
-        screen_path: active_screen.to_string(),
-        webcam_path: active_webcam.to_string(),
-        webcam_offset_sec: active_webcam_offset_sec,
-        clip: outgoing,
-    });
+    pool.retain(|p| !p.key.matches(active));
+    pool.push(PooledClip { key: active.clone(), clip: outgoing });
     while pool.len() > DECODER_POOL_CAP {
         pool.remove(0);
     }
@@ -302,6 +405,12 @@ pub struct Player {
     /// (`swap_active`), lu par la boucle de rendu pour décider de dessiner la vignette.
     webcam_decoder_is_real: bool,
     webcam_offset_sec: f64,
+    /// The active clip's extra cameras (index k-1 = camera k), what they were opened for, and
+    /// the clip's windowed layout regions that decide when each one is decoded. All empty
+    /// without layout regions: no decoder, nothing to advance.
+    extra: Vec<Option<ExtraCamera>>,
+    extra_keys: ExtraCameraKeys,
+    camera_regions: Vec<SceneCameraLayoutRegion>,
     has_current_frame: bool,
     use_current_on_next_step: bool,
     idx: u32,
@@ -324,6 +433,9 @@ impl Player {
             },
             webcam_decoder_is_real,
             webcam_offset_sec: 0.0,
+            extra: Vec::new(),
+            extra_keys: Vec::new(),
+            camera_regions: Vec::new(),
             has_current_frame: false,
             use_current_on_next_step: false,
             idx: 0,
@@ -342,10 +454,17 @@ impl Player {
         screen_path: &str,
         webcam_path: &str,
         webcam_offset_sec: f64,
+        extra_keys: &[Option<SceneClipCamera>],
         source_time_sec: f64,
     ) -> Result<()> {
-        let prefetched =
-            open_and_seek_clip(screen_path, webcam_path, webcam_offset_sec, source_time_sec, &self.gpu)?;
+        let prefetched = open_and_seek_clip(
+            screen_path,
+            webcam_path,
+            webcam_offset_sec,
+            extra_keys,
+            source_time_sec,
+            &self.gpu,
+        )?;
         self.apply_prefetched(prefetched);
         Ok(())
     }
@@ -412,6 +531,8 @@ impl Player {
             // recalculer), l'entrante impose la sienne au player.
             webcam_decoder_is_real: self.webcam_decoder_is_real,
             webcam_offset_sec: self.webcam_offset_sec,
+            extra: std::mem::replace(&mut self.extra, incoming.extra),
+            extra_keys: std::mem::replace(&mut self.extra_keys, incoming.extra_keys),
             idx: self.idx,
             // Le curseur est re-dérivé du chemin à la réactivation ; inutile de le trimballer.
             cursor_track: None,
@@ -426,14 +547,99 @@ impl Player {
 
     /// Ouvre une nouvelle paire de décodeurs positionnée à `source_time_sec`, SANS l'installer
     /// (l'appelant l'échange via `swap_active`). Réutilise le device D3D11 du player.
-    unsafe fn open_clip(
-        &self,
-        screen: &str,
-        webcam: &str,
-        webcam_offset_sec: f64,
-        source_time_sec: f64,
-    ) -> Result<PrefetchedClip> {
-        open_and_seek_clip(screen, webcam, webcam_offset_sec, source_time_sec, &self.gpu)
+    unsafe fn open_clip(&self, key: &ClipKey, source_time_sec: f64) -> Result<PrefetchedClip> {
+        open_and_seek_clip(
+            &key.screen_path,
+            &key.webcam_path,
+            key.webcam_offset_sec,
+            &key.extras,
+            source_time_sec,
+            &self.gpu,
+        )
+    }
+
+    /// What the active extra cameras were opened for (the extra half of the pool key).
+    fn extra_keys(&self) -> &[Option<SceneClipCamera>] {
+        &self.extra_keys
+    }
+
+    /// Installs the active clip's windowed layout regions and the extra cameras they need
+    /// (`keys`): slots whose key is unchanged keep their decoder, the others are closed and
+    /// (re)opened — a file that will not open leaves its slot empty, once. Then positions every
+    /// camera that is near one of its regions at the current screen time, so a paused
+    /// recompose shows it at once. `true` when a decoder was closed: the caller must then
+    /// clear the compositor's SRV cache (which also forgets the extra frame pointers).
+    pub(crate) unsafe fn set_extra_cameras(
+        &mut self,
+        regions: Vec<SceneCameraLayoutRegion>,
+        keys: ExtraCameraKeys,
+    ) -> bool {
+        self.camera_regions = regions;
+        let mut closed = false;
+        if !same_extra_keys(&self.extra_keys, &keys) {
+            let mut old = std::mem::take(&mut self.extra);
+            let mut extra = Vec::with_capacity(keys.len());
+            for (k, key) in keys.iter().enumerate() {
+                let old_cam = old.get_mut(k).and_then(Option::take);
+                let old_key = self.extra_keys.get(k).cloned().flatten();
+                if same_extra_key(&old_key, key) {
+                    extra.push(old_cam);
+                    continue;
+                }
+                closed |= old_cam.is_some();
+                drop(old_cam);
+                extra.extend(open_extra_cameras(std::slice::from_ref(key), &self.gpu));
+            }
+            closed |= old.iter().any(Option::is_some);
+            self.extra = extra;
+            self.extra_keys = keys;
+        }
+        let t = self.sdec.cur_time_sec();
+        closed | self.advance_extras(t, true).1
+    }
+
+    /// The extra cameras' frames at screen source time `screen_t`, each camera stepped
+    /// (`seek == false`) or sought toward its own source time only while it is near one of
+    /// its regions; an idle camera is left alone and gives null. A camera whose decoder fails
+    /// is closed with one warning — its layer disappears, the preview goes on. The `bool` says
+    /// a decoder was closed (see `set_extra_cameras`).
+    unsafe fn advance_extras(&mut self, screen_t: f64, seek: bool) -> (Vec<*const AVFrame>, bool) {
+        let mut closed = false;
+        let mut frames = Vec::with_capacity(self.extra.len());
+        for (k, slot) in self.extra.iter_mut().enumerate() {
+            let camera = k + 1;
+            let frame = match slot {
+                Some(cam) if extra_camera_active(&self.camera_regions, camera, screen_t) => {
+                    let target = webcam_seek_time(screen_t, cam.offset_sec);
+                    let result = if seek { cam.seek(target) } else { cam.step_to(target) };
+                    match result {
+                        Ok(frame) => frame,
+                        Err(e) => {
+                            eprintln!("WARNING: extra camera {camera} stopped decoding: {e:#}. Its layer will not be drawn.");
+                            *slot = None;
+                            closed = true;
+                            std::ptr::null()
+                        }
+                    }
+                }
+                Some(cam) => {
+                    cam.shown = false;
+                    std::ptr::null()
+                }
+                None => std::ptr::null(),
+            };
+            frames.push(frame);
+        }
+        (frames, closed)
+    }
+
+    /// Hands the extra cameras' frames to `comp` for the next `compose_frame`. Called before
+    /// every compose: the compositor keeps the pointers until the next call.
+    unsafe fn hand_extra_frames(comp: &Compositor, frames: &[*const AVFrame], closed: bool) {
+        if closed {
+            comp.clear_srv_cache();
+        }
+        comp.set_extra_camera_frames(frames);
     }
 
     /// Le décodeur webcam ACTIF est-il la vraie caméra ? `false` quand c'est le remplaçant
@@ -600,6 +806,8 @@ impl Player {
 
         self.has_current_frame = true;
         self.sync_time(comp);
+        let (extra, closed) = self.advance_extras(self.sdec.cur_time_sec(), false);
+        Self::hand_extra_frames(comp, &extra, closed);
         comp.compose_frame(sf, wf, self.idx as f32, cfg)?;
         self.idx = self.idx.wrapping_add(1);
         Ok(true)
@@ -630,6 +838,10 @@ impl Player {
             return Ok(false);
         }
         self.sync_time(comp);
+        let extra = extra_frame_list(&self.extra, |cam| {
+            if cam.shown { cam.dec.cur_frame() as *const AVFrame } else { std::ptr::null() }
+        });
+        comp.set_extra_camera_frames(&extra);
         let f = self.idx.saturating_sub(1);
         comp.compose_frame(sf, wf, f as f32, cfg)?;
         Ok(true)
@@ -660,6 +872,8 @@ impl Player {
         // "idx" ne sert plus qu'au fallback fixture (jamais lu si une scène est posée) — dérivé
         // du temps réel pour rester cohérent si jamais consulté.
         self.idx = (target_sec * self.sdec.fps()).round().max(0.0) as u32;
+        let (extra, closed) = self.advance_extras(target_sec, true);
+        Self::hand_extra_frames(comp, &extra, closed);
         comp.compose_frame(sf, wf, self.idx as f32, cfg)?;
         Ok(true)
     }
@@ -738,6 +952,9 @@ struct ActiveClipRequest {
     screen_path: String,
     webcam_path: String,
     webcam_offset_sec: f64,
+    /// Cameras 2-4 of the clip (index k-1 = camera k); which of them open is decided by the
+    /// clip's layout regions (`extra_cameras_for_clip`).
+    additional_cameras: Vec<SceneClipCamera>,
     /// Identité dans le flux `Scene.clips` trié (les chemins ne suffisent pas pour un asset partagé).
     clip_index: usize,
     /// Playhead exprimé sur l'horloge source écran du nouveau clip.
@@ -1134,6 +1351,7 @@ impl LiveView {
         screen_path: &str,
         webcam_path: &str,
         webcam_offset_sec: f64,
+        additional_cameras: Vec<SceneClipCamera>,
         clip_index: usize,
         source_time_sec: f64,
     ) {
@@ -1142,6 +1360,7 @@ impl LiveView {
                 screen_path: screen_path.to_string(),
                 webcam_path: webcam_path.to_string(),
                 webcam_offset_sec,
+                additional_cameras,
                 clip_index,
                 source_time_sec: source_time_sec.max(0.0),
             });
@@ -1240,7 +1459,7 @@ type PendingPrefetch = (usize, std::sync::mpsc::Receiver<Result<PrefetchedClip>>
 /// tâche de fond. Assez large pour couvrir un `Decoder::open` typique (ouverture fichier +
 /// `avformat_find_stream_info` + init D3D11VA), assez court pour ne pas garder deux paires de
 /// décodeurs ouvertes plus longtemps que nécessaire.
-const PREFETCH_LEAD_SEC: f64 = 0.75;
+pub(crate) const PREFETCH_LEAD_SEC: f64 = 0.75;
 
 /// Durée pendant laquelle la boucle continue de recomposer après un changement en pause, le
 /// temps qu'un effet asynchrone (segmentation webcam) livre son résultat. Généreuse : à
@@ -1294,6 +1513,7 @@ unsafe fn maybe_start_prefetch(
         0
     };
     let next_clip = scene.clips[next_index].clone();
+    let extra_keys = scene_extra_camera_keys(scene, next_index);
     // Copie légère (COM refcount, pas de nouveau device) — même motif que `Player::open`.
     let gpu_clone = Gpu {
         device: gpu.device.clone(),
@@ -1308,6 +1528,7 @@ unsafe fn maybe_start_prefetch(
                 &next_clip.screen_path,
                 &next_clip.webcam_path,
                 next_clip.webcam_offset_sec,
+                &extra_keys,
                 next_clip.source_start_sec,
                 &gpu_clone,
             )
@@ -1345,6 +1566,7 @@ unsafe fn advance_to_next_scene_clip(
     active_screen_path: &mut String,
     active_webcam_path: &mut String,
     active_webcam_offset_sec: &mut f64,
+    active_additional_cameras: &mut Vec<SceneClipCamera>,
     active_clip_index: &mut usize,
     raw_cursor: &mut Option<CursorTrack>,
     loaded_cursor_path: &mut String,
@@ -1359,6 +1581,7 @@ unsafe fn advance_to_next_scene_clip(
         0
     };
     let next_clip = &scene.clips[next_index];
+    let extra_keys = scene_extra_camera_keys(scene, next_index);
 
     // N'importe quel préchargement en cours ne concerne plus que CETTE frontière (on vient
     // de la franchir, bien ou mal ciblée) — on le consomme s'il correspond, on l'abandonne
@@ -1386,6 +1609,7 @@ unsafe fn advance_to_next_scene_clip(
                 &next_clip.screen_path,
                 &next_clip.webcam_path,
                 next_clip.webcam_offset_sec,
+                &extra_keys,
                 next_clip.source_start_sec,
             )
         }
@@ -1393,6 +1617,7 @@ unsafe fn advance_to_next_scene_clip(
             &next_clip.screen_path,
             &next_clip.webcam_path,
             next_clip.webcam_offset_sec,
+            &extra_keys,
             next_clip.source_start_sec,
         ),
     };
@@ -1404,12 +1629,17 @@ unsafe fn advance_to_next_scene_clip(
             // sur l'adresse de la texture, et garder des entrées d'un décodeur fermé fait
             // fuir de la VRAM puis, en cas de réutilisation d'adresse, rendre l'image du clip
             // précédent.
+            let windowed = scene_for_clip(scene, next_index);
+            // The prefetch opened exactly these keys, so this only installs the regions and
+            // positions the cameras; the cache is cleared right below in any case.
+            player.set_extra_cameras(windowed.camera_layout_regions.clone(), extra_keys);
             comp.clear_srv_cache();
             *active_screen_path = next_clip.screen_path.clone();
             *active_webcam_path = next_clip.webcam_path.clone();
             *active_webcam_offset_sec = next_clip.webcam_offset_sec;
+            *active_additional_cameras = next_clip.additional_cameras.clone();
             *active_clip_index = next_index;
-            comp.set_scene(Some(scene_for_clip(scene, *active_clip_index)));
+            comp.set_scene(Some(windowed));
             player.set_programme_clock(Some(scene), *active_clip_index);
             // Réutilise le curseur préchargé s'il est disponible (voir plus haut) — sinon
             // (préchargement pas encore prêt / raté) on retombe sur la lecture synchrone
@@ -1487,6 +1717,9 @@ unsafe fn render_thread(
     let mut active_screen_path = screen.to_string();
     let mut active_webcam_path = webcam.to_string();
     let mut active_webcam_offset_sec = 0.0f64;
+    // Cameras 2-4 of the active clip, as the app (`set_active_clip`) or the scene (auto-advance)
+    // gave them. The view starts without: `create_view` carries camera 0 only.
+    let mut active_additional_cameras: Vec<SceneClipCamera> = Vec::new();
     let mut active_clip_index = 0usize;
     // Copie de la Scene complète (tous les clips), tenue à jour à chaque push de l'app —
     // permet à la boucle de lecture libre de connaître la fenêtre source
@@ -1567,6 +1800,26 @@ unsafe fn render_thread(
             // JAMAIS fatal : on retombe sur l'ouverture complète, chemin connu comme sûr.
             // L'optimisation ne s'applique donc que là où elle fonctionne démontrablement.
             let repositioned = same_media && matches!(player.seek_active(request.source_time_sec), Ok(true));
+            // The extra cameras this clip's layout regions show, from the files the request
+            // carries. Resolved against the scene before the switch so that the pool and the
+            // fresh open both see the full key.
+            let request_scene = shared.scene.lock().unwrap().clone();
+            let request_clip_index = request_scene.as_ref().and_then(|scene| {
+                resolve_scene_clip_index(
+                    scene,
+                    request.clip_index,
+                    &request.screen_path,
+                    &request.webcam_path,
+                    request.webcam_offset_sec,
+                )
+            });
+            let request_extras = match (&request_scene, request_clip_index) {
+                (Some(scene), Some(index)) => extra_camera_keys(
+                    &extra_cameras_for_clip(scene, index),
+                    &request.additional_cameras,
+                ),
+                _ => Vec::new(),
+            };
             let switch_result = if repositioned {
                 Ok(())
             } else {
@@ -1574,13 +1827,24 @@ unsafe fn render_thread(
                 // ouverte si possible (reseek au lieu de rouvrir) et met en pool celle qu'on
                 // quitte, au lieu du couple ouvrir-puis-fermer. Voir `swap_clip_pooled` et la
                 // mesure de ~120 ms/franchissement qui l'a motivé.
+                let incoming = ClipKey {
+                    screen_path: request.screen_path.clone(),
+                    webcam_path: request.webcam_path.clone(),
+                    webcam_offset_sec: request.webcam_offset_sec,
+                    extras: request_extras.clone(),
+                };
+                let active = ClipKey {
+                    screen_path: active_screen_path.clone(),
+                    webcam_path: active_webcam_path.clone(),
+                    webcam_offset_sec: active_webcam_offset_sec,
+                    extras: player.extra_keys().to_vec(),
+                };
                 swap_clip_pooled(
                     &mut player,
                     &mut decoder_pool,
-                    &request,
-                    &active_screen_path,
-                    &active_webcam_path,
-                    active_webcam_offset_sec,
+                    &incoming,
+                    request.source_time_sec,
+                    &active,
                 )
             };
             match switch_result {
@@ -1602,8 +1866,17 @@ unsafe fn render_thread(
                     active_screen_path = request.screen_path;
                     active_webcam_path = request.webcam_path;
                     active_webcam_offset_sec = request.webcam_offset_sec;
-                    let scene = shared.scene.lock().unwrap().clone();
+                    active_additional_cameras = request.additional_cameras;
+                    let scene = request_scene;
                     full_scene = scene.clone();
+                    // No scene clip for the request → no layout regions (and no extras).
+                    let regions = match (&scene, request_clip_index) {
+                        (Some(s), Some(index)) => clip_layout_regions(s, index),
+                        _ => Vec::new(),
+                    };
+                    if player.set_extra_cameras(regions, request_extras) {
+                        comp.clear_srv_cache();
+                    }
                     if let Some(base_scene) = scene {
                         if let Some(index) = resolve_scene_clip_index(
                             &base_scene,
@@ -1709,6 +1982,7 @@ unsafe fn render_thread(
             prefetch = None;
             let scene = shared.scene.lock().unwrap().clone();
             full_scene = scene.clone();
+            let mut clip_resolved = false;
             let scene = scene.map(|base_scene| {
                 scene_applied = true;
                 if let Some(index) = resolve_scene_clip_index(
@@ -1719,9 +1993,32 @@ unsafe fn render_thread(
                     active_webcam_offset_sec,
                 ) {
                     active_clip_index = index;
+                    clip_resolved = true;
                 }
                 scene_for_clip(&base_scene, active_clip_index)
             });
+            // The resolved scene clip's own camera files win over the last clip request's: an
+            // offset or file edited mid-clip arrives with the scene, not with a new request.
+            if clip_resolved {
+                if let Some(clip) = full_scene.as_ref().and_then(|s| s.clips.get(active_clip_index)) {
+                    active_additional_cameras = clip.additional_cameras.clone();
+                }
+            }
+            // A new scene can add, move or drop the layout regions that show an extra camera:
+            // open what the active clip now shows, close what it no longer does.
+            let (regions, keys) = match (&full_scene, &scene) {
+                (Some(full), Some(windowed)) => (
+                    windowed.camera_layout_regions.clone(),
+                    extra_camera_keys(
+                        &extra_cameras_for_clip(full, active_clip_index),
+                        &active_additional_cameras,
+                    ),
+                ),
+                _ => (Vec::new(), Vec::new()),
+            };
+            if player.set_extra_cameras(regions, keys) {
+                comp.clear_srv_cache();
+            }
             comp.set_scene(scene);
         }
         // Le temps programme dépend du clip actif ET de la scène entière (durées des clips
@@ -1836,6 +2133,7 @@ unsafe fn render_thread(
                                 &mut active_screen_path,
                                 &mut active_webcam_path,
                                 &mut active_webcam_offset_sec,
+                                &mut active_additional_cameras,
                                 &mut active_clip_index,
                                 &mut raw_cursor,
                                 &mut loaded_cursor_path,
@@ -1864,6 +2162,7 @@ unsafe fn render_thread(
                             &mut active_screen_path,
                             &mut active_webcam_path,
                             &mut active_webcam_offset_sec,
+                            &mut active_additional_cameras,
                             &mut active_clip_index,
                             &mut raw_cursor,
                             &mut loaded_cursor_path,
@@ -2325,6 +2624,121 @@ mod tests {
     fn webcam_seek_uses_screen_source_time_and_offset() {
         assert_eq!(webcam_seek_time(22.5, 1.25), 21.25);
         assert_eq!(webcam_seek_time(0.5, 1.25), 0.0);
+    }
+
+    // --- extra cameras (2-4) ----------------------------------------------------
+
+    /// Two clips: clip 0 has files for cameras 1 and 3 (camera 2's slot is empty), clip 1 for
+    /// camera 1 only. Layout regions: clip 0 shows cameras 1 and 2 on 2-5 s and camera 3 only
+    /// in an empty region; clip 1 shows camera 1 on 21-22 s.
+    fn layout_scene() -> Scene {
+        let layer = |camera: usize| {
+            format!(r#"{{"camera":{camera},"rect":{{"x":0,"y":0,"width":0.5,"height":0.5}},"radiusFrac":0,"shape":"rectangle","fillsFrame":false}}"#)
+        };
+        let json = format!(
+            r##"{{
+            "clips": [
+                {{"screenPath":"/s0.mp4","webcamPath":"/w0.mp4","sourceStartSec":0,"sourceEndSec":10,"webcamOffsetSec":0,"hasAudio":true,
+                  "additionalCameras":[{{"path":"/c1.mp4","offsetSec":0.5}},{{"path":"","offsetSec":0}},{{"path":"/c3.mp4","offsetSec":0}}]}},
+                {{"screenPath":"/s1.mp4","webcamPath":"/w1.mp4","sourceStartSec":20,"sourceEndSec":30,"webcamOffsetSec":0,"hasAudio":true,
+                  "additionalCameras":[{{"path":"/d1.mp4","offsetSec":0}}]}}
+            ],
+            "layout":{{"preset":"picture-in-picture","webcamSize":1,"webcamShape":"rectangle","webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false}},
+            "effects":{{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0}},
+            "background":{{"kind":"color","color":"#000000"}},
+            "zoomRegions":[],
+            "cameraLayoutRegions":[
+                {{"clipIndex":0,"startSec":2,"endSec":5,"layers":[{l0},{l1},{l2}]}},
+                {{"clipIndex":0,"startSec":7,"endSec":7,"layers":[{l3}]}},
+                {{"clipIndex":1,"startSec":21,"endSec":22,"layers":[{l1}]}}
+            ],
+            "cursor":{{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,"clipToBounds":false,"theme":"default"}},
+            "cropByClip":[null,null],
+            "output":{{"width":1920,"height":1080,"fps":30}}
+        }}"##,
+            l0 = layer(0),
+            l1 = layer(1),
+            l2 = layer(2),
+            l3 = layer(3),
+        );
+        Scene::from_json(&json).expect("layout scene")
+    }
+
+    fn camera(path: &str, offset_sec: f64) -> SceneClipCamera {
+        SceneClipCamera { path: path.to_string(), offset_sec }
+    }
+
+    #[test]
+    fn extra_cameras_to_open_are_those_the_clips_regions_reference() {
+        let scene = layout_scene();
+        // Camera 2 is shown but clip 0 has no file for it; camera 3 has a file but only an
+        // empty region; camera 0 is not an extra camera.
+        assert_eq!(extra_cameras_for_clip(&scene, 0), vec![1]);
+        // Clip 1 only sees its own region.
+        assert_eq!(extra_cameras_for_clip(&scene, 1), vec![1]);
+        assert!(extra_cameras_for_clip(&scene, 9).is_empty());
+        // No layout region at all: nothing to open, whatever files the clip has.
+        assert!(extra_cameras_for_clip(&multiclip_scene(), 0).is_empty());
+
+        let keys = scene_extra_camera_keys(&scene, 0);
+        assert_eq!(keys.len(), 1, "trailing empty slots are dropped");
+        let first = keys[0].as_ref().expect("camera 1");
+        assert_eq!((first.path.as_str(), first.offset_sec), ("/c1.mp4", 0.5));
+        // A shown camera after an unshown one keeps its index; nothing shown is an empty list.
+        let sources = [camera("/a.mp4", 0.0), camera("/b.mp4", 0.0), camera("/c.mp4", 0.0)];
+        let keys = extra_camera_keys(&[3], &sources);
+        assert_eq!(keys.len(), 3);
+        assert!(keys[0].is_none() && keys[1].is_none());
+        assert_eq!(keys[2].as_ref().map(|k| k.path.as_str()), Some("/c.mp4"));
+        assert!(extra_camera_keys(&[], &sources).is_empty());
+        assert!(extra_camera_keys(&[2], &[camera("/a.mp4", 0.0)]).is_empty());
+    }
+
+    #[test]
+    fn an_extra_camera_is_decoded_only_near_its_regions() {
+        let regions = scene_for_clip(&layout_scene(), 0).camera_layout_regions;
+        // From PREFETCH_LEAD_SEC before the region to its end.
+        assert!(!extra_camera_active(&regions, 1, 2.0 - PREFETCH_LEAD_SEC - 0.01));
+        assert!(extra_camera_active(&regions, 1, 2.0 - PREFETCH_LEAD_SEC));
+        assert!(extra_camera_active(&regions, 1, 3.0));
+        assert!(extra_camera_active(&regions, 1, 5.0));
+        assert!(!extra_camera_active(&regions, 1, 5.01));
+        // A camera the region does not show, and one only an empty region names.
+        assert!(!extra_camera_active(&regions, 3, 7.0));
+        assert!(!extra_camera_active(&[], 1, 3.0));
+    }
+
+    #[test]
+    fn a_missing_extra_camera_skips_its_layer() {
+        let failed: Result<u8> = Err(anyhow::anyhow!("0-byte file"));
+        assert_eq!(opened_or_skipped("/c1.mp4", failed), None);
+        assert_eq!(opened_or_skipped("/c1.mp4", Ok(7u8)), Some(7));
+
+        // Slot 0 failed to open, slot 1 is open with a frame, slot 2 is open with nothing to
+        // show (idle or past its end): only slot 1 hands a frame to the compositor.
+        let frame = 0x10usize as *const AVFrame;
+        let slots = [None, Some(frame), Some(std::ptr::null())];
+        let list = extra_frame_list(&slots, |f| *f);
+        assert_eq!(list, vec![std::ptr::null(), frame, std::ptr::null()]);
+        assert!(extra_frame_list::<*const AVFrame>(&[], |f| *f).is_empty());
+    }
+
+    #[test]
+    fn the_pool_key_includes_the_extra_cameras() {
+        let key = |extras: ExtraCameraKeys| ClipKey {
+            screen_path: "/s0.mp4".into(),
+            webcam_path: "/w0.mp4".into(),
+            webcam_offset_sec: 0.0,
+            extras,
+        };
+        let with_camera_1 = key(vec![Some(camera("/c1.mp4", 0.5))]);
+        assert!(with_camera_1.matches(&key(vec![Some(camera("/c1.mp4", 0.5))])));
+        // Same screen and camera 0, but camera 1 missing, another file or another offset.
+        assert!(!with_camera_1.matches(&key(Vec::new())));
+        assert!(!with_camera_1.matches(&key(vec![Some(camera("/other.mp4", 0.5))])));
+        assert!(!with_camera_1.matches(&key(vec![Some(camera("/c1.mp4", 0.75))])));
+        assert!(!with_camera_1.matches(&key(vec![None, Some(camera("/c1.mp4", 0.5))])));
+        assert!(key(Vec::new()).matches(&key(Vec::new())));
     }
 
     #[test]

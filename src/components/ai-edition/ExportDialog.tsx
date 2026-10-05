@@ -19,7 +19,7 @@ import {
 } from "@/lib/ai-edition/document/outputFormat";
 import type { AxcutDocument } from "@/lib/ai-edition/schema";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
-import { assetCameraSource } from "@/lib/ai-edition/timeline/camera";
+import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import {
 	type ExportFormat,
@@ -117,6 +117,8 @@ function buildNativeClipList(document: AxcutDocument): CompositorClipInput[] {
 			return [];
 		}
 		const camera = assetCameraSource(asset);
+		// Cameras 2-4, only sent when the asset has any (same rule as `buildSceneDescription`).
+		const additionalCameras = assetAdditionalCameraSources(asset);
 		// sourceEndSec is optional in the schema (unknown until probed) — fall back through
 		// the single canonical precedence used by every consumer (clip.probe → asset.duration
 		// → timeline-length guess). See `resolveClipSourceEndSec` for the full order.
@@ -132,6 +134,7 @@ function buildNativeClipList(document: AxcutDocument): CompositorClipInput[] {
 				sourceEndSec,
 				webcamOffsetSec: camera.offsetSec,
 				hasAudio: true,
+				...(additionalCameras.length > 0 ? { additionalCameras } : {}),
 			},
 		];
 	});

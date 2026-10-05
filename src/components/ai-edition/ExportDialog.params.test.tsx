@@ -228,3 +228,47 @@ describe("ExportDialog format settings", () => {
 		}
 	});
 });
+
+describe("ExportDialog clip list", () => {
+	beforeEach(() => {
+		window.electronAPI = {
+			pickExportSavePath: vi.fn(async () => ({ path: "/tmp/out.mp4" })),
+			onNativeExportProgress: vi.fn(() => noop),
+		} as unknown as ElectronAPI;
+	});
+
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+	});
+
+	it("hands the native export the asset's extra cameras", async () => {
+		const withCameras: AxcutDocument = {
+			...DOC,
+			assets: [
+				{
+					...DOC.assets[0],
+					additionalCameraTracks: [
+						{ sourcePath: "/tmp/cam2.mp4", startMs: 500, offsetMs: 250, visible: true, label: "" },
+						{ sourcePath: "/tmp/cam3.mp4", startMs: 0, offsetMs: 0, visible: false, label: "" },
+					],
+				},
+			],
+		};
+		renderDialog(withCameras);
+		await exportMp4();
+		const clips = vi.mocked(exportMultiNative).mock.calls.at(-1)?.[0];
+		expect(clips?.[0]?.additionalCameras).toEqual([
+			{ path: "/tmp/cam2.mp4", offsetSec: 0.75 },
+			// A hidden track keeps its slot, so the indices stay aligned with the tracks.
+			{ path: "", offsetSec: 0 },
+		]);
+	});
+
+	it("sends no extra cameras for a one-camera asset", async () => {
+		renderDialog();
+		await exportMp4();
+		const clips = vi.mocked(exportMultiNative).mock.calls.at(-1)?.[0];
+		expect(clips?.[0]).not.toHaveProperty("additionalCameras");
+	});
+});
