@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "Celou kameru zde nelze umístit",
 		"cameraFullscreenExistsAtLocation": "Segment celé kamery na tomto místě již existuje nebo není dostatek místa.",
 		"tooFewCameras": "Toto rozvržení vyžaduje více kamer, než je zde k dispozici",
+		"cannotPlaceCameraSection": "Sem nelze umístit úsek kamery",
+		"cameraSectionExistsAtLocation": "Zde už je úsek kamery.",
 		"noCamera": "Tento projekt nemá kameru"
 	},
 	"success": {

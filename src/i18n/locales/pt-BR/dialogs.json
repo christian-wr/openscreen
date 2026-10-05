@@ -95,6 +95,7 @@
 		"loading": "Carregando a imagem da câmera…",
 		"loadFailed": "Não foi possível carregar a imagem da câmera.",
 		"perspectiveHelp": "Arraste os quatro cantos até os cantos da folha ou da mesa. As setas movem o canto selecionado um pixel; com Shift, dez.",
+		"cropIgnored": "Esta câmera tem um recorte; ele é ignorado enquanto houver uma perspectiva definida.",
 		"cropHelp": "Arraste o quadro ou suas alças sobre a parte da imagem a manter. As setas o movem; Shift + setas o redimensionam.",
 		"corners": {
 			"topLeft": "Canto superior esquerdo",

@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Cámara {{n}}",
+		"cameraNamed": "Cámara {{n}} · {{label}}",
 		"title": "Cámaras",
 		"unavailable": "No disponible",
 		"camera1Hint": "El giro, el espejo y el recorte de la cámara 1 están en los controles de arriba.",
@@ -481,6 +482,7 @@
 		"mirror": "Espejo",
 		"crop": "Recorte…",
 		"perspective": "Corregir perspectiva…",
-		"reset": "Restablecer"
+		"reset": "Restablecer",
+		"cropOffWithPerspective": "El recorte no tiene efecto mientras haya una perspectiva definida."
 	}
 }

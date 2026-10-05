@@ -95,6 +95,7 @@
 		"loading": "Loading the camera picture…",
 		"loadFailed": "The camera picture could not be loaded.",
 		"perspectiveHelp": "Drag the four corners onto the corners of the sheet or desk. The arrow keys move the selected corner by one pixel, with Shift by ten.",
+		"cropIgnored": "This camera has a crop; the crop is ignored while a perspective is set.",
 		"cropHelp": "Drag the frame or its handles to choose the part of the picture to keep. The arrow keys move it, Shift + arrow keys resize it.",
 		"corners": {
 			"topLeft": "Top-left corner",

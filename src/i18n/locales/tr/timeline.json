@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "Buraya Tam Ekran Kamera yerleştirilemiyor",
 		"cameraFullscreenExistsAtLocation": "Bu konumda zaten bir Tam Ekran Kamera bölümü var veya yeterli alan yok.",
 		"tooFewCameras": "Bu düzen, burada bulunandan daha fazla kamera gerektirir",
+		"cannotPlaceCameraSection": "Buraya kamera bölümü yerleştirilemez",
+		"cameraSectionExistsAtLocation": "Burada zaten bir kamera bölümü var.",
 		"noCamera": "Bu projede kamera yok"
 	},
 	"success": {

@@ -95,6 +95,7 @@
 		"loading": "Načítání obrazu kamery…",
 		"loadFailed": "Obraz kamery se nepodařilo načíst.",
 		"perspectiveHelp": "Přetáhněte čtyři rohy na rohy listu nebo stolu. Šipky posunou vybraný roh o jeden pixel, se Shiftem o deset.",
+		"cropIgnored": "Tato kamera má ořez; dokud je nastavena perspektiva, ořez se ignoruje.",
 		"cropHelp": "Přetáhněte rámeček nebo jeho úchyty na část obrazu, která má zůstat. Šipky jej posouvají, Shift + šipky mění velikost.",
 		"corners": {
 			"topLeft": "Levý horní roh",

@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toFileUrl } from "@/components/video-editor/projectPersistence";
-import type { CameraSettings } from "@/components/video-editor/types";
+import type { CameraSettings, CropRegion } from "@/components/video-editor/types";
 import { useScopedT } from "@/contexts/I18nContext";
 import type { AxcutDocument } from "@/lib/ai-edition/schema";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
@@ -54,6 +54,23 @@ export function stillsAt(
 		stills.set(index, { src, timeSec: Math.max(0, position.sourceTimeSec - source.offsetSec) });
 	});
 	return stills;
+}
+
+/**
+ * Whether a camera has a crop stored. Camera 1 keeps its crop in `webcamCropRegion` (a
+ * full-frame rect means none); the others in `cameraSettings[k].crop`.
+ */
+export function cameraHasCrop(
+	document: AxcutDocument | null,
+	cameraSettings: (CameraSettings | null)[],
+	index: number,
+): boolean {
+	if (index !== 0) return cameraSettings[index]?.crop != null;
+	const legacy = document?.legacyEditor as Record<string, unknown> | null | undefined;
+	const crop = legacy?.webcamCropRegion as Partial<CropRegion> | undefined;
+	if (!crop) return false;
+	const coversFrame = (v: unknown) => typeof v !== "number" || v >= 1 - 1e-6;
+	return !(coversFrame(crop.width) && coversFrame(crop.height));
 }
 
 /** The camera the calibration dialog opens on: its label and its still at the playhead. */
@@ -140,6 +157,8 @@ export function CamerasSection({
 			{cameras.map((camera) => {
 				const settings = cameraSettings[camera.index] ?? null;
 				const isFirst = camera.index === 0;
+				// A perspective replaces the crop at render, so the crop is not offered then.
+				const hasPerspective = settings?.perspective != null;
 				return (
 					<div
 						key={camera.index}
@@ -190,7 +209,8 @@ export function CamerasSection({
 								<button
 									type="button"
 									className={BUTTON}
-									disabled={!camera.available}
+									disabled={!camera.available || hasPerspective}
+									title={hasPerspective ? ts("cameras.cropOffWithPerspective") : undefined}
 									onClick={() => onOpenCalibration?.(camera.index, "crop")}
 								>
 									{ts("cameras.crop")}
@@ -214,6 +234,9 @@ export function CamerasSection({
 								</button>
 							) : null}
 						</div>
+						{!isFirst && hasPerspective ? (
+							<p className={styles.hint}>{ts("cameras.cropOffWithPerspective")}</p>
+						) : null}
 					</div>
 				);
 			})}

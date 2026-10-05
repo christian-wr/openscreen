@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "Không thể đặt Camera Toàn màn hình ở đây",
 		"cameraFullscreenExistsAtLocation": "Đoạn Camera Toàn màn hình đã tồn tại ở vị trí này hoặc không có đủ không gian.",
 		"tooFewCameras": "Bố cục này cần nhiều camera hơn số hiện có",
+		"cannotPlaceCameraSection": "Không thể đặt đoạn camera tại đây",
+		"cameraSectionExistsAtLocation": "Đã có một đoạn camera tại đây.",
 		"noCamera": "Dự án này không có camera"
 	},
 	"success": {

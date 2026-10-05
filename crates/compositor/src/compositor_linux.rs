@@ -2841,6 +2841,13 @@ impl Compositor {
                         if text.content.trim().is_empty() {
                             continue;
                         }
+                        // The desk label shows only while the camera is covered: skip the rest of
+                        // its section before rasterizing anything.
+                        if crate::text_anim::is_desk_cover(text.animation.as_deref())
+                            && g.webcam_cover <= 0.0
+                        {
+                            continue;
+                        }
                         let color = parse_hex(&text.color).unwrap_or([1.0, 1.0, 1.0, 1.0]);
                         let background =
                             parse_hex(&text.background_color).unwrap_or([0.0, 0.0, 0.0, 0.0]);
@@ -2875,10 +2882,11 @@ impl Compositor {
                         // et remis a l'echelle de la sortie, comme la taille de
                         // police : en px absolus la meme animation sauterait deux
                         // fois plus haut dans un rendu 4K que dans l'apercu.
-                        let anim = crate::text_anim::text_animation_state(
+                        let anim = crate::text_anim::annotation_text_state(
                             text.animation.as_deref(),
                             (g.source_t - a.start_sec as f32) * 1000.0,
                             ((a.end_sec - a.start_sec) * 1000.0) as f32,
+                            g.webcam_cover,
                         );
                         let anim_px = rh / crate::text_anim::ANIMATION_REFERENCE_HEIGHT;
                         let (mut ax, mut ay, mut aw, mut ah) = (

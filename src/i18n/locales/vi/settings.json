@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Camera {{n}}",
+		"cameraNamed": "Camera {{n}} · {{label}}",
 		"title": "Camera",
 		"unavailable": "Không khả dụng",
 		"camera1Hint": "Xoay, lật gương và cắt của camera 1 nằm ở các điều khiển phía trên.",
@@ -481,6 +482,7 @@
 		"mirror": "Lật gương",
 		"crop": "Cắt…",
 		"perspective": "Chỉnh phối cảnh…",
-		"reset": "Đặt lại"
+		"reset": "Đặt lại",
+		"cropOffWithPerspective": "Cắt khung không có tác dụng khi đã đặt phối cảnh."
 	}
 }

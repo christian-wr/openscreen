@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Caméra {{n}}",
+		"cameraNamed": "Caméra {{n}} · {{label}}",
 		"title": "Caméras",
 		"unavailable": "Indisponible",
 		"camera1Hint": "La rotation, le miroir et le recadrage de la caméra 1 sont dans les réglages ci-dessus.",
@@ -481,6 +482,7 @@
 		"mirror": "Miroir",
 		"crop": "Recadrage…",
 		"perspective": "Corriger la perspective…",
-		"reset": "Réinitialiser"
+		"reset": "Réinitialiser",
+		"cropOffWithPerspective": "Le recadrage est sans effet tant qu'une perspective est définie."
 	}
 }

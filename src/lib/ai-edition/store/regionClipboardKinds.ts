@@ -1,6 +1,7 @@
 // Where each copyable region kind lives, so copy and paste never guess: an unsupported kind
 // maps to `null` instead of falling through into another kind's list.
 
+import { cameraSectionsOverlapping } from "@/lib/cameraLayouts";
 import type { RegionSnapshot } from "./regionClipboard";
 
 export type RegionKindName = RegionSnapshot["kind"];
@@ -84,5 +85,5 @@ export function pasteHitsCameraSection(
 			? ((legacy.cameraFullscreenRegions as Span | undefined) ?? [])
 			: []),
 	];
-	return rows.some((r) => r.startMs < endMs && r.endMs > startMs);
+	return cameraSectionsOverlapping(rows, startMs, endMs).length > 0;
 }

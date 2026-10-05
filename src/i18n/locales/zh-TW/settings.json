@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "攝影機 {{n}}",
+		"cameraNamed": "攝影機 {{n}} · {{label}}",
 		"title": "攝影機",
 		"unavailable": "無法使用",
 		"camera1Hint": "攝影機 1 的旋轉、鏡像與裁切在上方的控制項中設定。",
@@ -481,6 +482,7 @@
 		"mirror": "鏡像",
 		"crop": "裁切…",
 		"perspective": "校正透視…",
-		"reset": "重設"
+		"reset": "重設",
+		"cropOffWithPerspective": "設定了透視校正時，裁切不會生效。"
 	}
 }

@@ -148,6 +148,19 @@ export function normalizeCameraLayoutRegions(raw: unknown): AnchoredCameraLayout
 }
 
 /**
+ * The rows of a camera-lane list that the span `[startMs, endMs)` overlaps. Full Camera and
+ * layout sections share one lane and may never overlap each other, so every writer that
+ * places a section (editor and agent) asks this before writing. Touching is not overlap.
+ */
+export function cameraSectionsOverlapping<T extends { startMs: number; endMs: number }>(
+	rows: readonly T[],
+	startMs: number,
+	endMs: number,
+): T[] {
+	return rows.filter((r) => r.startMs < endMs && r.endMs > startMs);
+}
+
+/**
  * The `camera-full` rows of camera 1 that a hand-written `cameraLayoutRegions` list may
  * still carry. The editor never writes them; the scene turns them into Full Camera regions.
  */

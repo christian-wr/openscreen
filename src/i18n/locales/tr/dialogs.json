@@ -95,6 +95,7 @@
 		"loading": "Kamera görüntüsü yükleniyor…",
 		"loadFailed": "Kamera görüntüsü yüklenemedi.",
 		"perspectiveHelp": "Dört köşeyi kâğıdın veya masanın köşelerine sürükleyin. Ok tuşları seçili köşeyi bir piksel, Shift ile on piksel taşır.",
+		"cropIgnored": "Bu kamerada kırpma var; perspektif ayarlıyken kırpma yok sayılır.",
 		"cropHelp": "Çerçeveyi veya tutamaçlarını görüntünün kalacak kısmına sürükleyin. Ok tuşları onu taşır, Shift + ok tuşları boyutunu değiştirir.",
 		"corners": {
 			"topLeft": "Sol üst köşe",

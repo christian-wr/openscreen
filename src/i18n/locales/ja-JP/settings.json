@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "カメラ {{n}}",
+		"cameraNamed": "カメラ {{n}} · {{label}}",
 		"title": "カメラ",
 		"unavailable": "利用できません",
 		"camera1Hint": "カメラ1の回転・反転・切り抜きは上のコントロールで設定します。",
@@ -481,6 +482,7 @@
 		"mirror": "反転",
 		"crop": "切り抜き…",
 		"perspective": "パースを補正…",
-		"reset": "リセット"
+		"reset": "リセット",
+		"cropOffWithPerspective": "遠近補正が設定されている間、切り抜きは効果がありません。"
 	}
 }

@@ -95,6 +95,7 @@
 		"loading": "Đang tải hình ảnh camera…",
 		"loadFailed": "Không thể tải hình ảnh camera.",
 		"perspectiveHelp": "Kéo bốn góc vào các góc của tờ giấy hoặc mặt bàn. Phím mũi tên di chuyển góc đang chọn một pixel, giữ Shift để di chuyển mười pixel.",
+		"cropIgnored": "Camera này có vùng cắt; vùng cắt bị bỏ qua khi đã đặt phối cảnh.",
 		"cropHelp": "Kéo khung hoặc các tay cầm của nó lên phần hình ảnh cần giữ. Phím mũi tên di chuyển khung, Shift + mũi tên thay đổi kích thước.",
 		"corners": {
 			"topLeft": "Góc trên bên trái",

@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Câmera {{n}}",
+		"cameraNamed": "Câmera {{n}} · {{label}}",
 		"title": "Câmeras",
 		"unavailable": "Indisponível",
 		"camera1Hint": "Rotação, espelhamento e recorte da câmera 1 ficam nos controles acima.",
@@ -481,6 +482,7 @@
 		"mirror": "Espelhar",
 		"crop": "Recorte…",
 		"perspective": "Corrigir perspectiva…",
-		"reset": "Redefinir"
+		"reset": "Redefinir",
+		"cropOffWithPerspective": "O recorte não tem efeito enquanto houver uma perspectiva definida."
 	}
 }

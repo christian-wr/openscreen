@@ -21,7 +21,7 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { axcutSchemaVersion } from "@/lib/ai-edition/schema";
 import { CURSOR_KIND_IDS, DEFAULT_CURSOR_THEME_ID } from "@/lib/cursor/cursorThemes";
-import { DESK_COVER_FADE_MS, deskCoverLabelWindows } from "@/lib/deskCover";
+import { DESK_COVER_ANIMATION } from "@/lib/deskCover";
 import { DEVICE_FRAMES } from "@/lib/projectDefaults";
 import { getFocusBoundsForScale } from "@/lib/zoomMath/focusUtils";
 import {
@@ -924,17 +924,20 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		expect(cameraFullscreenRegions).toEqual([{ startSec: 2, endSec: 5.5 }]);
 	});
 
-	it("adds the translated desk label over both ends of a turned section", () => {
+	it("adds the translated desk label over a turned section, spanning all of it", () => {
 		const doc = makeDoc({
 			legacyEditor: {
 				cameraFullscreenRegions: [{ id: "cf1", startMs: 0, endMs: 20_000, rotation: 180 }],
 			},
 		});
 		const labels = buildSceneDescription(doc).annotations.filter(
-			(a) => a.text?.animation === "deskCoverStart" || a.text?.animation === "deskCoverEnd",
+			(a) => a.text?.animation === DESK_COVER_ANIMATION,
 		);
-		expect(labels.map((a) => a.text?.content)).toEqual(["Desk mode", "Desk mode"]);
+		expect(labels.map((a) => a.text?.content)).toEqual(["Desk mode"]);
 		expect(labels.every((a) => a.space === "frame")).toBe(true);
+		// The compositor draws it at the cover's strength, so it must be on screen wherever the
+		// cover can be: the whole section, whatever its length or speed.
+		expect(labels.map((a) => [a.startSec, a.endSec])).toEqual([[0, 20]]);
 	});
 
 	it("a hand-written camera-1 camera-full layout row is not doubled", () => {
@@ -951,8 +954,8 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		});
 		const scene = buildSceneDescription(doc);
 		expect(scene.cameraFullscreenRegions).toHaveLength(1);
-		const labels = scene.annotations.filter((a) => a.text?.animation?.startsWith("deskCover"));
-		expect(labels.map((a) => a.text?.animation)).toEqual(["deskCoverStart", "deskCoverEnd"]);
+		const labels = scene.annotations.filter((a) => a.text?.animation === DESK_COVER_ANIMATION);
+		expect(labels.map((a) => a.id)).toEqual(["desk-cf1-all"]);
 		// An empty layout list no longer hides the Full Camera regions.
 		const emptied = makeDoc({
 			legacyEditor: { cameraFullscreenRegions: [section], cameraLayoutRegions: [] },
@@ -960,9 +963,10 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toHaveLength(1);
 	});
 
-	it("a label end that meets a layout region covers only the fade", () => {
+	it("a label that meets a layout region still spans its whole section", () => {
 		// A turned section right before a camera-full-pip region: the compositor holds no cover
-		// over a shrink there (`full_camera_seams`), so the end label is the fade alone.
+		// over a shrink there (`full_camera_seams`). The label needs no seam rule of its own: it
+		// is drawn at the cover's strength, so it spans the section and the cover decides.
 		const asset = makeAsset({
 			id: "a",
 			originalPath: "/a.mp4",
@@ -999,15 +1003,10 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 			clips: [clip],
 			legacyEditor: { cameraLayoutRegions: [section, pip] },
 		});
-		const labels = buildSceneDescription(doc).annotations.filter((a) =>
-			a.text?.animation?.startsWith("deskCover"),
-		);
-		const w = deskCoverLabelWindows({ startMs: 0, endMs: 10_000 }, { end: true });
-		expect(w.end).toEqual([10_000 - DESK_COVER_FADE_MS, 10_000]);
-		expect(labels.map((a) => [a.text?.animation, a.startSec * 1000, a.endSec * 1000])).toEqual([
-			["deskCoverStart", ...w.start],
-			["deskCoverEnd", ...w.end],
-		]);
+		const scene = buildSceneDescription(doc);
+		expect(scene.cameraLayoutRegions?.map((l) => [l.startSec, l.endSec])).toEqual([[10, 20]]);
+		const labels = scene.annotations.filter((a) => a.text?.animation === DESK_COVER_ANIMATION);
+		expect(labels.map((a) => [a.startSec, a.endSec])).toEqual([[0, 10]]);
 	});
 
 	it("no label for a plain section or with the label off", () => {
@@ -1017,8 +1016,8 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		]) {
 			const doc = makeDoc({ legacyEditor: { cameraFullscreenRegions: [region] } });
 			expect(
-				buildSceneDescription(doc).annotations.some((a) =>
-					a.text?.animation?.startsWith("deskCover"),
+				buildSceneDescription(doc).annotations.some(
+					(a) => a.text?.animation === DESK_COVER_ANIMATION,
 				),
 			).toBe(false);
 		}
@@ -1088,31 +1087,19 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 			},
 		});
 		const scene = buildSceneDescription(doc);
-		const labels = scene.annotations.filter((a) => a.text?.animation?.startsWith("deskCover"));
-		expect(labels).toHaveLength(4);
-		expect(new Set(labels.map((a) => a.id)).size).toBe(4);
+		const labels = scene.annotations.filter((a) => a.text?.animation === DESK_COVER_ANIMATION);
+		expect(labels).toHaveLength(2);
+		expect(new Set(labels.map((a) => a.id)).size).toBe(2);
 		// Built from the section's own id, so a rebuild reuses them: the native text cache is
 		// keyed by id and never pruned.
-		const rebuilt = buildSceneDescription(doc).annotations.filter((a) =>
-			a.text?.animation?.startsWith("deskCover"),
+		const rebuilt = buildSceneDescription(doc).annotations.filter(
+			(a) => a.text?.animation === DESK_COVER_ANIMATION,
 		);
 		expect(rebuilt.map((a) => a.id)).toEqual(labels.map((a) => a.id));
-		expect(labels.map((a) => a.id)).toEqual([
-			"desk-cf1-0-start",
-			"desk-cf1-0-end",
-			"desk-cf1-1-start",
-			"desk-cf1-1-end",
-		]);
+		expect(labels.map((a) => a.id)).toEqual(["desk-cf1-0", "desk-cf1-1"]);
 		for (const piece of scene.cameraFullscreenRegions) {
-			const w = deskCoverLabelWindows({
-				startMs: piece.startSec * 1000,
-				endMs: piece.endSec * 1000,
-			});
 			const own = labels.filter((a) => a.clipIndex === piece.clipIndex);
-			expect(own.map((a) => [a.text?.animation, a.startSec * 1000, a.endSec * 1000])).toEqual([
-				["deskCoverStart", ...w.start],
-				["deskCoverEnd", ...w.end],
-			]);
+			expect(own.map((a) => [a.startSec, a.endSec])).toEqual([[piece.startSec, piece.endSec]]);
 		}
 	});
 
@@ -1124,8 +1111,8 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 			},
 		});
 		expect(
-			buildSceneDescription(doc).annotations.some((a) =>
-				a.text?.animation?.startsWith("deskCover"),
+			buildSceneDescription(doc).annotations.some(
+				(a) => a.text?.animation === DESK_COVER_ANIMATION,
 			),
 		).toBe(false);
 	});

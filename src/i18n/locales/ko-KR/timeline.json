@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "이 위치에 전체 화면 카메라를 추가할 수 없습니다",
 		"cameraFullscreenExistsAtLocation": "이 위치에 이미 전체 화면 카메라 구간이 있거나 공간이 부족합니다.",
 		"tooFewCameras": "이 레이아웃에는 여기서 사용할 수 있는 것보다 많은 카메라가 필요합니다",
+		"cannotPlaceCameraSection": "여기에는 카메라 구간을 배치할 수 없습니다",
+		"cameraSectionExistsAtLocation": "여기에는 이미 카메라 구간이 있습니다.",
 		"noCamera": "이 프로젝트에는 카메라가 없습니다"
 	},
 	"success": {

@@ -16,7 +16,11 @@ export interface ProjectCamera {
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
-/** Camera 1 carries no label; extras use their track label, else their ordinal. */
+/**
+ * Every camera is named by its ordinal ("Camera 2"); an extra camera with a device label adds
+ * it ("Camera 2 · Logitech C920"), so two cameras of the same model stay apart. Camera 1
+ * carries no label.
+ */
 export function projectCameras(asset: AxcutAsset | undefined, t: Translate): ProjectCamera[] {
 	if (!asset) return [];
 	const tracks = [asset.cameraTrack, ...(asset.additionalCameraTracks ?? [])].slice(0, MAX_CAMERAS);
@@ -26,7 +30,9 @@ export function projectCameras(asset: AxcutAsset | undefined, t: Translate): Pro
 		const own = index > 0 ? String((track as { label?: string }).label ?? "").trim() : "";
 		const camera: ProjectCamera = {
 			index,
-			label: own || t("cameras.cameraN", { n: index + 1 }),
+			label: own
+				? t("cameras.cameraNamed", { n: index + 1, label: own })
+				: t("cameras.cameraN", { n: index + 1 }),
 			path: track.sourcePath,
 			available: track.visible && track.sourcePath.length > 0,
 		};

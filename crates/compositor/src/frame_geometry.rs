@@ -8044,6 +8044,128 @@ mod tests {
         assert_eq!(outside.camera_layers[0].radius_frac, r);
     }
 
+    /// The desk label's opacity at the compositor caller boundary, against the cover of the same
+    /// frame plan: equal at every sampled frame, and the label (spanned over its whole section by
+    /// the app) is on screen wherever the cover is not 0. Three sections: the review's 2.6 s one
+    /// at 1×, where the label's old fade (from its own 1.15 s window) was half gone while the
+    /// cover still held 1; a long one; and a section inside a 2× speed region, whose cover runs
+    /// on the screen clock.
+    #[test]
+    fn the_desk_label_fades_with_the_cover() {
+        use crate::text_anim::{annotation_text_state, DESK_COVER_ANIMATION};
+        let cfg = crate::config::all().pop().expect("cfg");
+        let zoom = r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#;
+        let section = |start: f32, end: f32, speed: Option<&str>| {
+            let regions = format!(
+                r#""zoomRegions":[],"cameraFullscreenRegions":[{{"clipIndex":0,"startSec":{start},"endSec":{end},"rotation":180,"fullFrame":true}}]{}"#,
+                speed.map(|s| format!(",{s}")).unwrap_or_default()
+            );
+            Scene::from_json(&zoomed_golden_scene_json().replace(zoom, &regions)).expect("scene")
+        };
+        // (label, cover) at source time `t` of a label spanning [start, end].
+        let sample = |scene: &Scene, start: f32, end: f32, t: f32| {
+            let g = plan_frame(&FrameGeometryInput {
+                timeline_t_override: Some(t),
+                ..golden_input(scene, &cfg)
+            });
+            let label = annotation_text_state(
+                Some(DESK_COVER_ANIMATION),
+                (t - start) * 1000.0,
+                (end - start) * 1000.0,
+                g.webcam_cover,
+            );
+            (label.opacity, g.webcam_cover)
+        };
+        let speed = r#""speedRegions":[{"clipIndex":0,"startSec":1.0,"endSec":9.0,"speed":2.0}]"#;
+        let cases = [
+            ("2.6 s at 1x", section(1.0, 3.6, None), 1.0f32, 3.6f32),
+            ("long at 1x", section(1.0, 9.0, None), 1.0, 9.0),
+            ("2.6 s on screen inside 2x", section(2.0, 7.2, Some(speed)), 2.0, 7.2),
+        ];
+        for (name, scene, start, end) in &cases {
+            let mut t = start - 0.1;
+            while t < end + 0.1 {
+                let (label, cover) = sample(scene, *start, *end, t);
+                assert_eq!(label, cover, "{name}: t = {t}");
+                if cover > 0.0 {
+                    assert!(t >= *start && t < *end, "{name}: cover {cover} outside the label at {t}");
+                }
+                t += 1.0 / 120.0;
+            }
+        }
+        // The review's frames: the cover still holds 1 at 0.9 s and 1.0 s (the old label was at
+        // ~0.5 and below). The 0.28 s left between the holds is two 0.14 s fades meeting at
+        // +1.1575 s, where label and cover touch 0 together before rising into the end hold.
+        let (_, short, s0, s1) = &cases[0];
+        for at in [0.5, 0.9, 1.0] {
+            assert_eq!(sample(short, *s0, *s1, s0 + at), (1.0, 1.0), "at +{at} s");
+        }
+        let (mid, _) = sample(short, *s0, *s1, s0 + 1.09);
+        assert!(mid > 0.0 && mid < 1.0, "mid-fade {mid}");
+        let (low, low_cover) = sample(short, *s0, *s1, s0 + 1.1575);
+        assert!(low < 1e-3 && low == low_cover, "junction {low} vs {low_cover}");
+        assert_eq!(sample(short, *s0, *s1, s1 - 1.25), (1.0, 1.0), "end hold");
+        // Inside 2x the same 2.6 s of screen time takes 5.2 s of source: every screen instant
+        // matches the 1x section's, which the source-time label could not do.
+        let (_, fast, f0, f1) = &cases[2];
+        for k in 0..=26 {
+            let screen = k as f32 * 0.1;
+            let slow = sample(short, *s0, *s1, s0 + screen);
+            let quick = sample(fast, *f0, *f1, f0 + 2.0 * screen);
+            assert!((slow.0 - quick.0).abs() < 1e-3, "screen +{screen} s: {slow:?} vs {quick:?}");
+        }
+    }
+
+    /// A turned Full Camera section that meets a layout region: the cover follows the seam rule
+    /// (no hold before the layout region, only its own fade), and the label, spanned over the
+    /// whole section by the app, follows the cover there frame for frame without any seam
+    /// logic of its own.
+    #[test]
+    fn the_desk_label_follows_the_cover_across_a_seam_with_a_layout_region() {
+        use crate::regions::DESK_COVER_FADE_S;
+        use crate::text_anim::{annotation_text_state, DESK_COVER_ANIMATION};
+        let cfg = crate::config::all().pop().expect("cfg");
+        let zoom = r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#;
+        let full = r#""zoomRegions":[],"cameraFullscreenRegions":[{"clipIndex":0,"startSec":1.0,"endSec":6.0,"rotation":180,"fullFrame":true}]"#;
+        let layout = r#","cameraLayoutRegions":[{"clipIndex":0,"startSec":6.0,"endSec":9.0,"layers":[
+                {"camera":0,"rect":{"x":0.1,"y":0.2,"width":0.3,"height":0.4},"radiusFrac":0.1,"shape":"rectangle"}]}]"#;
+        let json = zoomed_golden_scene_json();
+        let seam =
+            Scene::from_json(&json.replace(zoom, &format!("{full}{layout}"))).expect("scene");
+        let lone = Scene::from_json(&json.replace(zoom, full)).expect("scene");
+        let (start, end) = (1.0f32, 6.0f32);
+        let sample = |scene: &Scene, t: f32| {
+            let g = plan_frame(&FrameGeometryInput {
+                timeline_t_override: Some(t),
+                ..golden_input(scene, &cfg)
+            });
+            let label = annotation_text_state(
+                Some(DESK_COVER_ANIMATION),
+                (t - start) * 1000.0,
+                (end - start) * 1000.0,
+                g.webcam_cover,
+            );
+            (label.opacity, g.webcam_cover)
+        };
+        let mut t = start - 0.1;
+        while t < 9.1 {
+            let (label, cover) = sample(&seam, t);
+            assert_eq!(label, cover, "t = {t}");
+            if cover > 0.0 {
+                assert!(t >= start && t < end, "cover {cover} outside the label at {t}");
+            }
+            t += 1.0 / 120.0;
+        }
+        // Before the seam the cover (and so the label) is only its fade: half way up at
+        // end - fade/2 and sharp just before the fade, where a lone section still holds 1.
+        let (mid, _) = sample(&seam, end - DESK_COVER_FADE_S / 2.0);
+        assert!((mid - 0.5).abs() < 1e-3, "half way up at the seam: {mid}");
+        let before_fade = end - DESK_COVER_FADE_S - 0.05;
+        assert_eq!(sample(&seam, before_fade), (0.0, 0.0), "sharp before the seam's fade");
+        assert_eq!(sample(&lone, before_fade), (1.0, 1.0), "a lone section still holds");
+        assert!(sample(&seam, end - 0.001).0 > 0.99, "covered at the seam");
+    }
+
     /// Le pivot doit rester collé à `center` quand le sprite grandit — c'est exactement ce qui
     /// était cassé (ancrage centré en dur : la pointe s'éloignait proportionnellement à la
     /// taille). On dessine la même flèche à deux tailles et on vérifie que le point désigné

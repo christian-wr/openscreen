@@ -293,4 +293,38 @@ describe("CameraCalibrationModal", () => {
 		fireEvent.click(screen.getByRole("button", { name: "dialogs.cameraCalibration.reset" }));
 		expect(onApply).toHaveBeenCalledWith({ perspective: undefined });
 	});
+
+	it("perspective mode says a stored crop is ignored", async () => {
+		renderModal("perspective", { crop: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 } });
+		await stillLoaded();
+		expect(screen.getByText("dialogs.cameraCalibration.cropIgnored")).toBeInTheDocument();
+	});
+
+	it("says nothing about the crop when there is none", async () => {
+		renderModal("perspective", null);
+		await stillLoaded();
+		expect(screen.queryByText("dialogs.cameraCalibration.cropIgnored")).toBeNull();
+	});
+
+	it("crop mode does not show the perspective note", async () => {
+		renderModal("crop", { crop: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 } });
+		await stillLoaded();
+		expect(screen.queryByText("dialogs.cameraCalibration.cropIgnored")).toBeNull();
+	});
+
+	it("the caller can report camera 1's crop, which lives outside the settings", async () => {
+		render(
+			<CameraCalibrationModal
+				open
+				camera={{ ...CAMERA, index: 0 }}
+				mode="perspective"
+				initial={null}
+				hasCrop
+				onApply={vi.fn()}
+				onClose={vi.fn()}
+			/>,
+		);
+		await stillLoaded();
+		expect(screen.getByText("dialogs.cameraCalibration.cropIgnored")).toBeInTheDocument();
+	});
 });

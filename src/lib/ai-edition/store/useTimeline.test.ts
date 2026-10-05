@@ -3095,6 +3095,19 @@ describe("useTimeline.setCameraSettings", () => {
 		expect(stored().cameraSettings).toEqual([null, { mirror: true }]);
 	});
 
+	it("a queued second write builds on the first, not on the render's document", async () => {
+		seed({});
+		const { result } = renderTimeline();
+		// One callback from one render, called twice in a row: the shell's write queue runs
+		// them back to back, before React re-renders with the first save.
+		const set = result.current.setCameraSettings;
+		await act(async () => {
+			await set(1, { mirror: true });
+			await set(2, { rotation: 180 });
+		});
+		expect(stored().cameraSettings).toEqual([null, { mirror: true }, { rotation: 180 }]);
+	});
+
 	it("resetting the last camera removes the key", async () => {
 		seed({ other: 1, cameraSettings: [null, { mirror: true }] });
 		const { result } = renderTimeline();
