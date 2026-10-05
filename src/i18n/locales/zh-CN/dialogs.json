@@ -116,6 +116,11 @@
 		"invalidQuad": "这些角相互交叉、位于同一直线上，或构成内凹（非凸）的形状。请将它们摆成凸四边形后再应用。",
 		"reset": "重置",
 		"apply": "应用",
-		"invalidRatio": "请输入 {{min}} 到 {{max}} 之间的比例。"
+		"invalidRatio": "请输入 {{min}} 到 {{max}} 之间的比例。",
+		"detectMarkers": "检测标记",
+		"printMarkerSheet": "打印标记纸",
+		"markersFound": "已找到全部四个标记，角点已放到标记上。",
+		"markersNotFound": "未找到全部四个标记（0–3）。请确保它们完整地位于画面中、平整且光照均匀。角点保持不变。",
+		"markerSheetInstruction": "沿虚线剪下，将每个标记的内侧角对准其标注的角。"
 	}
 }

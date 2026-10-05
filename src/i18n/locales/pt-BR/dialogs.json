@@ -116,6 +116,11 @@
 		"invalidQuad": "Os cantos se cruzam, estão alinhados ou formam uma figura reentrante (não convexa). Posicione-os formando um quadrilátero convexo para aplicar.",
 		"reset": "Redefinir",
 		"apply": "Aplicar",
-		"invalidRatio": "Insira uma proporção entre {{min}} e {{max}}."
+		"invalidRatio": "Insira uma proporção entre {{min}} e {{max}}.",
+		"detectMarkers": "Detectar marcadores",
+		"printMarkerSheet": "Imprimir folha de marcadores",
+		"markersFound": "Os quatro marcadores foram encontrados; os cantos foram posicionados sobre eles.",
+		"markersNotFound": "Nem todos os quatro marcadores (0–3) foram encontrados. Verifique se estão inteiros na imagem, planos e com iluminação uniforme. Os cantos não foram alterados.",
+		"markerSheetInstruction": "Recorte nas linhas. Ponha o canto interno de cada marcador no seu canto."
 	}
 }

@@ -14,6 +14,15 @@ vi.mock("@/lib/ai-edition/timeline/grabFrame", () => ({
 	grabFrame: vi.fn(async () => IMAGE),
 }));
 
+const detectCornerMarkers = vi.fn();
+vi.mock("@/lib/arucoMarkers", () => ({
+	detectCornerMarkers: (...args: unknown[]) => detectCornerMarkers(...args),
+}));
+const printMarkerSheet = vi.fn();
+vi.mock("@/lib/markerSheet", () => ({
+	printMarkerSheet: (...args: unknown[]) => printMarkerSheet(...args),
+}));
+
 import { CameraCalibrationModal } from "./CameraCalibrationModal";
 
 const CAMERA = { index: 1, label: "Desk", src: "file:///cam.mp4", timeSec: 2 };
@@ -182,6 +191,61 @@ describe("CameraCalibrationModal", () => {
 		expect(stillAttached(from)).toBe(3);
 		unmount();
 		expect(stillAttached(from)).toBe(0);
+	});
+
+	it("detect fills the handles", async () => {
+		const found = [
+			{ x: 0.2, y: 0.25 },
+			{ x: 0.8, y: 0.2 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.1, y: 0.8 },
+		];
+		detectCornerMarkers.mockReturnValueOnce(found);
+		const { onApply } = renderModal("perspective", null);
+		await stillLoaded();
+		fireEvent.click(
+			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
+		);
+		expect(detectCornerMarkers).toHaveBeenCalledWith(IMAGE);
+		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.markersFound");
+		fireEvent.click(apply());
+		expect(onApply.mock.calls[0][0].perspective.corners).toEqual(found);
+	});
+
+	it("detect without four markers shows the message and keeps the handles", async () => {
+		detectCornerMarkers.mockReturnValueOnce(null);
+		const { onApply } = renderModal("perspective", null);
+		await stillLoaded();
+		fireEvent.click(
+			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
+		);
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"dialogs.cameraCalibration.markersNotFound",
+		);
+		fireEvent.click(apply());
+		expect(onApply.mock.calls[0][0].perspective.corners).toEqual([
+			{ x: 0.15, y: 0.15 },
+			{ x: 0.85, y: 0.15 },
+			{ x: 0.85, y: 0.85 },
+			{ x: 0.15, y: 0.85 },
+		]);
+	});
+
+	it("print hands the translated texts to the sheet", async () => {
+		renderModal("perspective", null);
+		await stillLoaded();
+		fireEvent.click(
+			screen.getByRole("button", { name: "dialogs.cameraCalibration.printMarkerSheet" }),
+		);
+		expect(printMarkerSheet).toHaveBeenCalledWith({
+			instruction: "dialogs.cameraCalibration.markerSheetInstruction",
+			labels: [
+				"0 – dialogs.cameraCalibration.corners.topLeft",
+				"1 – dialogs.cameraCalibration.corners.topRight",
+				"2 – dialogs.cameraCalibration.corners.bottomRight",
+				"3 – dialogs.cameraCalibration.corners.bottomLeft",
+			],
+		});
 	});
 
 	it("reset removes the stored perspective", async () => {

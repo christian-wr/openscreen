@@ -116,6 +116,11 @@
 		"invalidQuad": "Köşeler kesişiyor, aynı doğru üzerinde veya içe göçük (dışbükey olmayan) bir şekil oluşturuyor. Uygulamak için onları dışbükey bir dörtgen oluşturacak şekilde yerleştirin.",
 		"reset": "Sıfırla",
 		"apply": "Uygula",
-		"invalidRatio": "{{min}} ile {{max}} arasında bir oran girin."
+		"invalidRatio": "{{min}} ile {{max}} arasında bir oran girin.",
+		"detectMarkers": "İşaretçileri algıla",
+		"printMarkerSheet": "İşaretçi sayfasını yazdır",
+		"markersFound": "Dört işaretçinin tümü bulundu; köşeler bunların üzerine yerleştirildi.",
+		"markersNotFound": "Dört işaretçinin (0–3) tümü bulunamadı. Tamamen görüntüde, düz ve eşit aydınlatılmış olduklarından emin olun. Köşeler değiştirilmedi.",
+		"markerSheetInstruction": "Kesikli çizgilerden kesin. Her işaretçinin iç köşesini kendi köşesine koyun."
 	}
 }

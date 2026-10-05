@@ -116,6 +116,11 @@
 		"invalidQuad": "Rohy se kříží, leží na jedné přímce nebo tvoří promáčknutý (nekonvexní) tvar. Rozmístěte je do konvexního čtyřúhelníku, abyste mohli použít.",
 		"reset": "Obnovit",
 		"apply": "Použít",
-		"invalidRatio": "Zadejte poměr mezi {{min}} a {{max}}."
+		"invalidRatio": "Zadejte poměr mezi {{min}} a {{max}}.",
+		"detectMarkers": "Rozpoznat značky",
+		"printMarkerSheet": "Vytisknout list se značkami",
+		"markersFound": "Všechny čtyři značky nalezeny; rohy byly umístěny na ně.",
+		"markersNotFound": "Nebyly nalezeny všechny čtyři značky (0–3). Zkontrolujte, že jsou celé v záběru, rovné a rovnoměrně osvětlené. Rohy zůstaly beze změny.",
+		"markerSheetInstruction": "Vystřihněte podél čar. Vnitřní roh každé značky položte na roh podle popisku."
 	}
 }

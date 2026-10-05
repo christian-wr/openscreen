@@ -116,6 +116,11 @@
 		"invalidQuad": "Gli angoli si incrociano, sono allineati o formano una figura rientrante (non convessa). Disponili a formare un quadrilatero convesso per applicare.",
 		"reset": "Ripristina",
 		"apply": "Applica",
-		"invalidRatio": "Inserisci un rapporto compreso tra {{min}} e {{max}}."
+		"invalidRatio": "Inserisci un rapporto compreso tra {{min}} e {{max}}.",
+		"detectMarkers": "Rileva marcatori",
+		"printMarkerSheet": "Stampa foglio marcatori",
+		"markersFound": "Trovati tutti e quattro i marcatori; gli angoli sono stati posizionati su di essi.",
+		"markersNotFound": "Non sono stati trovati tutti e quattro i marcatori (0–3). Assicurati che siano interamente nell’immagine, piatti e illuminati in modo uniforme. Gli angoli non sono stati modificati.",
+		"markerSheetInstruction": "Ritaglia lungo le linee. Metti l’angolo interno di ogni marcatore sul suo angolo."
 	}
 }

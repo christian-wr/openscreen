@@ -1,8 +1,10 @@
 // The camera calibration dialog. Perspective mode: four corner handles on a still of the camera,
 // dragged with the pointer or nudged with the arrow keys, a loupe for the corner being placed,
-// the target format and margin, and a live preview of the corrected picture. Crop mode: a
-// rectangle with corner and edge handles. Built on `ModalShell`, so the editor's shortcuts and
-// undo stay blocked while it is open; Apply hands back one settings patch (one undo step).
+// the target format and margin, and a live preview of the corrected picture. "Detect markers"
+// places the corners on the four printed markers (`arucoMarkers.ts`); "Print marker sheet"
+// prints them (`markerSheet.ts`). Crop mode: a rectangle with corner and edge handles. Built on
+// `ModalShell`, so the editor's shortcuts and undo stay blocked while it is open; Apply hands
+// back one settings patch (one undo step).
 
 import {
 	type CSSProperties,
@@ -36,6 +38,8 @@ import {
 	resizeCrop,
 } from "@/lib/ai-edition/timeline/calibrationGeometry";
 import { grabFrame } from "@/lib/ai-edition/timeline/grabFrame";
+import { detectCornerMarkers } from "@/lib/arucoMarkers";
+import { printMarkerSheet } from "@/lib/markerSheet";
 import type { CalibrationMode } from "./CamerasSection";
 import { previewBoxStyle } from "./cropDraft";
 import { ModalShell } from "./Modals";
@@ -150,6 +154,7 @@ export function CameraCalibrationModal({
 	const [image, setImage] = useState<ImageData | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
 	const [activeHandle, setActiveHandle] = useState<number | null>(null);
+	const [markerResult, setMarkerResult] = useState<"found" | "notFound" | null>(null);
 
 	const frameRef = useRef<HTMLDivElement | null>(null);
 	const stillRef = useRef<HTMLCanvasElement | null>(null);
@@ -331,6 +336,23 @@ export function CameraCalibrationModal({
 		setCrop(moveCrop(crop, dx * CROP_STEP, dy * CROP_STEP));
 	};
 
+	// The four printed markers place the corners; without all four the corners stay put.
+	const detectMarkers = () => {
+		if (!image) return;
+		const found = detectCornerMarkers(image);
+		if (found) setCorners(copyCorners(found));
+		setMarkerResult(found ? "found" : "notFound");
+	};
+
+	const printSheet = () => {
+		// Marker ID n belongs on corner n, the handles' order.
+		const label = (id: number) => `${id} – ${t(`cameraCalibration.corners.${CORNER_KEYS[id]}`)}`;
+		printMarkerSheet({
+			instruction: t("cameraCalibration.markerSheetInstruction"),
+			labels: [label(0), label(1), label(2), label(3)],
+		});
+	};
+
 	const isPerspective = mode === "perspective";
 	const canApply = isPerspective ? perspective !== null : true;
 	const hasStored = isPerspective ? Boolean(initial?.perspective) : Boolean(initial?.crop);
@@ -505,6 +527,41 @@ export function CameraCalibrationModal({
 					</div>
 				)}
 			</div>
+
+			{isPerspective ? (
+				<div
+					style={{
+						display: "flex",
+						gap: 8,
+						flexWrap: "wrap",
+						alignItems: "center",
+						margin: "10px 0",
+					}}
+				>
+					<button
+						type="button"
+						className={`${styles.btn} ${styles.btnSecondary}`}
+						onClick={detectMarkers}
+						disabled={image === null}
+					>
+						{t("cameraCalibration.detectMarkers")}
+					</button>
+					<button
+						type="button"
+						className={`${styles.btn} ${styles.btnSecondary}`}
+						onClick={printSheet}
+					>
+						{t("cameraCalibration.printMarkerSheet")}
+					</button>
+					<p role="status" className={styles.hint} style={{ margin: 0, flex: "1 1 200px" }}>
+						{markerResult === "found"
+							? t("cameraCalibration.markersFound")
+							: markerResult === "notFound"
+								? t("cameraCalibration.markersNotFound")
+								: null}
+					</p>
+				</div>
+			) : null}
 
 			{isPerspective ? (
 				<div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>

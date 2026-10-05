@@ -116,6 +116,11 @@
 		"invalidQuad": "The corners cross, lie on one line or form a dented (not convex) shape. Move them into a convex four-sided shape to apply.",
 		"reset": "Reset",
 		"apply": "Apply",
-		"invalidRatio": "Enter a ratio between {{min}} and {{max}}."
+		"invalidRatio": "Enter a ratio between {{min}} and {{max}}.",
+		"detectMarkers": "Detect markers",
+		"printMarkerSheet": "Print marker sheet",
+		"markersFound": "All four markers found; the corners were placed on them.",
+		"markersNotFound": "Not all four markers (0–3) were found. Make sure they are fully in the picture, flat and evenly lit. The corners were left as they were.",
+		"markerSheetInstruction": "Cut along the dashed lines. Put each marker's inner corner on its labelled corner."
 	}
 }

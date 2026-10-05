@@ -116,6 +116,11 @@
 		"invalidQuad": "Les coins se croisent, sont alignés ou forment une figure rentrante (non convexe). Disposez-les en quadrilatère convexe pour appliquer.",
 		"reset": "Réinitialiser",
 		"apply": "Appliquer",
-		"invalidRatio": "Saisissez un rapport entre {{min}} et {{max}}."
+		"invalidRatio": "Saisissez un rapport entre {{min}} et {{max}}.",
+		"detectMarkers": "Détecter les marqueurs",
+		"printMarkerSheet": "Imprimer la feuille de marqueurs",
+		"markersFound": "Les quatre marqueurs ont été trouvés ; les coins y ont été placés.",
+		"markersNotFound": "Les quatre marqueurs (0–3) n’ont pas tous été trouvés. Vérifiez qu’ils sont entièrement dans l’image, à plat et éclairés uniformément. Les coins n’ont pas été modifiés.",
+		"markerSheetInstruction": "Découpez selon les pointillés. Posez le coin intérieur de chaque marqueur sur son coin."
 	}
 }
