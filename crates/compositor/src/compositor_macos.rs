@@ -840,6 +840,9 @@ impl Compositor {
 
     pub fn set_scene(&self, s: Option<Scene>) {
         *self.scene.borrow_mut() = s;
+        // A new scene can drop the regions that drew an extra camera: forget its frames so a
+        // stale pointer is never drawn before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
     }
 
     pub fn set_cursor(&self, track: crate::cursor::CursorTrack) {

@@ -1987,10 +1987,11 @@ unsafe fn render_thread(
                     active_additional_cameras = request.additional_cameras;
                     let scene = request_scene;
                     full_scene = scene.clone();
-                    let regions = scene
-                        .as_ref()
-                        .map(|s| clip_layout_regions(s, request_clip_index.unwrap_or(active_clip_index)))
-                        .unwrap_or_default();
+                    // No scene clip for the request → no layout regions (and no extras).
+                    let regions = match (&scene, request_clip_index) {
+                        (Some(s), Some(index)) => clip_layout_regions(s, index),
+                        _ => Vec::new(),
+                    };
                     if player.set_extra_cameras(regions, request_extras) {
                         comp.clear_srv_cache();
                     }
@@ -2099,6 +2100,7 @@ unsafe fn render_thread(
             prefetch = None;
             let scene = shared.scene.lock().unwrap().clone();
             full_scene = scene.clone();
+            let mut clip_resolved = false;
             let scene = scene.map(|base_scene| {
                 scene_applied = true;
                 if let Some(index) = resolve_scene_clip_index(
@@ -2109,9 +2111,17 @@ unsafe fn render_thread(
                     active_webcam_offset_sec,
                 ) {
                     active_clip_index = index;
+                    clip_resolved = true;
                 }
                 scene_for_clip(&base_scene, active_clip_index)
             });
+            // The resolved scene clip's own camera files win over the last clip request's: an
+            // offset or file edited mid-clip arrives with the scene, not with a new request.
+            if clip_resolved {
+                if let Some(clip) = full_scene.as_ref().and_then(|s| s.clips.get(active_clip_index)) {
+                    active_additional_cameras = clip.additional_cameras.clone();
+                }
+            }
             // A new scene can add, move or drop the layout regions that show an extra camera:
             // open what the active clip now shows, close what it no longer does.
             let (regions, keys) = match (&full_scene, &scene) {
@@ -2119,16 +2129,7 @@ unsafe fn render_thread(
                     windowed.camera_layout_regions.clone(),
                     extra_camera_keys(
                         &extra_cameras_for_clip(full, active_clip_index),
-                        // The view starts with camera 0 only (`create_view`): until the app
-                        // names the clip's cameras, take them from the scene.
-                        if active_additional_cameras.is_empty() {
-                            full.clips
-                                .get(active_clip_index)
-                                .map(|c| c.additional_cameras.as_slice())
-                                .unwrap_or(&[])
-                        } else {
-                            &active_additional_cameras
-                        },
+                        &active_additional_cameras,
                     ),
                 ),
                 _ => (Vec::new(), Vec::new()),
