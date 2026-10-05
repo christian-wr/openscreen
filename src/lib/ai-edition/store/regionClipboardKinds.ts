@@ -63,3 +63,26 @@ export function pasteIdPrefix(kind: RegionKindName): string {
 	if (kind === "cameraLayout") return "camlayout";
 	return kind;
 }
+
+type Span = Array<{ startMs: number; endMs: number }>;
+
+/**
+ * Whether a pasted camera section lands on one it may not share the lane with. Layout sections
+ * and Full Camera regions share one lane, so a layout paste is refused over either list. A Full
+ * Camera paste is refused over layout sections only: over another Full Camera it merges, as an
+ * add does.
+ */
+export function pasteHitsCameraSection(
+	legacy: Record<string, unknown>,
+	key: "cameraFullscreenRegions" | "cameraLayoutRegions",
+	startMs: number,
+	endMs: number,
+): boolean {
+	const rows = [
+		...((legacy.cameraLayoutRegions as Span | undefined) ?? []),
+		...(key === "cameraLayoutRegions"
+			? ((legacy.cameraFullscreenRegions as Span | undefined) ?? [])
+			: []),
+	];
+	return rows.some((r) => r.startMs < endMs && r.endMs > startMs);
+}

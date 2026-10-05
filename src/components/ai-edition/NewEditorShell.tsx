@@ -35,6 +35,7 @@ import { useMcpDocumentHost } from "@/lib/ai-edition/store/mcpDocumentHost";
 import { saveWithDeadline, useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import {
 	copySourceKey,
+	pasteHitsCameraSection,
 	pasteIdPrefix,
 	pasteTarget,
 } from "@/lib/ai-edition/store/regionClipboardKinds";
@@ -1134,17 +1135,15 @@ export function NewEditorShell() {
 			await saveDocument({ ...doc, [target.key]: [...rows, ...anchored] }, { history: true });
 		} else {
 			const legacy = (doc.legacyEditor as Record<string, unknown>) ?? {};
-			// Full Camera and layout sections share one lane: a paste that would land on
-			// either list is refused like an add is, instead of being dropped by the scene.
-			if (target.key !== "speedRegions") {
-				const rows = [
-					...((legacy.cameraFullscreenRegions as Array<{ startMs: number; endMs: number }>) ?? []),
-					...((legacy.cameraLayoutRegions as Array<{ startMs: number; endMs: number }>) ?? []),
-				];
-				if (rows.some((r) => r.startMs < pasted.endMs && r.endMs > pasted.startMs)) {
-					showCameraSectionOutcome("occupied", tt);
-					return;
-				}
+			// Full Camera and layout sections share one lane: a paste that would land on the
+			// other list is refused like an add is, instead of being dropped by the scene. A Full
+			// Camera over Full Camera is not refused: those merge, as they do on add.
+			if (
+				target.key !== "speedRegions" &&
+				pasteHitsCameraSection(legacy, target.key, pasted.startMs, pasted.endMs)
+			) {
+				showCameraSectionOutcome("occupied", tt);
+				return;
 			}
 			const prev = (legacy[target.key] as unknown[]) ?? [];
 			await saveDocument(

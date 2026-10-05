@@ -61,6 +61,7 @@ import { type ProjectCamera, projectCameras } from "@/lib/ai-edition/timeline/ca
 import { showCameraSectionOutcome } from "@/lib/ai-edition/timeline/cameraSectionNotice";
 import { formatSec } from "@/lib/ai-edition/timeline/format";
 import {
+	camerasForLayoutMenu,
 	defaultLayoutCameras,
 	LAYOUT_TEMPLATES,
 	layoutTemplateBlock,
@@ -76,7 +77,6 @@ import {
 	resolveTimelineSpanToTrim,
 	ventilateTimelineSpanToTrims,
 } from "@/lib/ai-edition/timeline/trim-mapping";
-import { locateVirtualPosition } from "@/lib/ai-edition/timeline/virtual-preview";
 import type { AnchoredCameraLayoutRegion } from "@/lib/cameraLayouts";
 import { normalizeCameraRotation } from "@/lib/cameraOrientation";
 import { isWebcamBlockLayout } from "@/lib/compositeLayout";
@@ -685,15 +685,12 @@ export function V4Timeline({
 	} | null>(null);
 	const { settings, set: setSettings } = useEditorSettings();
 
-	// The "Add layout" menu. The cameras of the clip under the playhead are read when the
+	// The "Add layout" menu. The cameras of the clip under the playhead (else the nearest with some) are read when the
 	// menu opens and again on a pick, so no playback frame re-renders the timeline for it.
 	const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
 	const [layoutMenuCameras, setLayoutMenuCameras] = useState<ProjectCamera[]>([]);
 	const availableCamerasAtPlayhead = useCallback((): ProjectCamera[] => {
-		const position = locateVirtualPosition(tl.clips, useProjectStore.getState().currentTimeSec);
-		if (!position) return [];
-		const asset = tl.assets.find((a) => a.id === position.clip.assetId);
-		return projectCameras(asset, ts).filter((c) => c.available);
+		return camerasForLayoutMenu(tl.clips, tl.assets, useProjectStore.getState().currentTimeSec, ts);
 	}, [tl.clips, tl.assets, ts]);
 	const openLayoutMenu = useCallback(
 		(open: boolean) => {

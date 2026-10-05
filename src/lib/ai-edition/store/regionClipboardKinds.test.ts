@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { copySourceKey, pasteIdPrefix, pasteTarget } from "./regionClipboardKinds";
+import {
+	copySourceKey,
+	pasteHitsCameraSection,
+	pasteIdPrefix,
+	pasteTarget,
+} from "./regionClipboardKinds";
 
 describe("regionClipboardKinds", () => {
 	it("copies a layout pill from the layout list, never from Full Camera", () => {
@@ -32,5 +37,26 @@ describe("regionClipboardKinds", () => {
 		expect(pasteIdPrefix("cameraLayout")).toBe("camlayout");
 		expect(pasteIdPrefix("annotation")).toBe("ann");
 		expect(pasteIdPrefix("speed")).toBe("speed");
+	});
+
+	describe("pasteHitsCameraSection", () => {
+		const legacy = {
+			cameraFullscreenRegions: [{ startMs: 0, endMs: 1000 }],
+			cameraLayoutRegions: [{ startMs: 2000, endMs: 3000 }],
+		};
+
+		it("lets a Full Camera paste merge with a Full Camera region", () => {
+			expect(pasteHitsCameraSection(legacy, "cameraFullscreenRegions", 500, 1500)).toBe(false);
+		});
+
+		it("refuses a Full Camera paste over a layout section", () => {
+			expect(pasteHitsCameraSection(legacy, "cameraFullscreenRegions", 2500, 3500)).toBe(true);
+		});
+
+		it("refuses a layout paste over either list", () => {
+			expect(pasteHitsCameraSection(legacy, "cameraLayoutRegions", 500, 1500)).toBe(true);
+			expect(pasteHitsCameraSection(legacy, "cameraLayoutRegions", 2500, 3500)).toBe(true);
+			expect(pasteHitsCameraSection(legacy, "cameraLayoutRegions", 3000, 4000)).toBe(false);
+		});
 	});
 });
