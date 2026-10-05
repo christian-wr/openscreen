@@ -266,6 +266,9 @@ pub struct Compositor {
     timeline_time: RefCell<Option<f32>>,
     /// Temps programme (secondes de sortie) — cf. `FrameGeometryInput::programme_time`.
     programme_time: RefCell<Option<f32>>,
+    /// The frames of cameras 1..=3 (`set_extra_camera_frames`), as addresses (0 = none) so
+    /// the compositor's auto traits stay what they were without the raw pointers.
+    extra_camera_frames: std::cell::Cell<[usize; crate::camera_layers::MAX_EXTRA_CAMERAS]>,
     live_params: RefCell<LiveParams>,
     metal_texture_cache: CVMetalTextureCache,
     /// Dernier command buffer soumis, gardé pour pouvoir l'attendre AU MOMENT où le CPU lit
@@ -729,6 +732,7 @@ impl Compositor {
             footage: std::cell::Cell::new(None),
             timeline_time: RefCell::new(None),
             programme_time: RefCell::new(None),
+            extra_camera_frames: std::cell::Cell::new([0; crate::camera_layers::MAX_EXTRA_CAMERAS]),
             live_params: RefCell::new(LiveParams::default()),
             metal_texture_cache: cache,
             last_cmd: RefCell::new(None),
@@ -937,6 +941,23 @@ impl Compositor {
     /// IOSurface, pas par pointeur Rust. `flush()` est donc la vidange elle-même.
     pub fn clear_srv_cache(&self) {
         self.metal_texture_cache.flush();
+    }
+
+    /// Frames for cameras 1..=3 (index 0 = scene camera 1). A null or missing entry means that
+    /// camera is not drawn this frame. The compositor keeps the pointers and reads them in every
+    /// `compose_frame` until the next call, so they must stay valid until then.
+    pub unsafe fn set_extra_camera_frames(&self, frames: &[*const AVFrame]) {
+        let mut slots = [0usize; crate::camera_layers::MAX_EXTRA_CAMERAS];
+        for (slot, frame) in slots.iter_mut().zip(frames) {
+            *slot = *frame as usize;
+        }
+        self.extra_camera_frames.set(slots);
+    }
+
+    /// The frame set for scene camera `camera` (1..=3), null when there is none.
+    fn extra_camera_frame(&self, camera: usize) -> *const AVFrame {
+        let slots = self.extra_camera_frames.get();
+        camera.checked_sub(1).and_then(|k| slots.get(k).copied()).unwrap_or(0) as *const AVFrame
     }
 
     /// Les verbes de dessin, côté Metal. Mêmes noms et mêmes paramètres que leurs
@@ -1150,13 +1171,15 @@ impl Compositor {
         programme_t: f32,
     ) -> Result<()> {
         let full = [0.0, 0.0, 1.0, 1.0];
-        self.draw_image_in(enc, path, full, [0.0, 0.0], 0.0, output_aspect, motion, programme_t)
+        let (aspect, t) = (output_aspect, programme_t);
+        self.draw_image_in(enc, path, full, [0.0, 0.0], 0.0, aspect, motion, t, 0.0)
     }
 
     /// `draw_image_bg` pour un rect quelconque — la bulle webcam s'en sert avec ses coins
     /// arrondis. `output_aspect` est le ratio du RECT visé, pas celui de la sortie : le crop
     /// « cover » se calcule contre la zone qu'on remplit. `motion` anime l'image au temps
-    /// programme `programme_t` ; la bulle passe `WallpaperMotion::None`.
+    /// programme `programme_t` ; la bulle passe `WallpaperMotion::None`. `transparency` =
+    /// `layer_fx.x` (0 = opaque): a camera layer's background box fades with the layer.
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_image_in(
         &self,
@@ -1168,6 +1191,7 @@ impl Compositor {
         output_aspect: f32,
         motion: WallpaperMotion,
         programme_t: f32,
+        transparency: f32,
     ) -> Result<()> {
         let (tex, iw, ih) = self.cached_image(path)?;
         let ai = iw as f32 / ih.max(1) as f32;
@@ -1191,6 +1215,7 @@ impl Compositor {
                 mode: 6.0,
                 fx: [0.0, 0.0, anim[0], anim[1]],
                 mb,
+                layer_fx: [transparency, 0.0, 0.0, 0.0],
                 ..Default::default()
             },
         );
@@ -1209,6 +1234,8 @@ impl Compositor {
     ///
     /// `quad_px` / `radius_px` sont ceux de la bulle : le fond doit épouser ses coins arrondis,
     /// sinon un rectangle déborde derrière la caméra.
+    ///
+    /// `transparency` = the camera layer's `layer_fx.x`: the box fades with the camera.
     unsafe fn draw_webcam_bg(
         &self,
         enc: &metal::RenderCommandEncoderRef,
@@ -1216,14 +1243,17 @@ impl Compositor {
         dst: [f32; 4],
         quad_px: [f32; 2],
         radius_px: f32,
+        transparency: f32,
     ) {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+        let layer_fx = [transparency, 0.0, 0.0, 0.0];
         let solid = |color: [f32; 4]| LayerCB {
             dst,
             quad_px,
             radius_px,
             mode: 1.0,
             color,
+            layer_fx,
             ..Default::default()
         };
         match bg {
@@ -1241,6 +1271,7 @@ impl Compositor {
                         quad_px,
                         radius_px,
                         fx: [a.sin(), -a.cos(), 0.0, 0.0],
+                        layer_fx,
                         ..crate::frame_geometry::gradient_layer(stops, offsets, BLACK)
                     },
                 );
@@ -1251,7 +1282,9 @@ impl Compositor {
                 let aspect = if quad_px[1] > 0.0 { quad_px[0] / quad_px[1] } else { 1.0 };
                 let still = WallpaperMotion::None;
                 if let Err(e) =
-                    self.draw_image_in(enc, path, dst, quad_px, radius_px, aspect, still, 0.0)
+                    self.draw_image_in(
+                        enc, path, dst, quad_px, radius_px, aspect, still, 0.0, transparency,
+                    )
                 {
                     eprintln!("[compositor] fond webcam \"{path}\" : {e:#}");
                     self.draw_solid(enc, &solid(BLACK));
@@ -2659,89 +2692,141 @@ impl Compositor {
 
         // --- caméra : ombre PiP puis vidéo ---
         let enc = self.begin_pass(cmd_buf, &self.rt, None, &self.pipeline_main)?;
-        if let (true, Some((wy, wuv))) = (lp.has_webcam, webcam_tex.as_ref()) {
-            let [cu0, cv0, cu1, cv1] = crate::frame_geometry::webcam_source_rect(
-                [wcw, wch],
-                [wtw as f32, wth as f32],
-                if g.webcam.full_frame {
-                    None
-                } else {
-                    scene_ref.as_ref().and_then(|scene| scene.layout.webcam_crop)
-                },
-                g.w_px[0] / g.w_px[1].max(0.0001),
-            );
-            // Mirror and the desk-shot turn are both bound swaps: u for horizontal, v for vertical.
-            let (u0, u1) = if g.webcam.flip_u { (cu1, cu0) } else { (cu0, cu1) };
-            let (v0, v1) = if g.webcam.flip_v { (cv1, cv0) } else { (cv0, cv1) };
-            let webcam_is_block = matches!(
-                g.scene_preset.as_deref(),
-                Some("dual-frame") | Some("vertical-stack")
-            );
-            // Effet d'arrière-plan : le mode vient de la scène, le masque par pixel de
-            // l'inférence. Les DEUX sont requis — un mode sans masque rendrait la webcam
-            // invisible en détourage, donc tant que rien n'a été segmenté on dessine la
-            // piste telle quelle. C'est aussi ce qui rend le premier lancement gracieux.
-            let mask = self.webcam_mask.borrow();
-            let effect = scene_ref
-                .as_ref()
-                .and_then(|s| s.webcam_effect.as_ref())
-                .filter(|_| mask.is_some())
-                .map(|e| (e.shader_code(), e))
-                .filter(|(code, _)| *code > 0.0);
-
-            // L'ombre appartient à la bulle PiP. En détourage il n'y a plus de bulle — une
-            // ombre portée par un rectangle invisible se lit comme un artefact. Le test porte
-            // sur le code de la SCÈNE et non sur celui envoyé au shader : le fond personnalisé
-            // part lui aussi en détourage ci-dessous, mais sa bulle, elle, est bien peinte et
-            // garde donc son ombre.
-            let is_cutout = matches!(effect, Some((code, _)) if code == 1.0);
-            if cfg.shadow && !webcam_is_block && !is_cutout && g.shape_fade > 0.0 {
-                self.draw_shadow(
-                    enc,
-                    g.w_dst,
-                    g.w_px,
-                    g.w_radius,
-                    WEBCAM_SHADOW_SPREAD_FRAC * g.frame_min_px,
-                    [0.0, WEBCAM_SHADOW_OFFSET_FRAC * g.frame_min_px],
-                    WEBCAM_SHADOW_OPACITY * g.shape_fade,
-                );
-            }
-
-            // Fond personnalisé : on PEINT le fond dans la bulle, puis on y découpe la caméra
-            // par-dessus — le mélange alpha donne `lerp(fond, caméra, personne)`, soit exactement
-            // ce que la branche « mode 3 » du shader calculait, mais pour les TROIS sortes de
-            // fond. Le shader ne sait peindre qu'une couleur plate sous le masque ; dégradés et
-            // images y tombaient sur du noir, et le défaut EST une image. L'ordre est imposé :
-            // ombre, puis fond, puis caméra.
-            let (effect_code, blur_intensity) = match effect {
-                Some((code, e)) if code > 2.5 => {
-                    self.draw_webcam_bg(enc, e.background.as_ref(), g.w_dst, g.w_px, g.w_radius);
-                    (1.0, 0.0)
-                }
-                Some((code, e)) => (code, e.blur_intensity.clamp(0.0, 1.0)),
-                None => (0.0, 0.0),
-            };
-
-            // Metal tolère l'index 3 non lié tant que `fx.z` reste à 0 : la branche n'est
-            // pas prise, la texture n'est pas échantillonnée. Dès qu'il monte, elle doit
-            // l'être sur TOUT draw capable de la prendre — ici il n'y en a qu'un. L'état
-            // d'un encodeur est rémanent, donc lier avant le draw suffit, et l'ombre puis le
-            // fond qui précèdent sont en modes 1/2/5/6, que `ps_main` garde hors de la branche
-            // (`mode < 0.5`).
-            //
-            // Pas de déliaison après coup, contrairement au chemin Windows qui remet le slot
-            // t3 à `None` : cet état meurt avec l'encodeur, et les annotations en ouvrent un
-            // autre. Il n'y a rien sur quoi fuir.
-            if let Some(m) = mask.as_ref() {
-                enc.set_fragment_texture(3, Some(&m.tex));
-            }
-            self.draw_video(
-                enc,
-                &g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity),
-                wy,
-                wuv,
-            );
+        // Camera 0's crop, mirror and desk turn as camera settings, plus its homography
+        // (`Scene::camera(0)`): with one, `src` is not read and the crop is dropped.
+        let cam0 = g.camera0_settings(scene_ref.as_ref());
+        let webcam_is_block = matches!(
+            g.scene_preset.as_deref(),
+            Some("dual-frame") | Some("vertical-stack")
+        );
+        // Effet d'arrière-plan : le mode vient de la scène, le masque par pixel de
+        // l'inférence. Les DEUX sont requis — un mode sans masque rendrait la webcam
+        // invisible en détourage, donc tant que rien n'a été segmenté on dessine la
+        // piste telle quelle. C'est aussi ce qui rend le premier lancement gracieux.
+        let mask = self.webcam_mask.borrow();
+        let effect = scene_ref
+            .as_ref()
+            .and_then(|s| s.webcam_effect.as_ref())
+            .filter(|_| mask.is_some())
+            .map(|e| (e.shader_code(), e))
+            .filter(|(code, _)| *code > 0.0);
+        // L'ombre appartient à la bulle PiP. En détourage il n'y a plus de bulle — une
+        // ombre portée par un rectangle invisible se lit comme un artefact. Le test porte
+        // sur le code de la SCÈNE et non sur celui envoyé au shader : le fond personnalisé
+        // part lui aussi en détourage ci-dessous, mais sa bulle, elle, est bien peinte et
+        // garde donc son ombre.
+        let is_cutout = matches!(effect, Some((code, _)) if code == 1.0);
+        // Fond personnalisé : on PEINT le fond dans la bulle, puis on y découpe la caméra
+        // par-dessus — le mélange alpha donne `lerp(fond, caméra, personne)`, soit exactement
+        // ce que la branche « mode 3 » du shader calculait, mais pour les TROIS sortes de
+        // fond. Le shader ne sait peindre qu'une couleur plate sous le masque ; dégradés et
+        // images y tombaient sur du noir, et le défaut EST une image. L'ordre est imposé :
+        // ombre, puis fond, puis caméra. `custom_bg` = Some(background) in that mode.
+        let (effect_code, blur_intensity, custom_bg) = match effect {
+            Some((code, e)) if code > 2.5 => (1.0, 0.0, Some(e.background.as_ref())),
+            Some((code, e)) => (code, e.blur_intensity.clamp(0.0, 1.0), None),
+            None => (0.0, 0.0, None),
+        };
+        // Metal tolère l'index 3 non lié tant que `fx.z` reste à 0 : la branche n'est
+        // pas prise, la texture n'est pas échantillonnée. Dès qu'il monte, elle doit
+        // l'être sur TOUT draw capable de la prendre — ici seul celui de la caméra 0. L'état
+        // d'un encodeur est rémanent, donc lier avant le draw suffit, et l'ombre puis le
+        // fond qui précèdent sont en modes 1/2/5/6, que `ps_main` garde hors de la branche
+        // (`mode < 0.5`). The extra cameras draw with `fx.z = 0` and never read it.
+        //
+        // Pas de déliaison après coup, contrairement au chemin Windows qui remet le slot
+        // t3 à `None` : cet état meurt avec l'encodeur, et les annotations en ouvrent un
+        // autre. Il n'y a rien sur quoi fuir.
+        if let Some(m) = mask.as_ref() {
+            enc.set_fragment_texture(3, Some(&m.tex));
         }
+        // The extra cameras' textures, held to the end of `compose_frame` like `webcam_tex`.
+        let mut extra_textures = Vec::new();
+        if g.camera_layers.is_empty() {
+            // Without layout regions: camera 0 from `w_dst`, as before the layers.
+            if let (true, Some((wy, wuv))) = (lp.has_webcam, webcam_tex.as_ref()) {
+                // Mirror and the desk-shot turn are both bound swaps: u for horizontal, v for
+                // vertical.
+                let src = crate::frame_geometry::camera_source_rect(
+                    Some(&cam0),
+                    [wcw, wch],
+                    [wtw as f32, wth as f32],
+                    g.w_px[0] / g.w_px[1].max(0.0001),
+                );
+                if cfg.shadow && !webcam_is_block && !is_cutout && g.shape_fade > 0.0 {
+                    self.draw_shadow(
+                        enc,
+                        g.w_dst,
+                        g.w_px,
+                        g.w_radius,
+                        WEBCAM_SHADOW_SPREAD_FRAC * g.frame_min_px,
+                        [0.0, WEBCAM_SHADOW_OFFSET_FRAC * g.frame_min_px],
+                        WEBCAM_SHADOW_OPACITY * g.shape_fade,
+                    );
+                }
+                if let Some(bg) = custom_bg {
+                    self.draw_webcam_bg(enc, bg, g.w_dst, g.w_px, g.w_radius, 0.0);
+                }
+                let cb = g.webcam_video_cb(src, w_valid, effect_code, blur_intensity);
+                let cb = crate::frame_geometry::with_camera_homography(cb, Some(&cam0));
+                self.draw_video(enc, &cb, wy, wuv);
+            }
+        } else {
+            // Every planned layer, in order: shadow, then (camera 0) the custom background,
+            // then the video. Camera 0 keeps its frame, effects and mask; the extra cameras
+            // draw from `set_extra_camera_frames` without effects, and a missing one is skipped.
+            let render = [rw, rh];
+            let cam0_base = g.webcam_video_cb([0.0; 4], w_valid, effect_code, blur_intensity);
+            for plan in &g.camera_layers {
+                if plan.camera == 0 {
+                    let (true, Some((wy, wuv))) = (lp.has_webcam, webcam_tex.as_ref()) else {
+                        continue;
+                    };
+                    let video = crate::frame_geometry::camera_layer_cb(
+                        plan,
+                        Some(&cam0),
+                        [wcw, wch],
+                        [wtw as f32, wth as f32],
+                        render,
+                        &cam0_base,
+                    );
+                    if let Some(shadow) =
+                        g.camera_layer_shadow(plan, &video, render, cfg.shadow, is_cutout)
+                    {
+                        self.draw_solid(enc, &shadow);
+                    }
+                    if let Some(bg) = custom_bg {
+                        let (dst, quad_px, radius_px) = (video.dst, video.quad_px, video.radius_px);
+                        self.draw_webcam_bg(enc, bg, dst, quad_px, radius_px, video.layer_fx[0]);
+                    }
+                    self.draw_video(enc, &video, wy, wuv);
+                } else {
+                    // Tolerant like camera 0: no frame, or no pixel buffer in it, skips the layer.
+                    let frame = self.extra_camera_frame(plan.camera);
+                    let Ok((ey, euv)) = self.nv12_srvs(frame) else { continue };
+                    let (tw, th) = self.tex_dims(frame);
+                    let visible = [(*frame).width as f32, (*frame).height as f32];
+                    let tex = [tw as f32, th as f32];
+                    let valid = [visible[0] / tex[0].max(1.0), visible[1] / tex[1].max(1.0)];
+                    let video = crate::frame_geometry::camera_layer_cb(
+                        plan,
+                        scene_ref.as_ref().and_then(|s| s.camera(plan.camera)),
+                        visible,
+                        tex,
+                        render,
+                        &crate::frame_geometry::extra_camera_base_cb(valid),
+                    );
+                    if let Some(shadow) =
+                        g.camera_layer_shadow(plan, &video, render, cfg.shadow, false)
+                    {
+                        self.draw_solid(enc, &shadow);
+                    }
+                    self.draw_video(enc, &video, &ey, &euv);
+                    extra_textures.push((ey, euv));
+                }
+            }
+        }
+        drop(mask);
 
         enc.end_encoding();
 

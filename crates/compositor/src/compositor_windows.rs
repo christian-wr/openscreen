@@ -92,6 +92,15 @@ struct DofPyramid {
     height: u32,
 }
 
+/// An extra camera's frame for this `compose_frame`: its private copy's plane views, and the
+/// visible and texture sizes `camera_layer_cb` crops against.
+struct ExtraCamera {
+    y: ID3D11ShaderResourceView,
+    uv: ID3D11ShaderResourceView,
+    visible: [f32; 2],
+    tex: [f32; 2],
+}
+
 pub struct Compositor {
     dev: ID3D11Device,
     ctx: ID3D11DeviceContext,
@@ -171,6 +180,9 @@ pub struct Compositor {
     /// the copy's size and format on every hit, so a new texture landing on an old address
     /// is never handed a copy sized for the old one. `clear_srv_cache` frees stale entries.
     srv_cache: RefCell<HashMap<usize, (ID3D11Texture2D, ID3D11ShaderResourceView, ID3D11ShaderResourceView)>>,
+    /// The frames of cameras 1..=3 (`set_extra_camera_frames`), as addresses (0 = none) so
+    /// the compositor's auto traits stay what they were without the raw pointers.
+    extra_camera_frames: Cell<[usize; crate::camera_layers::MAX_EXTRA_CAMERAS]>,
     live_params: RefCell<LiveParams>,
     /// Scène pilotée par l'app (contrat) : quand présente, remplace le layout fixture de
     /// `timeline()`. Voir `scene.rs` / `SceneDescription` (TS).
@@ -762,6 +774,7 @@ impl Compositor {
             timeline_t_override: RefCell::new(None),
             programme_time: RefCell::new(None),
             srv_cache: RefCell::new(HashMap::new()),
+            extra_camera_frames: Cell::new([0; crate::camera_layers::MAX_EXTRA_CAMERAS]),
             live_params: RefCell::new(LiveParams::default()),
             scene: RefCell::new(None),
             text_raster: match crate::text::TextRasterizer::new() {
@@ -840,6 +853,50 @@ impl Compositor {
     /// depuis le layout preset au lieu du planning fixture.
     pub fn set_scene(&self, s: Option<Scene>) {
         *self.scene.borrow_mut() = s;
+    }
+
+    /// Frames for cameras 1..=3 (index 0 = scene camera 1). A null or missing entry means that
+    /// camera is not drawn this frame. The compositor keeps the pointers and reads them in every
+    /// `compose_frame` until the next call, so they must stay valid until then. They go through
+    /// `nv12_srvs` and its cache like camera 0's frame (`clear_srv_cache` clears them alike).
+    pub unsafe fn set_extra_camera_frames(&self, frames: &[*const AVFrame]) {
+        let mut slots = [0usize; crate::camera_layers::MAX_EXTRA_CAMERAS];
+        for (slot, frame) in slots.iter_mut().zip(frames) {
+            *slot = *frame as usize;
+        }
+        self.extra_camera_frames.set(slots);
+    }
+
+    /// The frame set for scene camera `camera` (1..=3), null when there is none.
+    fn extra_camera_frame(&self, camera: usize) -> *const AVFrame {
+        let slots = self.extra_camera_frames.get();
+        camera.checked_sub(1).and_then(|k| slots.get(k).copied()).unwrap_or(0) as *const AVFrame
+    }
+
+    /// The copies (`nv12_srvs`) of every extra camera `layers` draws, with their visible and
+    /// texture sizes. Tolerant: a camera without a frame, or whose frame has no D3D11 texture,
+    /// is `None` and simply not drawn.
+    unsafe fn extra_camera_srvs(
+        &self,
+        layers: &[crate::camera_layers::CameraLayerPlan],
+    ) -> [Option<ExtraCamera>; crate::camera_layers::MAX_EXTRA_CAMERAS] {
+        let mut out: [Option<ExtraCamera>; crate::camera_layers::MAX_EXTRA_CAMERAS] =
+            Default::default();
+        for (k, slot) in out.iter_mut().enumerate() {
+            let frame = self.extra_camera_frame(k + 1);
+            if frame.is_null() || !layers.iter().any(|l| l.camera == k + 1) {
+                continue;
+            }
+            let Ok((y, uv)) = self.nv12_srvs(frame) else { continue };
+            let (tw, th) = self.tex_dims(frame);
+            *slot = Some(ExtraCamera {
+                y,
+                uv,
+                visible: [(*frame).width as f32, (*frame).height as f32],
+                tex: [tw as f32, th as f32],
+            });
+        }
+        out
     }
 
     /// The Y (R8) and UV (R8G8) views of the decoder frame — over a private COPY, never
@@ -1227,13 +1284,14 @@ impl Compositor {
         programme_t: f32,
     ) -> Result<()> {
         let full = [0.0, 0.0, 1.0, 1.0];
-        self.draw_image_in(path, full, [0.0, 0.0], 0.0, output_aspect, motion, programme_t)
+        self.draw_image_in(path, full, [0.0, 0.0], 0.0, output_aspect, motion, programme_t, 0.0)
     }
 
     /// `draw_image_bg` pour un rect quelconque — la bulle webcam s'en sert avec ses coins
     /// arrondis. `output_aspect` est le ratio du RECT visé, pas celui de la sortie : le crop
     /// « cover » se calcule contre la zone qu'on remplit. `motion` anime l'image au temps
-    /// programme `programme_t` ; la bulle passe `WallpaperMotion::None`.
+    /// programme `programme_t` ; la bulle passe `WallpaperMotion::None`. `transparency` =
+    /// `layer_fx.x` (0 = opaque): a camera layer's background box fades with the layer.
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_image_in(
         &self,
@@ -1244,6 +1302,7 @@ impl Compositor {
         output_aspect: f32,
         motion: WallpaperMotion,
         programme_t: f32,
+        transparency: f32,
     ) -> Result<()> {
         let (srv, iw, ih) = self.cached_image(path)?;
         let ai = iw as f32 / ih as f32;
@@ -1268,6 +1327,7 @@ impl Compositor {
             mode: 6.0,
             fx: [0.0, 0.0, anim[0], anim[1]],
             mb,
+            layer_fx: [transparency, 0.0, 0.0, 0.0],
             ..Default::default()
         });
         Ok(())
@@ -1285,20 +1345,25 @@ impl Compositor {
     ///
     /// `quad_px` / `radius_px` sont ceux de la bulle : le fond doit épouser ses coins arrondis,
     /// sinon un rectangle déborde derrière la caméra.
+    ///
+    /// `transparency` = the camera layer's `layer_fx.x`: the box fades with the camera.
     unsafe fn draw_webcam_bg(
         &self,
         bg: Option<&SceneBackground>,
         dst: [f32; 4],
         quad_px: [f32; 2],
         radius_px: f32,
+        transparency: f32,
     ) {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+        let layer_fx = [transparency, 0.0, 0.0, 0.0];
         let solid = |color: [f32; 4]| LayerCB {
             dst,
             quad_px,
             radius_px,
             mode: 1.0,
             color,
+            layer_fx,
             ..Default::default()
         };
         match bg {
@@ -1315,6 +1380,7 @@ impl Compositor {
                     quad_px,
                     radius_px,
                     fx: [dir[0], dir[1], 0.0, 0.0],
+                    layer_fx,
                     ..crate::frame_geometry::gradient_layer(stops, offsets, BLACK)
                 });
             }
@@ -1324,7 +1390,9 @@ impl Compositor {
                 let aspect = if quad_px[1] > 0.0 { quad_px[0] / quad_px[1] } else { 1.0 };
                 let still = WallpaperMotion::None;
                 if let Err(e) =
-                    self.draw_image_in(path, dst, quad_px, radius_px, aspect, still, 0.0)
+                    self.draw_image_in(
+                        path, dst, quad_px, radius_px, aspect, still, 0.0, transparency,
+                    )
                 {
                     eprintln!("[compositor] fond webcam \"{}\" : {:#}", path, e);
                     self.draw_solid(&solid(BLACK));
@@ -2022,6 +2090,8 @@ impl Compositor {
             programme_time: *self.programme_time.borrow(),
         });
         self.footage.set(Some(g.footage_quad([self.rw(), self.rh()])));
+        // The extra cameras' copies, made before anything is drawn like the two above.
+        let extra_cams = self.extra_camera_srvs(&g.camera_layers);
         let scene_preset = g.scene_preset.clone();
         let mb_amount = g.mb_amount;
         let source_t = g.source_t;
@@ -2433,88 +2503,144 @@ impl Compositor {
         //
         // Le center-crop carré de square/circle en est un cas particulier (boîte 1:1) — il n'a
         // plus besoin d'être traité à part.
-        let [su0, sv0, su1, sv1] = crate::frame_geometry::webcam_source_rect(
-            [wcw, wch],
-            [wtw as f32, wth as f32],
-            if g.webcam.full_frame {
-                None
-            } else {
-                scene_ref.as_ref().and_then(|scene| scene.layout.webcam_crop)
-            },
-            w_px[0] / w_px[1].max(0.0001),
+        // Camera 0's crop, mirror and desk turn as camera settings, plus its homography
+        // (`Scene::camera(0)`): with one, `src` is not read and the crop is dropped.
+        let cam0 = g.camera0_settings(scene_ref.as_ref());
+        // L'ombre portée appartient à la bulle flottante PiP : elle se retire avec elle
+        // (`shape_fade`), pour qu'au plein écran plus rien n'encadre la caméra. C'est une
+        // ombre légère NON paramétrable — indépendante du slider Shadow, qui ne pilote plus
+        // que l'écran (`WEBCAM_SHADOW_OPACITY`, pas `shadow_scale`) — et propre au PiP : les
+        // blocs side-by-side / top-bottom soudent la caméra à l'écran et n'en portent aucune
+        // (parité `preset.shadow` web, `null` hors PiP dans `compositeLayout.ts`).
+        let webcam_is_block = matches!(
+            scene_preset.as_deref(),
+            Some("dual-frame") | Some("vertical-stack"),
         );
-        // Mirror and the desk-shot turn are both bound swaps: u for horizontal, v for vertical.
-        let (u0, u1) = if g.webcam.flip_u { (su1, su0) } else { (su0, su1) };
-        let (v0, v1) = if g.webcam.flip_v { (sv1, sv0) } else { (sv0, sv1) };
-        if lp.has_webcam {
-            // L'ombre portée appartient à la bulle flottante PiP : elle se retire avec elle
-            // (`shape_fade`), pour qu'au plein écran plus rien n'encadre la caméra. C'est une
-            // ombre légère NON paramétrable — indépendante du slider Shadow, qui ne pilote plus
-            // que l'écran (`WEBCAM_SHADOW_OPACITY`, pas `shadow_scale`) — et propre au PiP : les
-            // blocs side-by-side / top-bottom soudent la caméra à l'écran et n'en portent aucune
-            // (parité `preset.shadow` web, `null` hors PiP dans `compositeLayout.ts`).
-            let webcam_is_block = matches!(
-                scene_preset.as_deref(),
-                Some("dual-frame") | Some("vertical-stack"),
-            );
-            // L'ombre appartient à la bulle PiP. En détourage il n'y a plus de bulle — une
-            // ombre portée par un rectangle invisible se lit comme un artefact.
-            let is_cutout = matches!(
-                scene_ref.as_ref().and_then(|s| s.webcam_effect.as_ref()),
-                Some(e) if e.shader_code() == 1.0
-            ) && self.webcam_mask.borrow().is_some();
-            if cfg.shadow && !webcam_is_block && !is_cutout && shape_fade > 0.0 {
-                let strength = WEBCAM_SHADOW_OPACITY * shape_fade;
-                self.draw_shadow(
-                    w_dst,
-                    w_px,
-                    w_radius,
-                    WEBCAM_SHADOW_SPREAD_FRAC * frame_min_px,
-                    [0.0, WEBCAM_SHADOW_OFFSET_FRAC * frame_min_px],
-                    strength,
-                );
-            }
-            // Effet d'arrière-plan : le mode vient de la scène, le masque par pixel de
-            // l'inférence. Les DEUX sont requis — un mode sans masque rendrait la webcam
-            // invisible en détourage, donc tant que rien n'a été segmenté on dessine la piste
-            // telle quelle. C'est aussi ce qui rend le premier lancement gracieux.
-            let mask = self.webcam_mask.borrow();
-            let effect = scene_ref
-                .as_ref()
-                .and_then(|s| s.webcam_effect.as_ref())
-                .filter(|_| mask.is_some())
-                .map(|e| (e.shader_code(), e))
-                .filter(|(code, _)| *code > 0.0);
-
-            // Fond personnalisé : on PEINT le fond dans la bulle, puis on y découpe la caméra
-            // par-dessus — le mélange alpha donne `lerp(fond, caméra, personne)`, soit exactement
-            // ce que la branche « mode 3 » du shader calculait, mais pour les TROIS sortes de
-            // fond. Le shader ne sait peindre qu'une couleur plate sous le masque ; dégradés et
-            // images y tombaient sur du noir, et le défaut EST une image.
-            let (effect_code, blur_intensity) = match effect {
-                Some((code, e)) if code > 2.5 => {
-                    self.draw_webcam_bg(e.background.as_ref(), w_dst, w_px, w_radius);
-                    (1.0, 0.0)
-                }
-                Some((code, e)) => (code, e.blur_intensity.clamp(0.0, 1.0)),
-                None => (0.0, 0.0),
-            };
-
+        // L'ombre appartient à la bulle PiP. En détourage il n'y a plus de bulle — une
+        // ombre portée par un rectangle invisible se lit comme un artefact.
+        let is_cutout = matches!(
+            scene_ref.as_ref().and_then(|s| s.webcam_effect.as_ref()),
+            Some(e) if e.shader_code() == 1.0
+        ) && self.webcam_mask.borrow().is_some();
+        // Effet d'arrière-plan : le mode vient de la scène, le masque par pixel de
+        // l'inférence. Les DEUX sont requis — un mode sans masque rendrait la webcam
+        // invisible en détourage, donc tant que rien n'a été segmenté on dessine la piste
+        // telle quelle. C'est aussi ce qui rend le premier lancement gracieux.
+        let mask = self.webcam_mask.borrow();
+        let effect = scene_ref
+            .as_ref()
+            .and_then(|s| s.webcam_effect.as_ref())
+            .filter(|_| mask.is_some())
+            .map(|e| (e.shader_code(), e))
+            .filter(|(code, _)| *code > 0.0);
+        // Fond personnalisé : on PEINT le fond dans la bulle, puis on y découpe la caméra
+        // par-dessus — le mélange alpha donne `lerp(fond, caméra, personne)`, soit exactement
+        // ce que la branche « mode 3 » du shader calculait, mais pour les TROIS sortes de
+        // fond. Le shader ne sait peindre qu'une couleur plate sous le masque ; dégradés et
+        // images y tombaient sur du noir, et le défaut EST une image.
+        // `custom_bg` = Some(background) in that mode; it is painted between shadow and camera.
+        let (effect_code, blur_intensity, custom_bg) = match effect {
+            Some((code, e)) if code > 2.5 => (1.0, 0.0, Some(e.background.as_ref())),
+            Some((code, e)) => (code, e.blur_intensity.clamp(0.0, 1.0), None),
+            None => (0.0, 0.0, None),
+        };
+        // Camera 0's video draw: the mask, bound to slot 3 for this draw only. `draw_video` ne
+        // lie que les slots 0-1, donc le masque posé ici tient pour l'appel qui suit. Il est
+        // délié juste après pour ne pas fuir sur les calques d'annotation, qui utilisent eux
+        // aussi le slot 2 et au-delà.
+        let draw_camera0 = |cb: &LayerCB| {
             if let Some(m) = mask.as_ref() {
-                // `draw_video` ne lie que les slots 0-1, donc le masque posé ici tient pour
-                // l'appel qui suit. Il est délié juste après pour ne pas fuir sur les calques
-                // d'annotation, qui utilisent eux aussi le slot 2 et au-delà.
                 self.ctx.PSSetShaderResources(3, Some(&[Some(m.srv.clone())]));
             }
-            self.draw_video(
-                &g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity),
-                &wy,
-                &wuv,
-            );
+            self.draw_video(cb, &wy, &wuv);
             if mask.is_some() {
                 self.ctx.PSSetShaderResources(3, Some(&[None]));
             }
+        };
+
+        if g.camera_layers.is_empty() {
+            // Without layout regions: camera 0 from `w_dst`, as before the layers.
+            let [u0, v0, u1, v1] = crate::frame_geometry::camera_source_rect(
+                Some(&cam0),
+                [wcw, wch],
+                [wtw as f32, wth as f32],
+                w_px[0] / w_px[1].max(0.0001),
+            );
+            if lp.has_webcam {
+                if cfg.shadow && !webcam_is_block && !is_cutout && shape_fade > 0.0 {
+                    let strength = WEBCAM_SHADOW_OPACITY * shape_fade;
+                    self.draw_shadow(
+                        w_dst,
+                        w_px,
+                        w_radius,
+                        WEBCAM_SHADOW_SPREAD_FRAC * frame_min_px,
+                        [0.0, WEBCAM_SHADOW_OFFSET_FRAC * frame_min_px],
+                        strength,
+                    );
+                }
+                if let Some(bg) = custom_bg {
+                    self.draw_webcam_bg(bg, w_dst, w_px, w_radius, 0.0);
+                }
+                let cb = g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity);
+                draw_camera0(&crate::frame_geometry::with_camera_homography(cb, Some(&cam0)));
+            }
+        } else {
+            // Every planned layer, in order: shadow, then (camera 0) the custom background,
+            // then the video. Camera 0 keeps its frame, effects and mask; the extra cameras
+            // draw from `set_extra_camera_frames` without effects, and a missing one is skipped.
+            let render = [self.rw(), self.rh()];
+            let cam0_base = g.webcam_video_cb([0.0; 4], w_valid, effect_code, blur_intensity);
+            for plan in &g.camera_layers {
+                if plan.camera == 0 {
+                    if !lp.has_webcam {
+                        continue;
+                    }
+                    let video = crate::frame_geometry::camera_layer_cb(
+                        plan,
+                        Some(&cam0),
+                        [wcw, wch],
+                        [wtw as f32, wth as f32],
+                        render,
+                        &cam0_base,
+                    );
+                    if let Some(shadow) =
+                        g.camera_layer_shadow(plan, &video, render, cfg.shadow, is_cutout)
+                    {
+                        self.draw_solid(&shadow);
+                    }
+                    if let Some(bg) = custom_bg {
+                        let t = video.layer_fx[0];
+                        self.draw_webcam_bg(bg, video.dst, video.quad_px, video.radius_px, t);
+                    }
+                    draw_camera0(&video);
+                } else {
+                    let Some(cam) = extra_cams.get(plan.camera - 1).and_then(|c| c.as_ref())
+                    else {
+                        continue;
+                    };
+                    let settings = scene_ref.as_ref().and_then(|s| s.camera(plan.camera));
+                    let valid = [
+                        cam.visible[0] / cam.tex[0].max(1.0),
+                        cam.visible[1] / cam.tex[1].max(1.0),
+                    ];
+                    let video = crate::frame_geometry::camera_layer_cb(
+                        plan,
+                        settings,
+                        cam.visible,
+                        cam.tex,
+                        render,
+                        &crate::frame_geometry::extra_camera_base_cb(valid),
+                    );
+                    if let Some(shadow) =
+                        g.camera_layer_shadow(plan, &video, render, cfg.shadow, false)
+                    {
+                        self.draw_solid(&shadow);
+                    }
+                    self.draw_video(&video, &cam.y, &cam.uv);
+                }
+            }
         }
+        drop(mask);
 
         // --- annotations : calque le plus haut, comme dans le DOM de la preview (le calque y est
         // monté après la vidéo). Ancrées sur `s_ann`, le rect ÉCRAN SANS ZOOM — c'est le conteneur

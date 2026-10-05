@@ -16,6 +16,8 @@ use crate::scene::{SceneCameraLayer, SceneCameraLayoutRegion};
 const ADJACENT_S: f64 = 0.001;
 /// Layers fainter than this are not drawn at all.
 const MIN_OPACITY: f32 = 1e-3;
+/// Cameras beyond camera 0 a compositor takes frames for (`set_extra_camera_frames`).
+pub const MAX_EXTRA_CAMERAS: usize = 3;
 
 /// One camera to draw this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
