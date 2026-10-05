@@ -4872,9 +4872,23 @@ mod tests {
         screen: &FakeFrame,
         webcam: &FakeFrame,
     ) -> Vec<u8> {
+        compose_pip_frames_with_extras(comp, scene, shadow, screen, webcam, &[])
+    }
+
+    /// `compose_pip_frames` with extra camera frames. They are handed over AFTER `set_scene`,
+    /// which forgets the previous ones, and before the compose, as the product code does.
+    fn compose_pip_frames_with_extras(
+        comp: &Compositor,
+        scene: Scene,
+        shadow: bool,
+        screen: &FakeFrame,
+        webcam: &FakeFrame,
+        extra: &[*const AVFrame],
+    ) -> Vec<u8> {
         comp.set_live_params(live_params_from_scene(&scene));
         comp.set_has_webcam(true);
         comp.set_scene(Some(scene));
+        unsafe { comp.set_extra_camera_frames(extra) };
 
         let mut cfg = Cfg::c8();
         cfg.bg_blur = 0.0;
@@ -5091,8 +5105,7 @@ mod tests {
         extra: &[*const AVFrame],
     ) -> Vec<u8> {
         comp.set_timeline_time(Some(t));
-        unsafe { comp.set_extra_camera_frames(extra) };
-        let rgba = compose_pip_frames(comp, scene, false, screen, camera_0);
+        let rgba = compose_pip_frames_with_extras(comp, scene, false, screen, camera_0, extra);
         unsafe { comp.set_extra_camera_frames(&[]) };
         rgba
     }
