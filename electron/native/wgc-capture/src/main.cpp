@@ -1179,6 +1179,21 @@ int wmain(int argc, wchar_t* argv[]) {
                 }
                 // Screen first, then every camera, as before there was more than one.
                 for (const auto& stream : webcams) {
+                    if (stream->active && stream->capture.isLost()) {
+                        // Unplugged mid-take: its file ends here instead of
+                        // repeating the last picture to the end, it is left out
+                        // of `webcamPaths` and still finalized at stop. The
+                        // screen and the other cameras go on.
+                        std::cerr << "ERROR: Camera " << stream->index
+                                  << " was lost during the take; disabling it" << std::endl;
+                        stream->active = false;
+                        if (inlineWebcam == stream.get()) {
+                            // Nor is its frozen picture drawn into the screen.
+                            inlineWebcam = nullptr;
+                            pictureChanged = true;
+                        }
+                        continue;
+                    }
                     if (stream->active && stream->pullVisibleFrame()) {
                         pictureChanged = pictureChanged || !stream->writeSeparate;
                     }

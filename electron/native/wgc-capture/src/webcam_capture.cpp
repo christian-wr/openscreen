@@ -2,6 +2,7 @@
 
 #include "realtime_scheduling.h"
 #include "webcam_format.h"
+#include "webcam_loss.h"
 
 #include <mfapi.h>
 #include <mferror.h>
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <optional>
 
 namespace {
 
@@ -403,6 +405,9 @@ void WebcamCapture::captureLoop() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     const auto loopStartedAt = std::chrono::steady_clock::now();
 
+    // Start of the current run of failed reads; empty while reads succeed.
+    std::optional<std::chrono::steady_clock::time_point> failureRunStartedAt;
+
     while (!stopRequested_) {
         DWORD streamIndex = 0;
         DWORD flags = 0;
@@ -428,11 +433,27 @@ void WebcamCapture::captureLoop() {
             // wise write thousands of identical lines over a long take.
             readFailures_ += 1;
             lastReadFailure_ = hr;
+            const auto now = std::chrono::steady_clock::now();
+            if (!failureRunStartedAt) {
+                failureRunStartedAt = now;
+            }
+            const int64_t failingForMs =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - *failureRunStartedAt).count();
+            if (isWebcamLossResult(hr, false, failingForMs)) {
+                markLost(hr);
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
+        failureRunStartedAt.reset();
         if ((flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
             sawEndOfStream_ = true;
+            // Stop has its own way out of this loop; end of stream before it
+            // is the camera leaving.
+            if (!stopRequested_ && isWebcamLossResult(hr, true, 0)) {
+                markLost(hr);
+            }
             break;
         }
         if (!sample) {
@@ -511,6 +532,20 @@ void WebcamCapture::captureLoop() {
               << std::endl;
 
     CoUninitialize();
+}
+
+void WebcamCapture::markLost(HRESULT hr) {
+    if (lost_.exchange(true)) {
+        return;
+    }
+    reportWebcamLost(selectedDeviceName_, hr);
+}
+
+bool WebcamCapture::isLost() const {
+    if (usingDirectShow_) {
+        return directShowCapture_.isLost();
+    }
+    return lost_;
 }
 
 bool WebcamCapture::copyLatestFrame(WebcamFrameSnapshot& destination, uint64_t lastSeenSequence) {

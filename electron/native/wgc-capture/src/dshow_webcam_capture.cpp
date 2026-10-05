@@ -2,6 +2,7 @@
 
 #include "realtime_scheduling.h"
 #include "webcam_format.h"
+#include "webcam_loss.h"
 
 #include <initguid.h>
 #include <dshow.h>
@@ -176,6 +177,8 @@ struct DirectShowWebcamCapture::Impl {
     Microsoft::WRL::ComPtr<ISampleGrabber> sampleGrabber;
     Microsoft::WRL::ComPtr<IBaseFilter> nullRenderer;
     Microsoft::WRL::ComPtr<IMediaControl> mediaControl;
+    /** Where the graph says the device left; optional, see captureLoop. */
+    Microsoft::WRL::ComPtr<IMediaEventEx> mediaEvent;
     bool comInitialized = false;
     bool running = false;
 };
@@ -275,6 +278,7 @@ bool DirectShowWebcamCapture::buildGraph(
     // Every attempt starts from empty filters. A RenderStream that fails can
     // leave pins connected behind it, and retrying on top of that half-built
     // graph is how you get a second failure that says nothing about the format.
+    impl_->mediaEvent.Reset();
     impl_->mediaControl.Reset();
     impl_->nullRenderer.Reset();
     impl_->sampleGrabber.Reset();
@@ -434,6 +438,10 @@ bool DirectShowWebcamCapture::initialize(
     if (!succeeded(impl_->graph.As(&impl_->mediaControl), "QueryInterface(IMediaControl)")) {
         return false;
     }
+    // Best-effort: without it a lost device goes unnoticed, as it always did.
+    if (FAILED(impl_->graph.As(&impl_->mediaEvent))) {
+        impl_->mediaEvent.Reset();
+    }
 
     return true;
 }
@@ -546,6 +554,7 @@ void DirectShowWebcamCapture::stop() {
         impl_->mediaControl->Stop();
     }
     impl_->running = false;
+    impl_->mediaEvent.Reset();
     impl_->mediaControl.Reset();
     impl_->nullRenderer.Reset();
     impl_->sampleGrabber.Reset();
@@ -563,6 +572,11 @@ void DirectShowWebcamCapture::captureLoop() {
     const MmcssThread mmcss(L"Capture");
     const HRESULT coinitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     while (!stopRequested_ && impl_ && impl_->sampleGrabber) {
+        // The sample grabber keeps handing back its last buffer after the
+        // camera is gone, so the frames cannot tell; the graph's events can.
+        if (deviceLeftGraph()) {
+            break;
+        }
         long bufferSize = 0;
         HRESULT hr = impl_->sampleGrabber->GetCurrentBuffer(&bufferSize, nullptr);
         if (SUCCEEDED(hr) && bufferSize > 0) {
@@ -577,6 +591,32 @@ void DirectShowWebcamCapture::captureLoop() {
     if (SUCCEEDED(coinitHr)) {
         CoUninitialize();
     }
+}
+
+bool DirectShowWebcamCapture::deviceLeftGraph() {
+    if (!impl_->mediaEvent) {
+        return false;
+    }
+    long code = 0;
+    LONG_PTR param1 = 0;
+    LONG_PTR param2 = 0;
+    // A zero timeout drains what is queued without waiting for more.
+    while (SUCCEEDED(impl_->mediaEvent->GetEvent(&code, &param1, &param2, 0))) {
+        impl_->mediaEvent->FreeEventParams(code, param1, param2);
+        // EC_DEVICE_LOST's second parameter is 0 when the device was removed,
+        // 1 when it came back; a stream error or abort stops the graph.
+        const bool lost = (code == EC_DEVICE_LOST && param2 == 0) || code == EC_ERRORABORT ||
+            code == EC_STREAM_ERROR_STOPPED;
+        if (lost && !lost_.exchange(true)) {
+            reportWebcamLost(selectedDeviceName_, static_cast<HRESULT>(code));
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DirectShowWebcamCapture::isLost() const {
+    return lost_;
 }
 
 void DirectShowWebcamCapture::storeFrame(const BYTE* buffer, long length) {

@@ -132,6 +132,14 @@ if (!fs.existsSync(deviceSelectionTestPath)) {
 await run(deviceSelectionTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${deviceSelectionTestPath}`);
 
+const webcamLossTestPath = path.join(BUILD_DIR, "webcam_loss_test.exe");
+if (!fs.existsSync(webcamLossTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamLossTestPath} was not found.`);
+}
+// Guards that an unplugged camera ends its file instead of freezing on its last picture.
+await run(webcamLossTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamLossTestPath}`);
+
 const frameVisibilityTestPath = path.join(BUILD_DIR, "frame_visibility_test.exe");
 if (!fs.existsSync(frameVisibilityTestPath)) {
 	throw new Error(`WGC helper build completed but ${frameVisibilityTestPath} was not found.`);

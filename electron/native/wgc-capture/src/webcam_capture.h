@@ -56,6 +56,13 @@ public:
      */
     bool deliversNv12() const;
     const std::wstring& selectedDeviceName() const;
+    /**
+     * Has the camera left the take -- unplugged, or its driver given up?
+     *
+     * Latched: once true it stays true, and the camera delivers no more
+     * frames. Safe to ask from any thread.
+     */
+    bool isLost() const;
 
 private:
     bool selectDevice(
@@ -64,12 +71,15 @@ private:
         const DeviceClaims& claims);
     bool configureReader(int requestedWidth, int requestedHeight, int requestedFps, bool preferNv12);
     void captureLoop();
+    /** Latches `lost_` and says so once; see `isWebcamLossResult`. */
+    void markLost(HRESULT hr);
 
     Microsoft::WRL::ComPtr<IMFMediaSource> mediaSource_;
     Microsoft::WRL::ComPtr<IMFSourceReader> sourceReader_;
     DirectShowWebcamCapture directShowCapture_;
     std::thread thread_;
     std::atomic<bool> stopRequested_ = false;
+    std::atomic<bool> lost_ = false;
     std::mutex frameMutex_;
     std::vector<BYTE> latestFrame_;
     uint64_t latestFrameSequence_ = 0;
