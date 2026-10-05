@@ -75,7 +75,7 @@ pub(crate) fn extra_camera_active(regions: &[SceneCameraLayoutRegion], camera: u
 }
 
 /// A camera's source time at screen source time `screen_t` (`camera = screen - offset`),
-/// never before the file's start.
+/// never before the file's start. Camera 0 (`live.rs`) and the extra cameras share it.
 pub(crate) fn camera_source_time(screen_t: f64, offset_sec: f64) -> f64 {
     (screen_t - offset_sec).max(0.0)
 }

@@ -35,8 +35,8 @@ use crate::pipeline::Decoder;
 use crate::shared_frames::SharedRing;
 use crate::shared_frames::{SharedFrame, SlotBook};
 use crate::extra_cameras::{
-    cameras_in_regions, extra_camera_active, extra_camera_keys, extra_frame_list, has_camera_file,
-    opened_or_skipped, seek_extra_camera, step_extra_camera, ExtraCameraKeys,
+    camera_source_time, cameras_in_regions, extra_camera_active, extra_camera_keys, extra_frame_list,
+    has_camera_file, opened_or_skipped, seek_extra_camera, step_extra_camera, ExtraCameraKeys,
 };
 use crate::timeline_walk::{frame_step, FrameStep, NextFrameTime};
 use anyhow::Result;
@@ -55,10 +55,6 @@ fn parse_hex_color(s: &str) -> Option<[f32; 4]> {
     let g = u8::from_str_radix(&h[2..4], 16).ok()? as f32 / 255.0;
     let b = u8::from_str_radix(&h[4..6], 16).ok()? as f32 / 255.0;
     Some([r, g, b, 1.0])
-}
-
-fn webcam_seek_time(screen_source_time_sec: f64, webcam_offset_sec: f64) -> f64 {
-    (screen_source_time_sec - webcam_offset_sec).max(0.0)
 }
 
 /// Décodeurs déjà ouverts ET positionnés au bon playhead pour un clip à venir — le résultat
@@ -251,7 +247,7 @@ unsafe fn open_and_seek_clip(
     let (mut wdec, webcam_decoder_is_real) = open_webcam_or_stand_in(screen_path, webcam_path, gpu)?;
     let extra = open_extra_cameras(extra_keys, gpu);
     let sf = sdec.seek_to_or_last(source_time_sec)?;
-    if webcam_decoder_is_real && wdec.seek_to(webcam_seek_time(source_time_sec, webcam_offset_sec))?.is_null() {
+    if webcam_decoder_is_real && wdec.seek_to(camera_source_time(source_time_sec, webcam_offset_sec))?.is_null() {
         wdec.seek_to(0.0)?;
     }
     if sf.is_null() {
@@ -325,7 +321,7 @@ unsafe fn seek_pair(
     if !webcam_decoder_is_real {
         return Ok(true);
     }
-    let mut wf = wdec.seek_to(webcam_seek_time(source_time_sec, webcam_offset_sec))?;
+    let mut wf = wdec.seek_to(camera_source_time(source_time_sec, webcam_offset_sec))?;
     if wf.is_null() {
         wf = wdec.seek_to(0.0)?;
     }
@@ -610,7 +606,7 @@ impl Player {
             let camera = k + 1;
             let frame = match slot {
                 Some(cam) if extra_camera_active(&self.camera_regions, camera, screen_t) => {
-                    let target = webcam_seek_time(screen_t, cam.offset_sec);
+                    let target = camera_source_time(screen_t, cam.offset_sec);
                     let result = if seek { cam.seek(target) } else { cam.step_to(target) };
                     match result {
                         Ok(frame) => frame,
@@ -858,7 +854,7 @@ impl Player {
         // ne serait pas composée. Sans caméra, la frame écran tient sa place.
         let wf = if self.webcam_decoder_is_real {
             self.wdec
-                .seek_to_or_last(webcam_seek_time(target_sec, self.webcam_offset_sec))?
+                .seek_to_or_last(camera_source_time(target_sec, self.webcam_offset_sec))?
         } else {
             sf
         };
@@ -2622,8 +2618,8 @@ mod tests {
 
     #[test]
     fn webcam_seek_uses_screen_source_time_and_offset() {
-        assert_eq!(webcam_seek_time(22.5, 1.25), 21.25);
-        assert_eq!(webcam_seek_time(0.5, 1.25), 0.0);
+        assert_eq!(camera_source_time(22.5, 1.25), 21.25);
+        assert_eq!(camera_source_time(0.5, 1.25), 0.0);
     }
 
     // --- extra cameras (2-4) ----------------------------------------------------
