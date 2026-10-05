@@ -39,7 +39,9 @@ function pipLayer(camera: number, index: number, ctx: CameraLayoutContext): Reso
 	const { width, height } = ctx.frame;
 	const w = PIP_WIDTH_FRAC;
 	const squareBox = ctx.pipShape === "circle" || ctx.pipShape === "square";
-	const aspect = squareBox ? 1 : ctx.cameraAspect(camera);
+	const cameraAspect = ctx.cameraAspect(camera);
+	const safeAspect = Number.isFinite(cameraAspect) && cameraAspect > 0 ? cameraAspect : 16 / 9;
+	const aspect = squareBox ? 1 : safeAspect;
 	const h = (w * width) / aspect / height;
 	const right = 1 - PIP_MARGIN_FRAC - index * (w + PIP_GAP_FRAC);
 	const bottom = 1 - (PIP_MARGIN_FRAC * width) / height;
@@ -66,9 +68,9 @@ export function resolveCameraLayout(
 	region.slots.forEach((slot, i) => {
 		let layer: ResolvedCameraLayer;
 		if (region.template === "camera-full" || (region.template === "camera-full-pip" && i === 0)) {
-			layer = fullLayer(slot.camera, FULL_RECT);
+			layer = fullLayer(slot.camera, { ...FULL_RECT });
 		} else if (region.template === "side-by-side") {
-			layer = fullLayer(slot.camera, i === 0 ? LEFT_HALF : RIGHT_HALF);
+			layer = fullLayer(slot.camera, { ...(i === 0 ? LEFT_HALF : RIGHT_HALF) });
 		} else {
 			const pipIndex = region.template === "camera-full-pip" ? i - 1 : i;
 			layer = pipLayer(slot.camera, pipIndex, ctx);

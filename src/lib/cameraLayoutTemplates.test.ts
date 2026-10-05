@@ -76,4 +76,25 @@ describe("resolveCameraLayout", () => {
 		const [layer] = resolveCameraLayout(region("camera-full" as never, [1], { 0: rect }), ctx);
 		expect(layer).toMatchObject({ rect, fillsFrame: true, shape: "rectangle" });
 	});
+	it("returns copies of the template rects", () => {
+		const [layer] = resolveCameraLayout(region("camera-full" as never, [1]), ctx);
+		layer.rect.width = 0.1;
+		const [again] = resolveCameraLayout(region("camera-full" as never, [1]), ctx);
+		expect(again.rect.width).toBe(1);
+		const [left] = resolveCameraLayout(region("side-by-side" as never, [0, 1]), ctx);
+		left.rect.width = 0.1;
+		expect(resolveCameraLayout(region("side-by-side" as never, [0, 1]), ctx)[0].rect.width).toBe(
+			0.5,
+		);
+	});
+	it("treats a non-finite or non-positive camera aspect as 16/9", () => {
+		const [ref] = resolveCameraLayout(region("screen-pip" as never, [1]), ctx);
+		for (const bad of [Number.NaN, 0, -2, Number.POSITIVE_INFINITY]) {
+			const [layer] = resolveCameraLayout(region("screen-pip" as never, [1]), {
+				...ctx,
+				cameraAspect: () => bad,
+			});
+			expect(layer.rect).toEqual(ref.rect);
+		}
+	});
 });
