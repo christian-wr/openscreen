@@ -749,32 +749,10 @@ describe("useTimeline.clearTimeline", () => {
 		annotation: (tl) => tl.addAnnotation(),
 		speed: (tl) => tl.addSpeed(),
 		cameraFullscreen: (tl) => tl.addCameraFullscreen(),
-		// No hook adder for layout sections yet: seed one stored row straight into the store.
-		cameraLayout: async () => {
-			const doc = useProjectStore.getState().document;
-			if (!doc) return;
-			const legacy = (doc.legacyEditor ?? {}) as { cameraLayoutRegions?: unknown[] };
-			const clip = doc.timeline.clips[0];
-			const row = {
-				id: `camlayout_${legacy.cameraLayoutRegions?.length ?? 0}`,
-				clipId: clip.id,
-				assetId: clip.assetId,
-				sourceStartSec: clip.sourceStartSec,
-				sourceEndSec: clip.sourceStartSec + 1,
-				startMs: 0,
-				endMs: 1000,
-				template: "screen-pip",
-				slots: [{ camera: 1 }],
-			};
-			useProjectStore.setState({
-				document: {
-					...doc,
-					legacyEditor: {
-						...legacy,
-						cameraLayoutRegions: [...(legacy.cameraLayoutRegions ?? []), row],
-					},
-				},
-			});
+		// The lane is shared with Full Camera, so the section goes after it, not over it.
+		cameraLayout: (tl) => {
+			useProjectStore.setState({ currentTimeSec: 5 });
+			return tl.addCameraLayout("screen-pip", [0]);
 		},
 	};
 	const editKinds = Object.keys(addOf) as EditKind[];
@@ -2700,5 +2678,341 @@ describe("useTimeline.updateCameraFullscreenOrientation", () => {
 			});
 		});
 		expect(stored()?.map((r) => r.rotation)).toEqual([180, 180, undefined]);
+	});
+});
+
+describe("useTimeline camera layouts", () => {
+	const camAsset = {
+		...sampleDoc.assets[0],
+		cameraTrack: {
+			sourcePath: "/tmp/camera.webm",
+			startMs: 0,
+			offsetMs: 0,
+			visible: true,
+			width: 1280,
+			height: 720,
+		},
+	};
+	const clipA = sampleDoc.timeline.clips[0];
+	type Rect = { x: number; y: number; width: number; height: number };
+	const fullRow = (id: string, startMs: number, endMs: number) => ({
+		id,
+		startMs,
+		endMs,
+		clipId: clipA.id,
+		assetId: clipA.assetId,
+		sourceStartSec: startMs / 1000,
+		sourceEndSec: endMs / 1000,
+	});
+	const layoutRow = (
+		id: string,
+		startMs: number,
+		endMs: number,
+		template: string,
+		slots: Array<{ camera: number; rect?: Rect }>,
+	) => ({ ...fullRow(id, startMs, endMs), template, slots });
+
+	const seed = (legacy: Record<string, unknown> | null) => {
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: { ...sampleDoc, assets: [camAsset], legacyEditor: legacy },
+			currentTimeSec: 1,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+	};
+	const legacyNow = () =>
+		(useProjectStore.getState().document?.legacyEditor ?? {}) as {
+			cameraFullscreenRegions?: Array<Record<string, unknown>>;
+			cameraLayoutRegions?: Array<Record<string, unknown>>;
+		};
+
+	beforeEach(() => {
+		useProjectStore.getState().clear();
+		clearHistory();
+		for (const mock of Object.values(bridgeMocks)) mock.mockReset();
+		bridgeMocks.save.mockImplementation(async (doc: typeof sampleDoc) => ({
+			success: true,
+			document: doc,
+		}));
+	});
+
+	afterEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("adds a screen-pip section at the playhead", async () => {
+		seed(null);
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addCameraLayout("screen-pip", [0]);
+		});
+		expect(outcome).toBe("added");
+		expect(past).toHaveLength(1);
+		expect(result.current.cameraLayoutRegions).toHaveLength(1);
+		expect(result.current.cameraLayoutRegions[0]).toMatchObject({
+			startMs: 1000,
+			endMs: 3000,
+			template: "screen-pip",
+			slots: [{ camera: 0 }],
+			clipId: "clip_a",
+		});
+		expect(result.current.cameraLayoutRegions[0].id.startsWith("camlayout")).toBe(true);
+	});
+
+	it("refuses a section when no clip has a camera", async () => {
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: sampleDoc,
+			currentTimeSec: 1,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addCameraLayout("screen-pip", [0]);
+		});
+		expect(outcome).toBe("no-camera");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+	});
+
+	it("adding over a full camera region is refused", async () => {
+		seed({ cameraFullscreenRegions: [fullRow("camfull_1", 2000, 4000)] });
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addCameraLayout("screen-pip", [0]);
+		});
+		expect(outcome).toBe("occupied");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		expect(useProjectStore.getState().document).toBe(before);
+	});
+
+	it("adding a full camera region over a layout section is refused", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 2000, 4000, "screen-pip", [{ camera: 0 }])],
+		});
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addCameraFullscreen();
+		});
+		expect(outcome).toBe("occupied");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+	});
+
+	it("camera-full with camera 1 is added as a full camera region", async () => {
+		seed(null);
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addCameraLayout("camera-full", [0]);
+		});
+		expect(outcome).toBe("added");
+		expect(result.current.cameraLayoutRegions).toEqual([]);
+		expect(result.current.cameraFullscreenRegions).toHaveLength(1);
+		expect(result.current.cameraFullscreenRegions[0]).toMatchObject({
+			startMs: 1000,
+			endMs: 3000,
+		});
+	});
+
+	it("moving a layout section clamps at a full camera neighbour", async () => {
+		seed({
+			cameraFullscreenRegions: [fullRow("camfull_1", 5000, 7000)],
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.updateCameraLayoutSpan("camlayout_1", 1000, 6000);
+		});
+		const rows = result.current.cameraLayoutRegions;
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ startMs: 1000, endMs: 5000 });
+		expect(result.current.cameraFullscreenRegions[0]).toMatchObject({
+			startMs: 5000,
+			endMs: 7000,
+		});
+	});
+
+	it("moving a full camera region clamps at a layout neighbour", async () => {
+		seed({
+			cameraFullscreenRegions: [fullRow("camfull_1", 1000, 3000)],
+			cameraLayoutRegions: [layoutRow("camlayout_1", 5000, 7000, "screen-pip", [{ camera: 0 }])],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.updateCameraFullscreenSpan("camfull_1", 1000, 6000);
+		});
+		expect(result.current.cameraFullscreenRegions[0]).toMatchObject({
+			startMs: 1000,
+			endMs: 5000,
+		});
+	});
+
+	it("switching a full camera section to camera-full-pip moves it to the layout list in one undo step", async () => {
+		seed({
+			cameraFullscreenRegions: [{ ...fullRow("camfull_1", 1000, 3000), rotation: 180 }],
+		});
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		let handle: { kind: string; id: string } | undefined;
+		await act(async () => {
+			handle = await result.current.setLayoutTemplate(
+				{ kind: "cameraFullscreen", id: "camfull_1" },
+				"camera-full-pip",
+				[0, 1],
+			);
+		});
+		expect(bridgeMocks.save).toHaveBeenCalledTimes(1);
+		expect(past).toHaveLength(1);
+		expect(handle?.kind).toBe("cameraLayout");
+		expect(legacyNow().cameraFullscreenRegions).toEqual([]);
+		const rows = legacyNow().cameraLayoutRegions ?? [];
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: handle?.id,
+			startMs: 1000,
+			endMs: 3000,
+			clipId: "clip_a",
+			sourceStartSec: 1,
+			sourceEndSec: 3,
+			template: "camera-full-pip",
+			slots: [{ camera: 0 }, { camera: 1 }],
+		});
+		// Ruling R1: the desk fields stay behind.
+		expect(rows[0]).not.toHaveProperty("rotation");
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(useProjectStore.getState().document).toEqual(before);
+	});
+
+	it("switching back to camera-full with camera 1 restores a full camera region", async () => {
+		seed({
+			cameraLayoutRegions: [
+				layoutRow("camlayout_1", 1000, 3000, "camera-full-pip", [{ camera: 0 }, { camera: 1 }]),
+			],
+		});
+		const { result } = renderTimeline();
+		let handle: { kind: string; id: string } | undefined;
+		await act(async () => {
+			handle = await result.current.setLayoutTemplate(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				"camera-full",
+				[0],
+			);
+		});
+		expect(handle?.kind).toBe("cameraFullscreen");
+		expect(legacyNow().cameraLayoutRegions).toEqual([]);
+		expect(legacyNow().cameraFullscreenRegions).toEqual([fullRow(handle?.id ?? "", 1000, 3000)]);
+	});
+
+	it("switching a layout section to another layout template keeps its cameras", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 1 }])],
+		});
+		const { result } = renderTimeline();
+		let handle: { kind: string; id: string } | undefined;
+		await act(async () => {
+			handle = await result.current.setLayoutTemplate(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				"side-by-side",
+				[0, 1],
+			);
+		});
+		expect(handle).toEqual({ kind: "cameraLayout", id: "camlayout_1" });
+		expect(legacyNow().cameraLayoutRegions?.[0]).toMatchObject({
+			template: "side-by-side",
+			slots: [{ camera: 1 }, { camera: 0 }],
+		});
+	});
+
+	it("choosing a camera already in the section swaps the two places", async () => {
+		seed({
+			cameraLayoutRegions: [
+				layoutRow("camlayout_1", 1000, 3000, "side-by-side", [{ camera: 0 }, { camera: 1 }]),
+			],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setLayoutSlotCamera("camlayout_1", 0, 1);
+		});
+		expect(legacyNow().cameraLayoutRegions?.[0].slots).toEqual([{ camera: 1 }, { camera: 0 }]);
+	});
+
+	it("a slot rect drag is one undo step", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
+		});
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		act(() => {
+			result.current.updateLayoutSlotRectLive("camlayout_1", 0, {
+				x: 0.1,
+				y: 0.1,
+				width: 0.2,
+				height: 0.2,
+			});
+		});
+		act(() => {
+			result.current.updateLayoutSlotRectLive("camlayout_1", 0, {
+				x: 0.3,
+				y: 0.3,
+				width: 0.2,
+				height: 0.2,
+			});
+		});
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		await act(async () => {
+			await result.current.commitLayoutSlotRect();
+		});
+		expect(bridgeMocks.save).toHaveBeenCalledTimes(1);
+		expect(past).toHaveLength(1);
+		expect(legacyNow().cameraLayoutRegions?.[0].slots).toEqual([
+			{ camera: 0, rect: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 } },
+		]);
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(useProjectStore.getState().document).toEqual(before);
+	});
+
+	it("reset removes every slot rect", async () => {
+		const rect = { x: 0.1, y: 0.1, width: 0.2, height: 0.2 };
+		seed({
+			cameraLayoutRegions: [
+				layoutRow("camlayout_1", 1000, 3000, "side-by-side", [
+					{ camera: 0, rect },
+					{ camera: 1, rect },
+				]),
+			],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.resetLayoutSlotRects("camlayout_1");
+		});
+		expect(legacyNow().cameraLayoutRegions?.[0].slots).toEqual([{ camera: 0 }, { camera: 1 }]);
+	});
+
+	it("removes layout sections in a batch removal", async () => {
+		seed({
+			cameraFullscreenRegions: [fullRow("camfull_1", 5000, 7000)],
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.removeRegions([
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				{ kind: "cameraFullscreen", id: "camfull_1" },
+			]);
+		});
+		expect(legacyNow().cameraLayoutRegions).toEqual([]);
+		expect(legacyNow().cameraFullscreenRegions).toEqual([]);
 	});
 });

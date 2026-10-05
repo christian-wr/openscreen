@@ -83,7 +83,9 @@ export type AnchoredCameraLayoutRegion = CameraLayoutRegion & {
 export function isFullCameraLayout(
 	region: Pick<CameraLayoutRegion, "template" | "slots">,
 ): boolean {
-	return region.template === "camera-full" && region.slots[0]?.camera === 0;
+	return (
+		region.template === "camera-full" && region.slots.length === 1 && region.slots[0]?.camera === 0
+	);
 }
 
 function copyAnchor(raw: Record<string, unknown>, region: AnchoredCameraLayoutRegion): void {

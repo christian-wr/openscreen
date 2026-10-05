@@ -169,6 +169,12 @@ describe("isFullCameraLayout", () => {
 		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 1 }] })).toBe(false);
 		expect(isFullCameraLayout({ template: "screen-pip", slots: [{ camera: 0 }] })).toBe(false);
 	});
+
+	it("is false for a camera-full row that names more than one camera", () => {
+		expect(
+			isFullCameraLayout({ template: "camera-full", slots: [{ camera: 0 }, { camera: 1 }] }),
+		).toBe(false);
+	});
 });
 
 describe("fullCameraRowsOfLayoutList", () => {
