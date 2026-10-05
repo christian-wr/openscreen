@@ -67,12 +67,12 @@ fn layer_source(models: bool) -> String {
 /// en parcourant les 18 wallpapers livres) en laissant le jeu actif resident.
 const IMG_CACHE_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Taille du buffer uniforme d'un calque : `LayerCB` entier (192 octets), le `struct Layer` de
+/// Taille du buffer uniforme d'un calque : `LayerCB` entier (256 octets), le `struct Layer` de
 /// `layer.wgsl`. `blur.wgsl` n'en lit que les 128 premiers.
 const LAYER_BYTES: u64 = std::mem::size_of::<LayerCB>() as u64;
 
 /// `&LayerCB` -> ses octets. `LayerCB` est `#[repr(C, align(16))]`, son layout EST le buffer
-/// uniforme WGSL (douze vec4 = 192 octets).
+/// uniforme WGSL (seize vec4 = 256 octets).
 fn layer_bytes(cb: &LayerCB) -> &[u8] {
     unsafe { std::slice::from_raw_parts(cb as *const LayerCB as *const u8, LAYER_BYTES as usize) }
 }
@@ -2500,26 +2500,14 @@ impl Compositor {
             // precedente, et un rect source qui ne correspond pas au calque
             // dessine ferait diverger la trainee vers une zone de la texture qui
             // n'a jamais ete affichee. Seul `dst_prev` porte le mouvement.
-            let cb = LayerCB {
-                dst: g.w_dst,
-                src: [u0, v0, u1, v1],
-                quad_px: g.w_px,
-                radius_px: g.w_radius,
-                mode: 0.0,
-                // `color.a` porte l'alpha du decoupage (`color.a * personne`) ; le
-                // RGB n'est plus lu, le fond ayant deja ete peint sous la camera.
-                color: [0.0, 0.0, 0.0, 1.0],
-                // `fx.xy` = etendue valide de la texture webcam, par quoi le
-                // shader divise `uv` pour retomber dans l'espace du masque ;
-                // `fx.z` = mode, `fx.w` = intensite du flou. Contrat commun aux
-                // trois back-ends, cf. `layer.wgsl` et `webcam-segmentation.md`.
-                fx: [w_valid[0], w_valid[1], effect_code, blur_intensity],
-                src_prev: [u0, v0, u1, v1],
-                dst_prev: g.w_dst_prev,
-                mb: [g.mb_taps, g.mb_amount, 1.0, 0.0],
-                cover: [g.webcam_cover, 0.04 * g.w_px[0].min(g.w_px[1]) * g.webcam_cover, 0.35, 0.0],
-                ..Default::default()
-            };
+            // `fx.xy` = etendue valide de la texture webcam, par quoi le
+            // shader divise `uv` pour retomber dans l'espace du masque ;
+            // `fx.z` = mode, `fx.w` = intensite du flou. Contrat commun aux
+            // trois back-ends, cf. `layer.wgsl` et `webcam-segmentation.md`.
+            let cb = g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity);
+            // Nothing sets the camera lanes yet outside the pixel tests below.
+            #[cfg(test)]
+            let cb = tests::with_test_webcam_lanes(cb);
             // Le masque est lie par `make_bind` sur tous les draws, pas seulement
             // celui-ci : le layout l'exige (cf. `tex_entry(4)`).
             self.make_bind(&cb, Some((wy, wu, wv)), &dummy)
@@ -4768,12 +4756,23 @@ mod tests {
 
     /// `compose_pip` sur une scene deja construite, pour les tests qui la retouchent.
     fn compose_pip_scene(comp: &Compositor, gpu: &Gpu, scene: Scene, shadow: bool) -> Vec<u8> {
+        let screen = FakeFrame::new(gpu, 128, 128, |_, _| 126);
+        let webcam = FakeFrame::new(gpu, 64, 64, |_, _| Y_WHITE);
+        compose_pip_frames(comp, scene, shadow, &screen, &webcam)
+    }
+
+    /// `compose_pip_scene` with the caller's own screen and camera frames.
+    fn compose_pip_frames(
+        comp: &Compositor,
+        scene: Scene,
+        shadow: bool,
+        screen: &FakeFrame,
+        webcam: &FakeFrame,
+    ) -> Vec<u8> {
         comp.set_live_params(live_params_from_scene(&scene));
         comp.set_has_webcam(true);
         comp.set_scene(Some(scene));
 
-        let screen = FakeFrame::new(gpu, 128, 128, |_, _| 126);
-        let webcam = FakeFrame::new(gpu, 64, 64, |_, _| Y_WHITE);
         let mut cfg = Cfg::c8();
         cfg.bg_blur = 0.0;
         cfg.zoom = false;
@@ -4900,6 +4899,105 @@ mod tests {
             camera > frame * 95 / 100,
             "palier Full Camera : {camera} pixels de camera sur {frame}"
         );
+    }
+
+    thread_local! {
+        /// The camera lanes (`persp`, `layer_fx`) the pixel tests below give camera 0's draw.
+        /// Nothing outside these tests sets them yet. Per thread, so tests running in parallel
+        /// do not see each other's lanes.
+        static TEST_WEBCAM_LANES: std::cell::Cell<Option<([[f32; 4]; 3], [f32; 4])>> =
+            const { std::cell::Cell::new(None) };
+    }
+
+    /// The hook `compose_frame` runs camera 0's `LayerCB` through under `cfg(test)`.
+    pub(super) fn with_test_webcam_lanes(mut cb: LayerCB) -> LayerCB {
+        if let Some((persp, layer_fx)) = TEST_WEBCAM_LANES.with(|l| l.get()) {
+            cb.persp = persp;
+            cb.layer_fx = layer_fx;
+        }
+        cb
+    }
+
+    /// Runs `f` with camera 0 drawn through these lanes, then clears them.
+    fn with_webcam_lanes<T>(persp: [[f32; 4]; 3], layer_fx: [f32; 4], f: impl FnOnce() -> T) -> T {
+        TEST_WEBCAM_LANES.with(|l| l.set(Some((persp, layer_fx))));
+        let out = f();
+        TEST_WEBCAM_LANES.with(|l| l.set(None));
+        out
+    }
+
+    /// `pip_scene_json` on a black background: with a black screen too, the camera is drawn over
+    /// black wherever it lands, so its colour can be read without knowing where the PiP is.
+    fn black_pip_scene() -> Scene {
+        let json = pip_scene_json(NO_EFFECT).replace("#0080ff", "#000000");
+        Scene::from_json(&json).expect("scene json")
+    }
+
+    /// The x of every pixel of a `width`-wide RGBA image that `pred` accepts.
+    fn xs_where(rgba: &[u8], width: usize, pred: impl Fn(&[u8]) -> bool) -> Vec<usize> {
+        rgba.chunks_exact(4)
+            .enumerate()
+            .filter(|(_, px)| pred(px))
+            .map(|(i, _)| i % width)
+            .collect()
+    }
+
+    /// A transparency of 0.5 draws the (white) camera at half strength over the (black) screen:
+    /// every camera pixel is mid grey, none of them is white any more.
+    #[test]
+    fn transparency_half_halves_the_camera_over_the_screen() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| Y_BLACK);
+        let webcam = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let opaque = compose_pip_frames(&comp, black_pip_scene(), false, &screen, &webcam);
+        let whole = camera_pixels(&opaque);
+        assert!(whole > 200, "the camera is not on screen, the test proves nothing");
+
+        let half = with_webcam_lanes([[0.0; 4]; 3], [0.5, 0.0, 0.0, 0.0], || {
+            compose_pip_frames(&comp, black_pip_scene(), false, &screen, &webcam)
+        });
+        assert_eq!(camera_pixels(&half), 0, "a half transparent camera still has white pixels");
+        let grey = half
+            .chunks_exact(4)
+            .filter(|px| px[..3].iter().all(|&c| (126..=130).contains(&c)))
+            .count();
+        assert!(
+            grey as f32 >= whole as f32 * 0.9,
+            "{grey} mid-grey pixels for {whole} camera pixels drawn opaque"
+        );
+    }
+
+    /// A homography that flips the camera horizontally draws its right half on the left of the
+    /// layer: a camera red on the left and blue on the right shows blue left of red. The control
+    /// (no lanes) shows it the other way round, so the flip is the homography's doing.
+    #[test]
+    fn a_homography_maps_the_camera_quad_to_the_layer() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| Y_BLACK);
+        // BT.709 limited: red = (Y 63, Cb 102, Cr 240), blue = (Y 32, Cb 240, Cr 118).
+        let (w, h) = (64u32, 64u32);
+        let y: Vec<u8> = (0..w * h).map(|i| if i % w < w / 2 { 63 } else { 32 }).collect();
+        let uv: Vec<u8> = (0..h / 2)
+            .flat_map(|_| (0..w / 2).flat_map(|j| if j < w / 4 { [102, 240] } else { [240, 118] }))
+            .collect();
+        let webcam = FakeFrame::from_planes(&gpu, w, h, &y, &uv);
+        let red = |px: &[u8]| px[0] > 200 && px[1] < 60 && px[2] < 60;
+        let blue = |px: &[u8]| px[2] > 200 && px[0] < 60 && px[1] < 60;
+
+        let plain = compose_pip_frames(&comp, black_pip_scene(), false, &screen, &webcam);
+        let (r, b) = (xs_where(&plain, 320, red), xs_where(&plain, 320, blue));
+        assert!(r.len() > 50 && b.len() > 50, "control: {} red, {} blue pixels", r.len(), b.len());
+        assert!(r.iter().max() < b.iter().min(), "control: the camera's red half is on the left");
+
+        let flip = [[-1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
+        let flipped = with_webcam_lanes(flip, [0.0, 1.0, 0.0, 0.0], || {
+            compose_pip_frames(&comp, black_pip_scene(), false, &screen, &webcam)
+        });
+        let (r, b) = (xs_where(&flipped, 320, red), xs_where(&flipped, 320, blue));
+        assert!(r.len() > 50 && b.len() > 50, "flipped: {} red, {} blue pixels", r.len(), b.len());
+        assert!(b.iter().max() < r.iter().min(), "flipped: the left half of the layer is blue");
     }
 
     /// Le tour complet, celui qui a besoin d'ONNX Runtime : capture -> inference

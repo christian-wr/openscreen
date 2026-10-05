@@ -2737,22 +2737,7 @@ impl Compositor {
             }
             self.draw_video(
                 enc,
-                &LayerCB {
-                    dst: g.w_dst,
-                    src: [u0, v0, u1, v1],
-                    quad_px: g.w_px,
-                    radius_px: g.w_radius,
-                    mode: 0.0,
-                    // `color.a` porte l'alpha du découpage (`color.a * personne`) ; le RGB n'est
-                    // plus lu, le fond ayant déjà été peint sous la caméra.
-                    color: [0.0, 0.0, 0.0, 1.0],
-                    fx: [w_valid[0], w_valid[1], effect_code, blur_intensity],
-                    src_prev: [u0, v0, u1, v1],
-                    dst_prev: g.w_dst_prev,
-                    mb: [g.mb_taps, g.mb_amount, 1.0, 0.0],
-                    cover: [g.webcam_cover, 0.04 * g.w_px[0].min(g.w_px[1]) * g.webcam_cover, 0.35, 0.0],
-                    ..Default::default()
-                },
+                &g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity),
                 wy,
                 wuv,
             );

@@ -27,7 +27,7 @@
 use crate::config::Cfg;
 use crate::scene::{Scene, SceneCrop};
 
-/// Constant buffer d'un calque : **192 octets**, un par draw.
+/// Constant buffer d'un calque : **256 octets**, un par draw.
 ///
 /// C'est le contrat partagé par les trois côtés — `cbuffer Layer` dans `shaders.hlsl`,
 /// `struct Layer` dans `shaders.metal` et `vk_shaders/layer.wgsl`, et ce struct. Ils doivent
@@ -42,6 +42,8 @@ use crate::scene::{Scene, SceneCrop};
 ///
 /// (Le commentaire d'origine annonçait « 64 octets ». Il n'a jamais été juste : dix champs,
 /// trente-deux `f32`. Les trois suivants, le flou de mouvement de l'écran incliné, en font 176, et `cover`, le voile de la vue bureau, 192.)
+/// (The camera layers' homography `persp` and transparency `layer_fx` make it 256: offsets 192
+/// and 240.)
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Default)]
 pub struct LayerCB {
@@ -65,6 +67,14 @@ pub struct LayerCB {
     /// Desk-view cover of the webcam layer: x = strength 0..1, y = blur radius (quad px),
     /// z = dim factor, w unused. Zero everywhere else.
     pub cover: [f32; 4],
+    /// Camera (mode 0) only: the rows of the homography H that maps a point of the layer's
+    /// `dst` quad (0..1, top-left origin) to the camera frame (0..1 of its valid part):
+    /// `[h0, h1, h2, 0], [h3, h4, h5, 0], [h6, h7, h8, 0]`. Read only when `layer_fx.y` is 1;
+    /// `src` is then ignored. Every other mode ignores it.
+    pub persp: [[f32; 4]; 3],
+    /// x = transparency 0..1 (0 = opaque), applied to the output of every mode; y = 1 when
+    /// `persp` applies; z, w = 0. All zero = the layer draws exactly as before the lanes.
+    pub layer_fx: [f32; 4],
 }
 
 impl LayerCB {
@@ -2182,6 +2192,40 @@ impl FrameGeometry {
     /// flous étalent le secret sur le même chemin.
     pub fn tilt_pixel_trail(&self, render_px: [f32; 2]) -> Option<TiltTrail> {
         self.tilt_trail(render_px).filter(|_| !self.screen_trail(render_px))
+    }
+
+    /// The camera-0 video draw (mode 0), the same on every backend. `src` = the source rect with
+    /// the mirror / desk turn already applied as swapped bounds (it is also `src_prev`: only
+    /// `dst_prev` carries the motion), `valid` = the valid fraction of the decoder texture,
+    /// `effect_code` / `blur_intensity` = the background effect sent to the shader.
+    pub fn webcam_video_cb(
+        &self,
+        src: [f32; 4],
+        valid: [f32; 2],
+        effect_code: f32,
+        blur_intensity: f32,
+    ) -> LayerCB {
+        LayerCB {
+            dst: self.w_dst,
+            src,
+            quad_px: self.w_px,
+            radius_px: self.w_radius,
+            mode: 0.0,
+            // `color.a` carries the cutout alpha (`color.a * person`); the RGB is not read, the
+            // background has already been painted under the camera.
+            color: [0.0, 0.0, 0.0, 1.0],
+            fx: [valid[0], valid[1], effect_code, blur_intensity],
+            src_prev: src,
+            dst_prev: self.w_dst_prev,
+            mb: [self.mb_taps, self.mb_amount, 1.0, 0.0],
+            cover: [
+                self.webcam_cover,
+                0.04 * self.w_px[0].min(self.w_px[1]) * self.webcam_cover,
+                0.35,
+                0.0,
+            ],
+            ..Default::default()
+        }
     }
 
     /// Le calque du mode 18 : le rendu isolé de l'écran cadré (t2), recomposé le long de sa
@@ -7372,7 +7416,7 @@ mod tests {
     #[test]
     fn layer_cb_matches_the_shader_constant_buffer() {
         use std::mem::{align_of, offset_of, size_of};
-        assert_eq!(size_of::<LayerCB>(), 192);
+        assert_eq!(size_of::<LayerCB>(), 256);
         assert_eq!(align_of::<LayerCB>(), 16);
         for (name, got, want) in [
             ("dst", offset_of!(LayerCB, dst), 0),
@@ -7389,9 +7433,38 @@ mod tests {
             ("trail_b", offset_of!(LayerCB, trail_b), 144),
             ("trail_mb", offset_of!(LayerCB, trail_mb), 160),
             ("cover", offset_of!(LayerCB, cover), 176),
+            ("persp", offset_of!(LayerCB, persp), 192),
+            ("layer_fx", offset_of!(LayerCB, layer_fx), 240),
         ] {
             assert_eq!(got, want, "offset de `{name}`");
         }
+    }
+
+    /// The camera-0 draw as every backend builds it today leaves both new lanes at zero: no
+    /// homography (`layer_fx.y = 0`) and opaque (`layer_fx.x = 0`), so the shaders take exactly
+    /// the path they took before the lanes existed. The other fields are the ones the three
+    /// backends used to spell out inline.
+    #[test]
+    fn the_webcam_draw_leaves_the_homography_and_transparency_lanes_at_zero() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let scene = golden_scene();
+        let g = plan_frame(&golden_input(&scene, &cfg));
+        let src = [0.1, 0.2, 0.9, 0.8];
+        let cb = g.webcam_video_cb(src, [1.0, 0.75], 2.0, 0.4);
+        assert_eq!(cb.persp, [[0.0; 4]; 3]);
+        assert_eq!(cb.layer_fx, [0.0; 4]);
+        assert_eq!(cb.dst, g.w_dst);
+        assert_eq!(cb.src, src);
+        assert_eq!(cb.src_prev, src);
+        assert_eq!(cb.quad_px, g.w_px);
+        assert_eq!(cb.radius_px, g.w_radius);
+        assert_eq!(cb.mode, 0.0);
+        assert_eq!(cb.color, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(cb.fx, [1.0, 0.75, 2.0, 0.4]);
+        assert_eq!(cb.dst_prev, g.w_dst_prev);
+        assert_eq!(cb.mb, [g.mb_taps, g.mb_amount, 1.0, 0.0]);
+        let min_px = g.w_px[0].min(g.w_px[1]);
+        assert_eq!(cb.cover, [g.webcam_cover, 0.04 * min_px * g.webcam_cover, 0.35, 0.0]);
     }
 
     /// A turned Full Camera section from 1 s to 9 s: the plan carries the cover strength, full in
@@ -9037,11 +9110,18 @@ mod tests {
                 )),
                 "blur_webcam_radius reads the texture size for its half-texel clamp"
             );
+            // `fs_main` only applies the layer's transparency to `fs_layer`, which draws it.
             let fs = module.entry_points.iter().find(|e| e.name == "fs_main").expect("fs_main");
+            let (body, f) = module
+                .functions
+                .iter()
+                .find(|(_, f)| f.name.as_deref() == Some("fs_layer"))
+                .expect("fs_layer exists");
+            assert_eq!(calls(&fs.function.body, body), 1, "fs_main draws through fs_layer");
             assert_eq!(
-                calls(&fs.function.body, kernel),
+                calls(&f.body, kernel),
                 1,
-                "fs_main blurs the covered camera once (LAYER_MODELS = {models})"
+                "fs_layer blurs the covered camera once (LAYER_MODELS = {models})"
             );
         }
     }

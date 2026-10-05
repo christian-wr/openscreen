@@ -2023,7 +2023,6 @@ impl Compositor {
         });
         self.footage.set(Some(g.footage_quad([self.rw(), self.rh()])));
         let scene_preset = g.scene_preset.clone();
-        let mb_taps = g.mb_taps;
         let mb_amount = g.mb_amount;
         let source_t = g.source_t;
         let _padding_scale = g.padding_scale;
@@ -2034,7 +2033,6 @@ impl Compositor {
         let s_radius = g.s_radius;
         let frame_min_px = g.frame_min_px;
         let w_dst = g.w_dst;
-        let w_dst_prev = g.w_dst_prev;
         let w_px = g.w_px;
         let w_radius = g.w_radius;
         let shape_fade = g.shape_fade;
@@ -2509,22 +2507,7 @@ impl Compositor {
                 self.ctx.PSSetShaderResources(3, Some(&[Some(m.srv.clone())]));
             }
             self.draw_video(
-                &LayerCB {
-                    dst: w_dst,
-                    src: [u0, v0, u1, v1],
-                    quad_px: w_px,
-                    radius_px: w_radius,
-                    mode: 0.0,
-                    // `color.a` porte l'alpha du découpage (`color.a * personne`) ; le RGB n'est
-                    // plus lu, le fond ayant déjà été peint sous la caméra.
-                    color: [0.0, 0.0, 0.0, 1.0],
-                    fx: [w_valid[0], w_valid[1], effect_code, blur_intensity],
-                    src_prev: [u0, v0, u1, v1], // src fixe (pas de zoom webcam)
-                    dst_prev: w_dst_prev,
-                    mb: [mb_taps, mb_amount, 1.0, 0.0],
-                    cover: [g.webcam_cover, 0.04 * w_px[0].min(w_px[1]) * g.webcam_cover, 0.35, 0.0],
-                    ..Default::default()
-                },
+                &g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity),
                 &wy,
                 &wuv,
             );
