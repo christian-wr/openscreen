@@ -1382,7 +1382,8 @@ export function buildSceneDescription(
 			};
 			const pipShape = layoutByClip[region.clipIndex]?.webcamShape ?? settings.webcamMaskShape;
 			// A clip without a camera-1 box (no-webcam preset, no camera 1) still rounds its
-			// PiPs the way `computeCompositeLayout` would: a fraction of half the short side.
+			// PiPs the way `computeCompositeLayout` would: the radius is a fraction
+			// of the short side (= roundness of half of it).
 			const pipRadiusFrac =
 				layoutByClip[region.clipIndex]?.webcamRadiusFrac ?? clamp01(settings.webcamRoundness) / 2;
 			const layers = resolveCameraLayout(region, {

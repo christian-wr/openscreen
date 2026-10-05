@@ -97,15 +97,18 @@ pub fn camera_layers_at(
     default_cam0: Option<CameraLayerPlan>,
 ) -> Vec<CameraLayerPlan> {
     let default: Vec<CameraLayerPlan> = default_cam0.into_iter().collect();
-    let Some(index) = regions
-        .iter()
-        .position(|r| r.start_sec as f32 <= t && t <= r.end_sec as f32)
+    // An empty (or reversed) region would match `t` at a single instant and draw its layers
+    // at full strength for that sample; it is neither drawn nor anyone's neighbour.
+    let non_empty = || regions.iter().enumerate().filter(|(_, r)| r.end_sec > r.start_sec);
+    let Some(index) = non_empty()
+        .find(|(_, r)| r.start_sec as f32 <= t && t <= r.end_sec as f32)
+        .map(|(i, _)| i)
     else {
         return default;
     };
     let region = &regions[index];
     let layers_of = |r: &SceneCameraLayoutRegion| r.layers.iter().map(plan_of).collect::<Vec<_>>();
-    let others = || regions.iter().enumerate().filter(move |(i, _)| *i != index).map(|(_, r)| r);
+    let others = || non_empty().filter(move |(i, _)| *i != index).map(|(_, r)| r);
     let prev = others()
         .find(|r| (r.end_sec - region.start_sec).abs() <= ADJACENT_S)
         .map(layers_of);
@@ -276,6 +279,27 @@ mod tests {
             let cam1 = layer(&at(&regions, t), 1).expect("camera 1");
             assert!(strictly_between(cam1.opacity, 0.0, 1.0), "t = {t}");
         }
+    }
+
+    #[test]
+    fn an_empty_region_draws_nothing_of_its_own() {
+        // start == end (and a reversed region) would otherwise match `t` at its one instant
+        // and draw its layers at full strength for that sample.
+        for regions in [
+            [region(3.0, 3.0, &[(1, FULL, true)])],
+            [region(3.0, 2.0, &[(1, FULL, true)])],
+        ] {
+            for t in [2.0, 2.5, 3.0] {
+                let layers = at(&regions, t);
+                assert!(layer(&layers, 1).is_none(), "t = {t}");
+                assert_eq!(layers.len(), 1, "t = {t}");
+                assert_eq!(layers[0].camera, 0, "t = {t}");
+            }
+        }
+        // Nor does it count as a neighbour: the region before it still leads out.
+        let regions = [region(2.0, 6.0, &[(1, FULL, true)]), region(6.0, 6.0, &[(1, FULL, true)])];
+        let cam1 = layer(&at(&regions, 5.9), 1).expect("camera 1");
+        assert!(strictly_between(cam1.opacity, 0.0, 1.0));
     }
 
     #[test]

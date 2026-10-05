@@ -3210,7 +3210,8 @@ describe("buildSceneDescription cameras", () => {
 			),
 		);
 		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 0);
-		// Same unit as `computeCompositeLayout`: a fraction of HALF the short side.
+		// Same unit as `computeCompositeLayout`: the radius is a fraction of the short side
+		// (= roundness of half of it).
 		expect(pip?.radiusFrac).toBeCloseTo(0.3, 6);
 	});
 
