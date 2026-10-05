@@ -19,6 +19,7 @@ import type {
 import { useScopedT } from "@/contexts/I18nContext";
 import {
 	type AnchoredCameraLayoutRegion,
+	cameraSectionsOverlapping,
 	isFullCameraLayout,
 	MAX_CAMERAS,
 	normalizeCameraLayoutRegions,
@@ -181,7 +182,7 @@ function withCameraLanes(
 
 /** Whether the span `[startMs, endMs)` overlaps any row of either list. */
 function cameraLaneOccupied(lanes: CameraLanes, startMs: number, endMs: number): boolean {
-	return [...lanes.full, ...lanes.layout].some((r) => r.startMs < endMs && r.endMs > startMs);
+	return cameraSectionsOverlapping([...lanes.full, ...lanes.layout], startMs, endMs).length > 0;
 }
 
 // An identity no stored region can have, so a pill of the other list is always a wall.
@@ -770,7 +771,7 @@ export function useTimeline() {
 			const timeMs = Math.round(playheadSec() * 1000);
 			const endMs = timeMs + Math.round(durationSec * 1000);
 			const lanes = cameraLanes(document);
-			if (lanes.layout.some((r) => r.startMs < endMs && r.endMs > timeMs)) return "occupied";
+			if (cameraSectionsOverlapping(lanes.layout, timeMs, endMs).length > 0) return "occupied";
 			const prev = (lanes.legacy.cameraFullscreenRegions as unknown[]) ?? [];
 			const next: AxcutDocument = {
 				...document,

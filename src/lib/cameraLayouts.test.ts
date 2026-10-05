@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	cameraSectionsOverlapping,
 	fullCameraRowsOfLayoutList,
 	isFullCameraLayout,
 	MAX_CAMERAS,
@@ -274,5 +275,25 @@ describe("patchCameraSettings", () => {
 	it("null resets a middle camera", () => {
 		const raw = [null, { mirror: true }, { rotation: 180 }];
 		expect(patchCameraSettings(raw, 1, null)).toEqual([null, null, { rotation: 180 }]);
+	});
+});
+
+describe("cameraSectionsOverlapping", () => {
+	const rows = [
+		{ id: "a", startMs: 1000, endMs: 2000 },
+		{ id: "b", startMs: 3000, endMs: 4000 },
+	];
+
+	it("returns every row the span overlaps", () => {
+		expect(cameraSectionsOverlapping(rows, 1500, 3500).map((r) => r.id)).toEqual(["a", "b"]);
+	});
+
+	it("does not count touching as overlap", () => {
+		expect(cameraSectionsOverlapping(rows, 2000, 3000)).toEqual([]);
+		expect(cameraSectionsOverlapping(rows, 0, 1000)).toEqual([]);
+	});
+
+	it("finds a row the span lies inside", () => {
+		expect(cameraSectionsOverlapping(rows, 3200, 3300).map((r) => r.id)).toEqual(["b"]);
 	});
 });

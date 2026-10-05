@@ -1211,6 +1211,96 @@ describe("a full-camera region needs a camera", () => {
 	});
 });
 
+describe("full-camera regions and layout sections share one lane", () => {
+	/** A side-by-side section of cameras 1 and 2 over 10–15 s of clip_1. */
+	function withLayoutSection(document: AxcutDocument): AxcutDocument {
+		return documentSchema.parse({
+			...document,
+			legacyEditor: {
+				...((document.legacyEditor as Record<string, unknown>) ?? {}),
+				cameraLayoutRegions: [
+					{
+						id: "camlayout_1",
+						startMs: 10_000,
+						endMs: 15_000,
+						clipId: "clip_1",
+						assetId: "asset_1",
+						sourceStartSec: 10,
+						sourceEndSec: 15,
+						template: "side-by-side",
+						slots: [{ camera: 0 }, { camera: 1 }],
+					},
+				],
+			},
+		});
+	}
+
+	it("exposes layout sections read-only in the snapshot", () => {
+		const document = withLayoutSection(withCameraTrack(fixtureDocument()));
+		const snapshot = JSON.parse(executeAgentTool(document, "getCurrentDocument", "").resultJson);
+		expect(snapshot.cameraLayoutRegions).toEqual([
+			{ id: "camlayout_1", startSec: 10, endSec: 15, template: "side-by-side", cameras: [1, 2] },
+		]);
+		expect(snapshot.cameraLayoutNote).toMatch(/read-only/);
+		expect(snapshot.timeBaseNote).toMatch(/cameraLayoutRegions/);
+	});
+
+	it("an empty project reports no layout sections", () => {
+		const snapshot = JSON.parse(
+			executeAgentTool(fixtureDocument(), "getCurrentDocument", "").resultJson,
+		);
+		expect(snapshot.cameraLayoutRegions).toEqual([]);
+	});
+
+	it("refuses to add a full-camera region over a layout section", () => {
+		const document = withLayoutSection(withCameraTrack(fixtureDocument()));
+		const result = executeAgentTool(
+			document,
+			"addCameraFullscreen",
+			JSON.stringify({ startSec: 12, endSec: 18 }),
+		);
+		expect(result.ok).toBe(false);
+		expect(result.document).toBeUndefined();
+		const error = JSON.parse(result.resultJson).error as string;
+		expect(error).toMatch(/camlayout_1/);
+		expect(error).toMatch(/side-by-side, 10–15 s/);
+		expect(error).toMatch(/may not overlap/);
+	});
+
+	it("allows a full-camera region that only touches a layout section", () => {
+		const document = withLayoutSection(withCameraTrack(fixtureDocument()));
+		const result = executeAgentTool(
+			document,
+			"addCameraFullscreen",
+			JSON.stringify({ startSec: 5, endSec: 10 }),
+		);
+		expect(result.ok).toBe(true);
+	});
+
+	it("refuses to move a full-camera region onto a layout section", () => {
+		const document = withLayoutSection(withCameraTrack(fixtureDocument()));
+		const added = executeAgentTool(
+			document,
+			"addCameraFullscreen",
+			JSON.stringify({ startSec: 0, endSec: 5 }),
+		);
+		expect(added.ok).toBe(true);
+		const regionId = (
+			(added.document?.legacyEditor as Record<string, unknown>).cameraFullscreenRegions as Array<{
+				id: string;
+			}>
+		)[0].id;
+		const moved = executeAgentTool(
+			added.document as AxcutDocument,
+			"setCameraFullscreen",
+			JSON.stringify({ cameraFullscreenId: regionId, startSec: 8, endSec: 11 }),
+		);
+		expect(moved.ok).toBe(false);
+		expect(moved.document).toBeUndefined();
+		expect(JSON.parse(moved.resultJson).error).toMatch(/camlayout_1/);
+	});
+});
+
 // ── D-DESTRUCT ──────────────────────────────────────────────────────────────
 //
 // "Swap the two clips: put the demo first." There was no tool for it — while

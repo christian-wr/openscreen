@@ -57,6 +57,10 @@ import {
 	effectiveZoomScale,
 	ZOOM_DEPTH_LEGEND,
 } from "../../src/lib/ai-edition/timeline/zoom-scale";
+import {
+	cameraSectionsOverlapping,
+	normalizeCameraLayoutRegions,
+} from "../../src/lib/cameraLayouts";
 import { SETTING_BOUNDS } from "../../src/lib/projectDefaults";
 
 export interface AgentToolExecution {
@@ -266,6 +270,39 @@ function noCameraUnderSpan(
 			(anywhere
 				? "Other clips in this project do carry a camera — check assets[].hasCameraTrack in getCurrentDocument and pick a span over one of those."
 				: "No asset in this project carries a cameraTrack at all (assets[].hasCameraTrack is false everywhere): this recording has no webcam. Tell the user instead of placing a region."),
+	);
+}
+
+/** The editor's file the agent reads layout sections from, coalesced to the pills the ruler draws. */
+function cameraLayoutPillsForAgent(document: AxcutDocument) {
+	const legacy = document.legacyEditor as Record<string, unknown> | null;
+	return coalesceForAgent(normalizeCameraLayoutRegions(legacy?.cameraLayoutRegions));
+}
+
+/**
+ * Refuse a full-camera region that would land on a camera layout section. Both share one
+ * lane on the timeline and may never overlap (the editor refuses the same add as
+ * "occupied"); two overlapping sections would leave the scene to drop one of them.
+ * Layout sections are not editable from here, so the message names the one in the way.
+ */
+function cameraLayoutInTheWay(
+	document: AxcutDocument,
+	startSec: number,
+	endSec: number,
+): AgentToolExecution | null {
+	const blocking = cameraSectionsOverlapping(
+		cameraLayoutPillsForAgent(document),
+		toMs(startSec),
+		toMs(endSec),
+	)[0];
+	if (!blocking) return null;
+	return failure(
+		`The span ${startSec.toFixed(1)}–${endSec.toFixed(1)} s overlaps the camera layout ` +
+			`section ${blocking.id} (${blocking.template}, ${roundSec(blocking.startMs)}–` +
+			`${roundSec(blocking.endMs)} s), so no full-camera region was written. Full-camera ` +
+			"regions and layout sections share one camera lane and may not overlap. Pick a span " +
+			"outside every entry of cameraLayoutRegions in getCurrentDocument, or ask the user " +
+			"to change the layout section in the editor.",
 	);
 }
 
@@ -765,7 +802,11 @@ export function documentSnapshotForModel(
 	const autoFocusAll = legacy?.autoFocusAll === true;
 	return {
 		timeBaseNote:
-			"clips and trims are in source-time seconds; zooms, speedRegions, annotations, cameraFullscreenRegions and audioTracks are in virtual (edited-timeline) seconds.",
+			"clips and trims are in source-time seconds; zooms, speedRegions, annotations, cameraFullscreenRegions, cameraLayoutRegions and audioTracks are in virtual (edited-timeline) seconds.",
+		cameraLayoutNote:
+			"cameraLayoutRegions are multi-camera layout sections the user placed in the editor; they are read-only here. " +
+			"They share one camera lane with cameraFullscreenRegions and the two may never overlap, so addCameraFullscreen / setCameraFullscreen refuse a span that lands on one. " +
+			"cameras lists the cameras shown, in place order, numbered as the user sees them (1 = the recording's main webcam).",
 		audioNote:
 			"audioTracks are imported voiceover / music files laid over the recording. They are clip-anchored like every other region, so they travel with their clip through reorder and trim, and they play at 1x whatever a speed region does to the picture under them. addAudio places an EXISTING asset of kind 'audio'; nothing here can import a file from disk or record one, so if the project has no audio asset, say so rather than inventing an id.",
 		zoomNote:
@@ -860,6 +901,13 @@ export function documentSnapshotForModel(
 			id: c.id,
 			startSec: roundSec(c.startMs),
 			endSec: roundSec(c.endMs),
+		})),
+		cameraLayoutRegions: cameraLayoutPillsForAgent(document).map((l) => ({
+			id: l.id,
+			startSec: roundSec(l.startMs),
+			endSec: roundSec(l.endMs),
+			template: l.template,
+			cameras: l.slots.map((slot) => slot.camera + 1),
 		})),
 		// Imported audio, collapsed to the pills the ruler draws — a track ventilated
 		// across a clip boundary is several fragments the user sees as one thing, and
@@ -2041,6 +2089,8 @@ export function executeAgentTool(
 			}
 			const blind = noCameraUnderSpan(document, landing.startSec, landing.endSec);
 			if (blind) return blind;
+			const occupied = cameraLayoutInTheWay(document, landing.startSec, landing.endSec);
+			if (occupied) return occupied;
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: { ...legacy, cameraFullscreenRegions: [...prev, ...placed] },
@@ -2085,6 +2135,8 @@ export function executeAgentTool(
 			}
 			const blindMove = noCameraUnderSpan(document, landing.startSec, landing.endSec);
 			if (blindMove) return blindMove;
+			const occupiedMove = cameraLayoutInTheWay(document, landing.startSec, landing.endSec);
+			if (occupiedMove) return occupiedMove;
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: { ...legacy, cameraFullscreenRegions: rebuiltCamera },
