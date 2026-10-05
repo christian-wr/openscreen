@@ -522,6 +522,26 @@ pub struct ClipInput {
     pub webcam_offset_sec: f64,
     /// `false` évite une ouverture ffmpeg vouée à échouer et réserve du silence à ce clip.
     pub has_audio: bool,
+    /// Cameras 2-4 of the clip (index k-1 = camera k, an empty `path` = none). Absent = none.
+    pub additional_cameras: Option<Vec<ClipCameraInput>>,
+}
+
+/// `ClipInput` → `pipeline::ClipSource`, shared by the MP4 and the GIF export.
+fn clip_source(c: ClipInput) -> pipeline::ClipSource {
+    pipeline::ClipSource {
+        screen: c.screen_path,
+        webcam: c.webcam_path,
+        source_start_sec: c.source_start_sec,
+        source_end_sec: c.source_end_sec,
+        webcam_offset_sec: c.webcam_offset_sec,
+        has_audio: c.has_audio,
+        additional_cameras: c
+            .additional_cameras
+            .unwrap_or_default()
+            .into_iter()
+            .map(|cam| pipeline::ClipCamera { path: cam.path, offset_sec: cam.offset_sec })
+            .collect(),
+    }
 }
 
 /// The export's pixel size. The SHAPE belongs to the scene: `scene.output` is what the live
@@ -719,17 +739,7 @@ pub fn export_multi(
     params: Option<ExportParamsInput>,
     on_progress: Option<JsFunction>,
 ) -> Result<AsyncTask<ExportMultiTask>> {
-    let clips = clips
-        .into_iter()
-        .map(|c| pipeline::ClipSource {
-            screen: c.screen_path,
-            webcam: c.webcam_path,
-            source_start_sec: c.source_start_sec,
-            source_end_sec: c.source_end_sec,
-            webcam_offset_sec: c.webcam_offset_sec,
-            has_audio: c.has_audio,
-        })
-        .collect();
+    let clips = clips.into_iter().map(clip_source).collect();
     Ok(AsyncTask::new(ExportMultiTask {
         out_path,
         clips,
@@ -900,17 +910,7 @@ pub fn export_gif(
     // Deliberately the same argument shape as `export_multi`: the caller builds
     // one clip list and one scene, and picks the container. Cursor comes from
     // the scene like every other effect — there is no GIF-specific input left.
-    let clips = clips
-        .into_iter()
-        .map(|c| pipeline::ClipSource {
-            screen: c.screen_path,
-            webcam: c.webcam_path,
-            source_start_sec: c.source_start_sec,
-            source_end_sec: c.source_end_sec,
-            webcam_offset_sec: c.webcam_offset_sec,
-            has_audio: c.has_audio,
-        })
-        .collect();
+    let clips = clips.into_iter().map(clip_source).collect();
     let gif_params = params
         .map(|p| GifExportParams {
             width: p.width,

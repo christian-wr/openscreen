@@ -57,6 +57,7 @@ pub mod shared_frames;
 pub mod text_anim;
 pub mod text_fonts;
 pub mod text_plate;
+pub(crate) mod extra_cameras;
 pub(crate) mod timeline_walk;
 
 // GPU backend : Windows → d3d_windows, macOS → d3d_macos. Ré-exporté sous le nom `d3d`

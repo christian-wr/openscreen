@@ -17,13 +17,17 @@ use crate::compositor::Compositor;
 use crate::config::Cfg;
 use crate::cursor::CursorTrack;
 use crate::d3d::Gpu;
+use crate::extra_cameras::{
+    camera_source_time, cameras_in_regions, extra_camera_active, extra_camera_keys, open_once,
+    step_extra_camera,
+};
 use crate::ffi::AVFrame;
 use crate::frame_geometry::webcam_is_real;
 use crate::pipeline::{ClipSource, Decoder};
 use crate::regions::{speed_segments_for_window, SpeedSegment};
-use crate::scene::Scene;
+use crate::scene::{Scene, SceneCameraLayoutRegion};
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Ce que le décodeur sait de la PROCHAINE frame, sans l'adopter.
 ///
@@ -142,6 +146,11 @@ pub(crate) unsafe fn advance_decoder_to(
 /// N" defined exactly once: a GIF driven by its own loop is how the slow-motion
 /// truncation bug happened.
 ///
+/// The extra cameras (k >= 1) a clip's layout regions show are opened once per path into
+/// `extra_decs`, decoded only near those regions, and handed to the compositor with
+/// `set_extra_camera_frames`. Unlike camera 0 they never shorten a clip, and a file that will
+/// not open (or stops decoding) is skipped with a warning for the rest of the export.
+///
 /// `on_frame` runs after `compose_frame` with the running output index;
 /// `on_clip_end` runs once per clip with its clamped source window, the frames
 /// it produced, and the speed segments used (MP4 needs those for audio).
@@ -155,6 +164,7 @@ pub(crate) unsafe fn walk_composited_timeline(
     scene: &Option<Scene>,
     screen_decs: &mut HashMap<String, Decoder>,
     webcam_decs: &mut HashMap<String, Decoder>,
+    extra_decs: &mut HashMap<String, Decoder>,
     on_frame: &mut dyn FnMut(u64) -> Result<()>,
     on_clip_end: &mut dyn FnMut(usize, f64, u64, &[SpeedSegment]) -> Result<()>,
 ) -> Result<u64> {
@@ -168,6 +178,7 @@ pub(crate) unsafe fn walk_composited_timeline(
     let mut cursor_active_path: Option<String> = None;
 
     let mut frames: u64 = 0;
+    let mut unreadable_extras: HashSet<String> = HashSet::new();
 
     // L'export doit être reproductible : deux rendus du même projet, les mêmes pixels. Cette
     // boucle avance aussi vite que la machine décode, sans rapport avec le temps réel, alors que
@@ -230,17 +241,12 @@ pub(crate) unsafe fn walk_composited_timeline(
                 clip.source_end_sec,
             );
         }
-        // Les bornes de clip sont en temps écran. La disponibilité webcam est donc translatée
-        // par le même offset que le seek (`webcam_time = screen_time - offset`).
-        let webcam_available_screen_end =
-            webcam_available_duration.map(|duration| duration + clip.webcam_offset_sec);
-        let mut source_end_sec = clip.source_end_sec;
-        if let Some(duration) = screen_available_duration {
-            source_end_sec = source_end_sec.min(duration);
-        }
-        if let Some(duration) = webcam_available_screen_end {
-            source_end_sec = source_end_sec.min(duration);
-        }
+        let source_end_sec = available_clip_end(
+            clip.source_end_sec,
+            screen_available_duration,
+            webcam_available_duration,
+            clip.webcam_offset_sec,
+        );
         if source_end_sec + 1e-6 < clip.source_end_sec {
             eprintln!(
                 "[pipeline] warning: clip #{} raccourci de {:.3}s (fin demandée {:.3}s, fin disponible {:.3}s; screen=\"{}\", webcam=\"{}\")",
@@ -268,6 +274,27 @@ pub(crate) unsafe fn walk_composited_timeline(
             source_end_sec,
             out_fps as f64,
         );
+        // Only the extra cameras this clip's own regions show, and only those it has a file
+        // for. `None` slots stay null in `set_extra_camera_frames`.
+        let camera_regions = clip_scene
+            .as_ref()
+            .map(|s| s.camera_layout_regions.clone())
+            .unwrap_or_default();
+        let mut extras: Vec<Option<ExportExtraCamera>> =
+            extra_camera_keys(&cameras_in_regions(&camera_regions), &clip.additional_cameras)
+                .into_iter()
+                .map(|key| {
+                    let key = key?;
+                    open_once(extra_decs, &mut unreadable_extras, &key.path, |path| {
+                        Decoder::open_for_export(path, gpu)
+                    })
+                    .then_some(ExportExtraCamera {
+                        path: key.path,
+                        offset_sec: key.offset_sec,
+                        ended_at: None,
+                    })
+                })
+                .collect();
         if clip_scene.is_some() {
             comp.set_scene(clip_scene);
         }
@@ -328,6 +355,18 @@ pub(crate) unsafe fn walk_composited_timeline(
                     break 'clip_frames;
                 }
 
+                let extra_frames = {
+                    let _p = crate::export_probe::scope(crate::export_probe::Stage::DecodeWebcam);
+                    step_extra_cameras(
+                        &mut extras,
+                        extra_decs,
+                        &mut unreadable_extras,
+                        &camera_regions,
+                        target_source_time,
+                    )
+                };
+                comp.set_extra_camera_frames(&extra_frames);
+
                 comp.set_timeline_time(Some(target_source_time as f32));
                 // Le temps de SORTIE, lui, ne saute ni aux coupes ni aux clips. Même
                 // arithmétique (f64 puis f32) que `ProgrammeClock::at` côté preview.
@@ -356,14 +395,91 @@ pub(crate) unsafe fn walk_composited_timeline(
     comp.set_cursor_time(None);
     comp.set_timeline_time(None);
     comp.set_programme_time(None);
+    // The extra decoders outlive this call in the caller's map, but the compositor must not
+    // keep pointers into their frames once the walk is over.
+    comp.set_extra_camera_frames(&[]);
     // Le compositeur est réutilisé par la preview après un export : lui rendre sa cadence.
     comp.set_segmentation_deterministic(false);
     Ok(frames)
 }
 
+/// The screen-time end of a clip: the requested end, clamped to what the screen and camera 0
+/// can deliver. Clip bounds are in screen time, so camera 0's duration is moved by the same
+/// offset as its seek (`webcam_time = screen_time - offset`). The extra cameras do not enter
+/// here: one that ends early only loses its layer, it never shortens the clip.
+fn available_clip_end(
+    requested_end_sec: f64,
+    screen_duration: Option<f64>,
+    webcam_duration: Option<f64>,
+    webcam_offset_sec: f64,
+) -> f64 {
+    let mut end = requested_end_sec;
+    if let Some(duration) = screen_duration {
+        end = end.min(duration);
+    }
+    if let Some(duration) = webcam_duration {
+        end = end.min(duration + webcam_offset_sec);
+    }
+    end
+}
+
+/// An extra camera of the clip being exported; its decoder lives in `extra_decs` under `path`.
+struct ExportExtraCamera {
+    path: String,
+    offset_sec: f64,
+    /// See `step_extra_camera`.
+    ended_at: Option<f64>,
+}
+
+/// The frames for `set_extra_camera_frames` at screen source time `t`: each camera that is
+/// near one of its regions steps toward its own source time, the others give null. A camera
+/// that stops decoding is dropped with a warning and not reopened for the rest of the export.
+unsafe fn step_extra_cameras(
+    extras: &mut [Option<ExportExtraCamera>],
+    extra_decs: &mut HashMap<String, Decoder>,
+    unreadable: &mut HashSet<String>,
+    regions: &[SceneCameraLayoutRegion],
+    t: f64,
+) -> Vec<*const AVFrame> {
+    let mut frames = Vec::with_capacity(extras.len());
+    for (k, slot) in extras.iter_mut().enumerate() {
+        let camera = k + 1;
+        let mut frame: *const AVFrame = std::ptr::null();
+        if let Some(cam) = slot.as_mut().filter(|_| extra_camera_active(regions, camera, t)) {
+            if let Some(dec) = extra_decs.get_mut(&cam.path) {
+                let target = camera_source_time(t, cam.offset_sec);
+                match step_extra_camera(dec, &mut cam.ended_at, target) {
+                    Ok(f) => frame = f,
+                    Err(e) => {
+                        eprintln!(
+                            "WARNING: extra camera {camera} stopped decoding ({}): {e:#}. Its layer will not be drawn.",
+                            cam.path
+                        );
+                        extra_decs.remove(&cam.path);
+                        unreadable.insert(cam.path.clone());
+                        *slot = None;
+                    }
+                }
+            }
+        }
+        frames.push(frame);
+    }
+    frames
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{frame_step, FrameStep, NextFrameTime};
+    use super::{available_clip_end, frame_step, FrameStep, NextFrameTime};
+
+    #[test]
+    fn a_short_extra_camera_does_not_shorten_the_clip() {
+        // Screen 60 s, camera 0 50 s at offset 2 s: the clip ends where camera 0 does.
+        assert_eq!(available_clip_end(60.0, Some(60.0), Some(50.0), 2.0), 52.0);
+        // A 10 s extra camera in the same clip changes nothing: only the screen and camera 0
+        // bound the clip, the extra camera's layer just disappears past its end.
+        assert_eq!(available_clip_end(30.0, Some(60.0), Some(50.0), 2.0), 30.0);
+        assert_eq!(available_clip_end(30.0, None, None, 0.0), 30.0);
+    }
 
     /// La cadence de lecture, en une phrase : à 24 fps, une seconde réelle doit adopter 24
     /// frames et pas une de plus. Le bug d'origine (un pas fixe de 1/60 s, une frame par

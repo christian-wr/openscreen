@@ -54,7 +54,12 @@ pub struct ClipSource {
     pub source_end_sec: f64,
     pub webcam_offset_sec: f64,
     pub has_audio: bool,
+    /// Cameras 2-4 of the clip (index k-1 = camera k, an empty `path` = none). Only those a
+    /// layout region of the clip shows are decoded.
+    pub additional_cameras: Vec<ClipCamera>,
 }
+
+pub use crate::extra_cameras::ClipCamera;
 
 /// Codec cible. Memes variantes que `pipeline_macos::ExportCodec`.
 #[derive(Clone, Copy, Debug)]
@@ -945,6 +950,7 @@ pub fn run_composited_multi(
 
     let mut screen_decs: HashMap<String, Decoder> = HashMap::new();
     let mut webcam_decs: HashMap<String, Decoder> = HashMap::new();
+    let mut extra_decs: HashMap<String, Decoder> = HashMap::new();
 
     // ---- muxer MP4 (flux video + flux AAC) ----
     let outc = CString::new(out)?;
@@ -1038,6 +1044,7 @@ pub fn run_composited_multi(
             &scene,
             &mut screen_decs,
             &mut webcam_decs,
+            &mut extra_decs,
             &mut |n| {
                 // Soumet la copie de la frame n SANS l'attendre et recolte la
                 // precedente : c'est tout le pipelining GPU. L'encodage, lui,

@@ -118,14 +118,15 @@ export interface ExportParamsInput {
 	bitrate?: number;
 }
 
-/** One timeline clip for the native multiclip export (screen + webcam files + source trim). */
-/** An additional camera (2-4) of a clip, for `setActiveClip`. = napi `ClipCameraInput`. */
+/** An additional camera (2-4) of a clip, for `setActiveClip` and the export clip list.
+ *  = napi `ClipCameraInput`. */
 export interface ClipCameraInput {
 	path: string;
 	/** Camera source time = screen source time - this. */
 	offsetSec: number;
 }
 
+/** One timeline clip for the native multiclip export (screen + webcam files + source trim). */
 export interface ClipInput {
 	screenPath: string;
 	webcamPath: string;
@@ -133,6 +134,8 @@ export interface ClipInput {
 	sourceEndSec: number;
 	/** webcam source time = screen source time − this. */
 	webcamOffsetSec: number;
+	/** Cameras 2-4 (index k-1 = camera k). Only those a layout region shows are decoded. */
+	additionalCameras?: ClipCameraInput[];
 }
 
 /** Which backend the compositor will run on. `"cpu"` = WARP rasterisation + software

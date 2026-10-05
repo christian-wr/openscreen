@@ -22,7 +22,6 @@
 //! `Mutex<Option<(u64 gen, u32 w, u32 h, Vec<u8>)>>` pour la traversée de threads vers
 //! le napi — le `gen` est l'identité de la frame (cf. `LatestFrame`).
 
-use crate::camera_layers::MAX_EXTRA_CAMERAS;
 use crate::compositor::{Compositor, LiveParams};
 use crate::ffi::AVFrame;
 use crate::regions::{speed_at, ProgrammeClock};
@@ -35,6 +34,10 @@ use crate::pipeline::Decoder;
 #[cfg(windows)]
 use crate::shared_frames::SharedRing;
 use crate::shared_frames::{SharedFrame, SlotBook};
+use crate::extra_cameras::{
+    cameras_in_regions, extra_camera_active, extra_camera_keys, extra_frame_list, has_camera_file,
+    opened_or_skipped, seek_extra_camera, step_extra_camera, ExtraCameraKeys,
+};
 use crate::timeline_walk::{frame_step, FrameStep, NextFrameTime};
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -154,11 +157,6 @@ fn should_draw_webcam(webcam_path: &str, screen_path: &str, decoder_is_real: boo
     webcam_is_real(webcam_path, screen_path) && decoder_is_real
 }
 
-/// What a clip opens for its extra cameras: index k-1 = camera k, `None` = not opened (no
-/// layout region of the clip shows it, or the clip has no file for it). No extra camera at all
-/// is the empty list. Also the extra half of a pooled clip's key (`ClipKey`).
-type ExtraCameraKeys = Vec<Option<SceneClipCamera>>;
-
 /// An extra camera (k >= 1) of the active clip, decoded only near the layout regions that show
 /// it (`extra_camera_active`).
 struct ExtraCamera {
@@ -166,94 +164,24 @@ struct ExtraCamera {
     offset_sec: f64,
     /// The last step or seek left a frame to draw. Read by `Player::recompose`.
     shown: bool,
-    /// Camera source time past which the file has no frame left: the layer disappears there,
-    /// and the decoder is not asked again until the target moves back before it.
+    /// Camera source time past which the file has no frame left (`step_extra_camera`).
     ended_at: Option<f64>,
 }
 
-/// Re-seek an extra camera instead of decoding forward when its target is further ahead than
-/// this (it sat idle between two regions).
-const EXTRA_RESEEK_SEC: f64 = 1.0;
-
 impl ExtraCamera {
-    /// Advance to `target` (camera source time) with the webcam's hold semantics (`frame_step`);
-    /// re-seek after an idle stretch or a jump back. Null past the camera's last frame.
+    /// `step_extra_camera` toward `target` (camera source time).
     unsafe fn step_to(&mut self, target: f64) -> Result<*const AVFrame> {
-        if self.ended_at.is_some_and(|end| target >= end) {
-            self.shown = false;
-            return Ok(std::ptr::null());
-        }
-        let frame_dur = 1.0 / self.dec.fps().max(1.0);
-        let cur = self.dec.cur_frame();
-        let far = cur.is_null() || {
-            let t = self.dec.cur_time_sec();
-            target < t - frame_dur * 0.5 || target > t + EXTRA_RESEEK_SEC
-        };
-        let frame = if far {
-            self.dec.seek_to(target)?
-        } else {
-            let mut frame = cur;
-            let mut guard = 0u32;
-            loop {
-                let next = self.dec.peek_next_time_sec()?;
-                // Unlike camera 0, an extra camera does not hold its last picture: past its
-                // end (one frame's worth of slack) its layer disappears.
-                if matches!(next, NextFrameTime::Eof)
-                    && target > self.dec.cur_time_sec() + frame_dur
-                {
-                    frame = std::ptr::null_mut();
-                    break;
-                }
-                match frame_step(next, 0.0, target) {
-                    FrameStep::Commit => frame = self.dec.commit_peek()?,
-                    FrameStep::CommitAndStop => {
-                        frame = self.dec.commit_peek()?;
-                        break;
-                    }
-                    FrameStep::Hold => break,
-                }
-                guard += 1;
-                if guard > 1000 {
-                    break;
-                }
-            }
-            frame
-        };
-        Ok(self.settle(frame, target))
-    }
-
-    /// Seek to `target` (camera source time). Null past the camera's last frame.
-    unsafe fn seek(&mut self, target: f64) -> Result<*const AVFrame> {
-        if self.ended_at.is_some_and(|end| target >= end) {
-            self.shown = false;
-            return Ok(std::ptr::null());
-        }
-        let frame = self.dec.seek_to(target)?;
-        Ok(self.settle(frame, target))
-    }
-
-    fn settle(&mut self, frame: *mut AVFrame, target: f64) -> *const AVFrame {
+        let frame = step_extra_camera(&mut self.dec, &mut self.ended_at, target)?;
         self.shown = !frame.is_null();
-        self.ended_at = if frame.is_null() { Some(target) } else { None };
-        frame
+        Ok(frame)
     }
-}
 
-/// Camera indices >= 1 that the non-empty `regions` draw, sorted, without duplicates.
-fn cameras_in_regions(regions: &[SceneCameraLayoutRegion]) -> Vec<usize> {
-    let mut cameras: Vec<usize> = regions
-        .iter()
-        .filter(|r| r.end_sec > r.start_sec)
-        .flat_map(|r| r.layers.iter().map(|l| l.camera))
-        .filter(|camera| (1..=MAX_EXTRA_CAMERAS).contains(camera))
-        .collect();
-    cameras.sort_unstable();
-    cameras.dedup();
-    cameras
-}
-
-fn has_camera_file(camera: Option<&SceneClipCamera>) -> bool {
-    camera.is_some_and(|c| !c.path.trim().is_empty())
+    /// `seek_extra_camera` to `target` (camera source time).
+    unsafe fn seek(&mut self, target: f64) -> Result<*const AVFrame> {
+        let frame = seek_extra_camera(&mut self.dec, &mut self.ended_at, target)?;
+        self.shown = !frame.is_null();
+        Ok(frame)
+    }
 }
 
 /// The extra cameras clip `clip_index` opens: those its own layout regions
@@ -270,24 +198,6 @@ fn extra_cameras_for_clip(scene: &Scene, clip_index: usize) -> Vec<usize> {
         .into_iter()
         .filter(|&k| has_camera_file(clip.additional_cameras.get(k - 1)))
         .collect()
-}
-
-/// The slots to open for `cameras` from a clip's camera files (`sources[k-1]` = camera k).
-fn extra_camera_keys(cameras: &[usize], sources: &[SceneClipCamera]) -> ExtraCameraKeys {
-    let mut keys: ExtraCameraKeys = (1..=MAX_EXTRA_CAMERAS)
-        .map(|k| {
-            let source = sources.get(k - 1);
-            if cameras.contains(&k) && has_camera_file(source) {
-                source.cloned()
-            } else {
-                None
-            }
-        })
-        .collect();
-    while keys.last().is_some_and(|k| k.is_none()) {
-        keys.pop();
-    }
-    keys
 }
 
 /// `extra_camera_keys` for clip `clip_index` of `scene`, from the clip's own camera files.
@@ -314,34 +224,6 @@ fn same_extra_key(a: &Option<SceneClipCamera>, b: &Option<SceneClipCamera>) -> b
 
 fn same_extra_keys(a: &[Option<SceneClipCamera>], b: &[Option<SceneClipCamera>]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_extra_key(a, b))
-}
-
-/// Is extra camera `camera` near one of its layout regions at screen source time `t` — from
-/// `PREFETCH_LEAD_SEC` before the region to its end? Outside, its decoder stays idle.
-fn extra_camera_active(regions: &[SceneCameraLayoutRegion], camera: usize, t: f64) -> bool {
-    regions.iter().any(|r| {
-        r.end_sec > r.start_sec
-            && r.layers.iter().any(|l| l.camera == camera)
-            && (r.start_sec - PREFETCH_LEAD_SEC..=r.end_sec).contains(&t)
-    })
-}
-
-/// An extra camera's open result: a file that will not open is `None` with one warning line,
-/// and its layer is skipped — never drawn from another source.
-fn opened_or_skipped<T>(path: &str, opened: Result<T>) -> Option<T> {
-    match opened {
-        Ok(dec) => Some(dec),
-        Err(e) => {
-            eprintln!("WARNING: extra camera unreadable ({path}): {e:#}. Its layer will not be drawn.");
-            None
-        }
-    }
-}
-
-/// The list `set_extra_camera_frames` takes: null for an empty slot, else `frame` of the camera
-/// (itself null when it has nothing to show).
-fn extra_frame_list<T>(extra: &[Option<T>], frame: impl Fn(&T) -> *const AVFrame) -> Vec<*const AVFrame> {
-    extra.iter().map(|slot| slot.as_ref().map_or(std::ptr::null(), &frame)).collect()
 }
 
 /// Opens the extra cameras `keys` asks for, without seeking them: they are positioned when
@@ -1577,7 +1459,7 @@ type PendingPrefetch = (usize, std::sync::mpsc::Receiver<Result<PrefetchedClip>>
 /// tâche de fond. Assez large pour couvrir un `Decoder::open` typique (ouverture fichier +
 /// `avformat_find_stream_info` + init D3D11VA), assez court pour ne pas garder deux paires de
 /// décodeurs ouvertes plus longtemps que nécessaire.
-const PREFETCH_LEAD_SEC: f64 = 0.75;
+pub(crate) const PREFETCH_LEAD_SEC: f64 = 0.75;
 
 /// Durée pendant laquelle la boucle continue de recomposer après un changement en pause, le
 /// temps qu'un effet asynchrone (segmentation webcam) livre son résultat. Généreuse : à
