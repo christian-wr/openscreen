@@ -2857,6 +2857,13 @@ impl Compositor {
                     if text.content.trim().is_empty() {
                         continue;
                     }
+                    // The desk label shows only while the camera is covered: skip the rest of
+                    // its section before rasterizing anything.
+                    if crate::text_anim::is_desk_cover(text.animation.as_deref())
+                        && g.webcam_cover <= 0.0
+                    {
+                        continue;
+                    }
                     // `font_size_rel` est une fraction de la HAUTEUR DE LA BOÎTE D'ANCRAGE — rect
                     // écran, ou cadre de sortie pour un sous-titre (cf. le contrat et
                     // `annotationScale.ts`) : on la ramène en pixels de sortie ici, avec le même
@@ -2902,10 +2909,13 @@ impl Compositor {
                     // dispose ici) : dans une région accélérée, elle défile donc au rythme du
                     // clip. À vitesse 1 — le cas de toutes les annotations existantes — c'est
                     // exactement le timing de l'aperçu DOM.
-                    let anim = crate::text_anim::text_animation_state(
+                    // The desk label is the exception: its opacity is the camera cover, which
+                    // runs on the screen clock (`annotation_text_state`).
+                    let anim = crate::text_anim::annotation_text_state(
                         text.animation.as_deref(),
                         (t - annotation.start_sec as f32) * 1000.0,
                         ((annotation.end_sec - annotation.start_sec) * 1000.0) as f32,
+                        g.webcam_cover,
                     );
                     // Les décalages sont donnés à la hauteur de référence : on les ramène à la
                     // sortie, comme la taille de police, pour que l'animation ait la même

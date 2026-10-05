@@ -85,7 +85,7 @@ import {
 	webcamSizeToFraction,
 } from "@/lib/compositeLayout";
 import type { CursorKind } from "@/lib/cursor/cursorThemes";
-import { DESK_LABEL_Z_INDEX, deskCoverLabelWindows } from "@/lib/deskCover";
+import { DESK_COVER_ANIMATION, DESK_LABEL_Z_INDEX } from "@/lib/deskCover";
 import { parseCssGradient, resolveLinearGradientAngle } from "@/lib/exporter/gradientParser";
 import type { FrameTheme, RecordingFrame, WebcamAnchor } from "@/lib/projectDefaults";
 import { resolveTextFontFamily } from "@/lib/textFonts";
@@ -959,11 +959,13 @@ function deskLabelText(): string {
 }
 
 /**
- * Two caption-styled text regions (one per covered end) for every projected piece of a turned
- * Full Camera section that shows its label (times already in source ms). Boxes are in percent of the frame, like the caption box.
- * Ids come from the section's own id (`sectionId`), the piece's clip and the side — never
- * from the piece's id, which the projection draws at random after the first piece — so a
- * rebuild reuses them and the native text cache (keyed by id) does not grow.
+ * One caption-styled text region over every projected piece of a turned Full Camera section that
+ * shows its label (times already in source ms). It spans the whole piece: the compositor draws
+ * it at the camera cover's strength, so it is visible exactly while the cover is. Boxes are in
+ * percent of the frame, like the caption box.
+ * Ids come from the section's own id (`sectionId`) and the piece's clip — never from the
+ * piece's id, which the projection draws at random after the first piece — so a rebuild reuses
+ * them and the native text cache (keyed by id) does not grow.
  */
 function deskLabelTextRegions(
 	pieces: (CameraFullscreenRegion & {
@@ -971,49 +973,38 @@ function deskLabelTextRegions(
 		clipIndex?: number;
 		underTrim?: boolean;
 	})[],
-	layoutRegions: SceneCameraLayoutRegion[],
 ) {
 	const label = deskLabelText();
 	if (!label) return [];
-	// Same seam rule as the compositor (`REGION_SEAM_S`, 1 ms of source time, same clip).
-	const meets = (piece: { clipIndex?: number }, ms: number, side: "startSec" | "endSec") =>
-		layoutRegions.some(
-			(l) =>
-				l.endSec > l.startSec &&
-				l.clipIndex === piece.clipIndex &&
-				Math.abs(l[side] * 1000 - ms) <= 1,
-		);
 	return pieces.flatMap((region) => {
 		if (normalizeCameraRotation(region.rotation) !== 180 || !showsDeskLabel(region)) return [];
-		const windows = deskCoverLabelWindows(region, {
-			start: meets(region, region.startMs, "endSec"),
-			end: meets(region, region.endMs, "startSec"),
-		});
-		return (["start", "end"] as const).map((side) => ({
-			space: "frame" as const,
-			verticalAlign: "center" as const,
-			id: `desk-${region.sectionId}-${region.clipIndex ?? "all"}-${side}`,
-			clipIndex: region.clipIndex,
-			...(region.underTrim ? { underTrim: true as const } : {}),
-			startMs: windows[side][0],
-			endMs: windows[side][1],
-			type: "text" as const,
-			content: label,
-			position: { x: 10, y: 40 },
-			size: { width: 80, height: 20 },
-			style: {
-				color: DEFAULT_CAPTION_SETTINGS.color,
-				backgroundColor: captionBackgroundCss(DEFAULT_CAPTION_SETTINGS),
-				fontSize: DEFAULT_CAPTION_SETTINGS.fontSize,
-				fontFamily: DEFAULT_CAPTION_SETTINGS.fontFamily,
-				fontWeight: DEFAULT_CAPTION_SETTINGS.fontWeight,
-				fontStyle: "normal" as const,
-				textDecoration: "none" as const,
-				textAlign: "center" as const,
-				textAnimation: side === "start" ? "deskCoverStart" : "deskCoverEnd",
+		return [
+			{
+				space: "frame" as const,
+				verticalAlign: "center" as const,
+				id: `desk-${region.sectionId}-${region.clipIndex ?? "all"}`,
+				clipIndex: region.clipIndex,
+				...(region.underTrim ? { underTrim: true as const } : {}),
+				startMs: region.startMs,
+				endMs: region.endMs,
+				type: "text" as const,
+				content: label,
+				position: { x: 10, y: 40 },
+				size: { width: 80, height: 20 },
+				style: {
+					color: DEFAULT_CAPTION_SETTINGS.color,
+					backgroundColor: captionBackgroundCss(DEFAULT_CAPTION_SETTINGS),
+					fontSize: DEFAULT_CAPTION_SETTINGS.fontSize,
+					fontFamily: DEFAULT_CAPTION_SETTINGS.fontFamily,
+					fontWeight: DEFAULT_CAPTION_SETTINGS.fontWeight,
+					fontStyle: "normal" as const,
+					textDecoration: "none" as const,
+					textAlign: "center" as const,
+					textAnimation: DESK_COVER_ANIMATION,
+				},
+				zIndex: DESK_LABEL_Z_INDEX,
 			},
-			zIndex: DESK_LABEL_Z_INDEX,
-		}));
+		];
 	});
 }
 
@@ -1322,6 +1313,15 @@ export function buildSceneDescription(
 		document.timeline.clips,
 		() => createId("ann"),
 	);
+	// The desk-view label: caption-styled text over every PROJECTED piece of a turned section,
+	// drawn at the camera cover's strength (`annotation_text_state` in text_anim.rs). Per piece
+	// because the compositor covers each piece's own ends; the pieces are
+	// already in source time, so they are appended after the annotation projection, not through it.
+	projectedAnnotations.push(
+		...(deskLabelTextRegions(
+			projectedCameraFullscreenRegions,
+		) as unknown as typeof projectedAnnotations),
+	);
 	// Speed regions carry an extra `speed` field the standard `rangeSchema` does not, so we
 	// can't read from `document.timeline.speedRanges` today (see SceneDescription.speedRegions
 	// comment). The legacy web exporter reads from `legacyEditor.speedRegions`; we mirror it.
@@ -1521,17 +1521,6 @@ export function buildSceneDescription(
 				},
 			];
 		},
-	);
-	// The desk-view label: caption-styled text over both covered ends of every PROJECTED piece of
-	// a turned section, fading with the camera cover (`deskCoverStart` / `deskCoverEnd` in
-	// text_anim.rs). Per piece because the compositor covers each piece's own ends; the pieces are
-	// already in source time, so they are appended after the annotation projection, not through it.
-	// After the layout regions: an end that meets one is covered for its fade only.
-	projectedAnnotations.push(
-		...(deskLabelTextRegions(
-			projectedCameraFullscreenRegions,
-			sceneCameraLayoutRegions,
-		) as unknown as typeof projectedAnnotations),
 	);
 	const sceneCameras = cameraSettings.flatMap((camera, index): SceneCamera[] => {
 		if (!camera) return [];
