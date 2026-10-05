@@ -1383,10 +1383,13 @@ export function useTimeline() {
 
 	// Per-camera settings (`legacyEditor.cameraSettings`). One write, one undo step; the key
 	// is deleted when nothing is left, so untouched projects stay byte-identical.
+	// The document is read when the write runs, not when the callback was made: callers put
+	// it on the shell's write queue, and a queued write must build on the save before it.
 	const setCameraSettings = useCallback(
 		async (index: number, patch: Partial<CameraSettings> | null) => {
-			if (!document) return;
-			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
+			const current = useProjectStore.getState().document ?? document;
+			if (!current) return;
+			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
 			const list = patchCameraSettings(legacy.cameraSettings, index, patch);
 			// Nothing changes (out-of-range index, camera-1 patch without a perspective, resetting a
 			// default camera): no save and no empty undo step.
@@ -1397,7 +1400,7 @@ export function useTimeline() {
 				return;
 			const { cameraSettings: _prev, ...rest } = legacy;
 			const next: AxcutDocument = {
-				...document,
+				...current,
 				legacyEditor: list ? { ...rest, cameraSettings: list } : rest,
 			};
 			await saveDocument(next, { history: true });

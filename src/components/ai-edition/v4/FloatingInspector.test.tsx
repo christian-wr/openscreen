@@ -38,7 +38,16 @@ vi.mock("../RightPanes", async (importOriginal) => ({
 		</div>
 	),
 	CursorPane: () => <div data-testid="cursor-pane">CursorPane</div>,
-	LayoutPane: () => <div data-testid="layout-pane">LayoutPane</div>,
+	// Hands its `cameras` writer out, so a test can tell which one the inspector passed down.
+	LayoutPane: ({ cameras }: { cameras?: { setCameraSettings?: unknown } }) => (
+		<button
+			type="button"
+			data-testid="layout-pane"
+			onClick={() => (cameras?.setCameraSettings as (i: number, p: null) => void)?.(1, null)}
+		>
+			LayoutPane
+		</button>
+	),
 	SliderCell: () => <div data-testid="slider-cell">SliderCell</div>,
 	TranscriptPane: () => <div data-testid="transcript-pane">TranscriptPane</div>,
 	VideoEffectsPane: () => <div data-testid="effects-pane">VideoEffectsPane</div>,
@@ -84,6 +93,7 @@ describe("FloatingInspector", () => {
 		onToggleOpen: vi.fn(),
 		clips: [],
 		onEditClip: vi.fn(),
+		setCameraSettings: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
 		>["transcriptProps"],
@@ -94,6 +104,18 @@ describe("FloatingInspector", () => {
 			selectAudioTrack: vi.fn(),
 		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"],
 	};
+
+	it("the layout pane writes camera settings through the writer it was given", () => {
+		const setCameraSettings = vi.fn();
+		const tl = {
+			...defaultProps.tl,
+			setCameraSettings: vi.fn(),
+		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"];
+		render(<FloatingInspector {...defaultProps} tl={tl} setCameraSettings={setCameraSettings} />);
+		fireEvent.click(screen.getByTestId("layout-pane"));
+		expect(setCameraSettings).toHaveBeenCalledWith(1, null);
+		expect(tl.setCameraSettings).not.toHaveBeenCalled();
+	});
 
 	it("renders layout facet button on rail with camera icon and settings.layout.title", () => {
 		render(<FloatingInspector {...defaultProps} />);

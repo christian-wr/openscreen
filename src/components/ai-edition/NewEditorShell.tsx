@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { EditorProjectData } from "@/components/video-editor/projectPersistence";
 import { toFileUrl } from "@/components/video-editor/projectPersistence";
+import type { CameraSettings } from "@/components/video-editor/types";
 import { useEditorDialogActions } from "@/contexts/EditorDialogsContext";
 import { useScopedT } from "@/contexts/I18nContext";
 import { useShortcuts } from "@/contexts/ShortcutsContext";
@@ -364,6 +365,15 @@ export function NewEditorShell() {
 		fallbackDocument: document,
 		saveDocument,
 	});
+
+	// Every per-camera settings write (Cameras section toggles, reset, calibration apply) goes
+	// through the shared queue, so a toggle cannot race a calibration apply on a stale document.
+	const setTimelineCameraSettings = tl.setCameraSettings;
+	const setCameraSettingsQueued = useCallback(
+		(index: number, patch: Partial<CameraSettings> | null) =>
+			enqueueTimelineWrite(() => setTimelineCameraSettings(index, patch)),
+		[enqueueTimelineWrite, setTimelineCameraSettings],
+	);
 
 	const promptUnsaved = useCallback(
 		(action: "close" | "new" | "open" | "record"): Promise<UnsavedChoice> => {
@@ -1679,6 +1689,7 @@ export function NewEditorShell() {
 								onEditClip={setEditClipTarget}
 								transcriptProps={transcriptProps}
 								onOpenCalibration={openCalibration}
+								setCameraSettings={setCameraSettingsQueued}
 							/>
 						</>
 					) : mode === "media" ? (
@@ -1778,10 +1789,7 @@ export function NewEditorShell() {
 					mode={calibration.mode}
 					initial={tl.cameraSettings[calibration.camera.index] ?? null}
 					hasCrop={cameraHasCrop(document, tl.cameraSettings, calibration.camera.index)}
-					onApply={(patch) => {
-						const index = calibration.camera.index;
-						void enqueueTimelineWrite(() => tl.setCameraSettings(index, patch));
-					}}
+					onApply={(patch) => void setCameraSettingsQueued(calibration.camera.index, patch)}
 					onClose={() => setCalibration(null)}
 				/>
 			) : null}

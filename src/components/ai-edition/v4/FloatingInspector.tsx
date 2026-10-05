@@ -136,6 +136,8 @@ interface FloatingInspectorProps {
 	tl: TimelineApi;
 	/** Opens the camera calibration dialog (the shell holds its one instance). */
 	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
+	/** Per-camera settings writer; the shell's queued one, so it cannot race other writes. */
+	setCameraSettings: CamerasSectionProps["setCameraSettings"];
 }
 
 export function FloatingInspector({
@@ -148,6 +150,7 @@ export function FloatingInspector({
 	transcriptProps,
 	tl,
 	onOpenCalibration,
+	setCameraSettings,
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
 	const te = useScopedT("editor");
@@ -198,6 +201,7 @@ export function FloatingInspector({
 							transcriptProps={transcriptProps}
 							tl={tl}
 							onOpenCalibration={onOpenCalibration}
+							setCameraSettings={setCameraSettings}
 						/>
 					)}
 				</div>
@@ -1344,12 +1348,14 @@ function FacetBody({
 	transcriptProps,
 	tl,
 	onOpenCalibration,
+	setCameraSettings,
 }: {
 	facet: Facet;
 	onCollapse: () => void;
 	transcriptProps: TranscriptProps;
 	tl: TimelineApi;
 	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
+	setCameraSettings: CamerasSectionProps["setCameraSettings"];
 }) {
 	const te = useScopedT("editor");
 	// A small collapse affordance floated over the reused pane header.
@@ -1385,7 +1391,7 @@ function FacetBody({
 			<LayoutPane
 				cameras={{
 					cameraSettings: tl.cameraSettings,
-					setCameraSettings: tl.setCameraSettings,
+					setCameraSettings,
 					onOpenCalibration,
 				}}
 			/>,
