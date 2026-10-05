@@ -1204,8 +1204,12 @@ impl Compositor {
     }
 
     /// Pas de cache de SRV cote wgpu (les `TextureView`s sont recreees a chaque
-    /// draw depuis le carrier) -- no-op conserve pour la symetrie d'API.
-    pub fn clear_srv_cache(&self) {}
+    /// draw depuis le carrier). Only the extra cameras' frame slots are reset.
+    pub fn clear_srv_cache(&self) {
+        // The extra cameras' frames belong to the decoders just closed: forget them too, so
+        // a stale pointer is never read before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
+    }
 
     /// Frames for cameras 1..=3 (index 0 = scene camera 1). A null or missing entry means that
     /// camera is not drawn this frame. The compositor keeps the pointers and reads them in every

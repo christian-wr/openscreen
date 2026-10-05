@@ -3488,6 +3488,9 @@ impl Compositor {
     /// (p.ex. après un export) pour ne pas retenir indéfiniment des textures de pool.
     pub fn clear_srv_cache(&self) {
         self.srv_cache.borrow_mut().clear();
+        // The extra cameras' frames belong to the decoders just closed: forget them too, so
+        // a stale pointer is never read before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
     }
 }
 
