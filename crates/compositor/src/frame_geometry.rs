@@ -1942,6 +1942,10 @@ pub struct FrameGeometry {
     pub webcam: WebcamOrientation,
     /// Desk-view cover strength of the webcam this frame, 0..1 (`camera_fullscreen_cover_at`).
     pub webcam_cover: f32,
+    /// Every camera layer to draw this frame, in draw order (`camera_layers::camera_layers_at`).
+    /// Empty when the scene has no camera layout regions: the backends then draw camera 0 from
+    /// `w_dst` as before. Otherwise camera 0 is in here too, and its `dst`/opacity come from it.
+    pub camera_layers: Vec<crate::camera_layers::CameraLayerPlan>,
     /// Cadre autour de l'écran : chrome de fenêtre plat (mode 14) ou appareil modelé (mode 17).
     /// `None` : aucun, et le rendu est celui d'avant le cadre, à l'octet. `Some` : `s_dst` est
     /// déjà la boîte rétrécie, et `s_radius` le rayon des coins de l'écran — des seuls coins BAS
@@ -3512,6 +3516,29 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
                     _ => 0.12,
                 },
             };
+        // Camera layout regions: every camera layer of this frame, camera 0 included, on the
+        // same time and clock as Full Camera. Camera 0's default is the layer just planned
+        // above, so a region glides from and back to exactly where `w_dst` puts it. Without
+        // regions nothing is planned, and the backends keep drawing camera 0 from `w_dst`.
+        let camera_layers = match scene {
+            Some(s) if !s.camera_layout_regions.is_empty() => {
+                let default_cam0 = lp.has_webcam.then(|| crate::camera_layers::CameraLayerPlan {
+                    camera: 0,
+                    dst: w_dst,
+                    radius_frac: w_radius / w_px[0].min(w_px[1]).max(1.0),
+                    shape: lp.webcam_shape,
+                    opacity: 1.0,
+                    fills_frame: cam_progress >= 1.0,
+                });
+                crate::camera_layers::camera_layers_at(
+                    &s.camera_layout_regions,
+                    source_t,
+                    &clock,
+                    default_cam0,
+                )
+            }
+            _ => Vec::new(),
+        };
 
     FrameGeometry {
         scene_preset,
@@ -3545,6 +3572,7 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         shape_fade,
         webcam,
         webcam_cover,
+        camera_layers,
         window_frame,
         screen_mask,
     }
@@ -7384,6 +7412,59 @@ mod tests {
         assert_eq!(cover_at(5.0), 0.0);
     }
 
+    /// A scene without layout regions plans no camera layers, and camera 0 lands exactly where
+    /// it did: the new (empty) keys change nothing.
+    #[test]
+    fn without_layout_regions_the_plan_has_no_camera_layers() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let before = plan_frame(&golden_input(&golden_scene(), &cfg));
+        let json = zoomed_golden_scene_json().replace(
+            r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#,
+            r#""zoomRegions":[],"cameras":[],"cameraLayoutRegions":[]"#,
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        let after = plan_frame(&golden_input(&scene, &cfg));
+        assert!(before.camera_layers.is_empty());
+        assert!(after.camera_layers.is_empty());
+        assert_eq!(after.w_dst, before.w_dst);
+        assert_eq!(after.w_dst_prev, before.w_dst_prev);
+        assert_eq!(after.w_px, before.w_px);
+        assert_eq!(after.w_radius, before.w_radius);
+        assert_eq!(after.shape_fade, before.shape_fade);
+        assert_eq!(after.webcam, before.webcam);
+        assert_eq!(after.webcam_cover, before.webcam_cover);
+    }
+
+    /// Inside a layout region camera 0 is one of the planned layers, at the region's rect.
+    #[test]
+    fn with_a_layout_region_camera_0_comes_from_the_plan() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let json = zoomed_golden_scene_json().replace(
+            r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#,
+            r#""zoomRegions":[],"cameraLayoutRegions":[{"clipIndex":0,"startSec":0.0,"endSec":4.0,"layers":[
+                {"camera":0,"rect":{"x":0.1,"y":0.2,"width":0.3,"height":0.4},"radiusFrac":0.1,"shape":"rectangle"}]}]"#,
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        // `golden_input` samples t = 1.5 s: past the lead-in, well before the lead-out.
+        let g = plan_frame(&golden_input(&scene, &cfg));
+        assert_eq!(g.camera_layers.len(), 1);
+        let cam0 = g.camera_layers[0];
+        assert_eq!(cam0.camera, 0);
+        assert_eq!(cam0.dst, [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(cam0.opacity, 1.0);
+        assert_eq!(cam0.shape, webcam_shape_code("rectangle"));
+        assert!(!cam0.fills_frame);
+        // Outside the region camera 0 is the default PiP, where `w_dst` puts it.
+        let outside = plan_frame(&FrameGeometryInput {
+            timeline_t_override: Some(6.0),
+            ..golden_input(&scene, &cfg)
+        });
+        assert_eq!(outside.camera_layers.len(), 1);
+        assert_eq!(outside.camera_layers[0].dst, outside.w_dst);
+        let r = outside.w_radius / outside.w_px[0].min(outside.w_px[1]).max(1.0);
+        assert_eq!(outside.camera_layers[0].radius_frac, r);
+    }
+
     /// Le pivot doit rester collé à `center` quand le sprite grandit — c'est exactement ce qui
     /// était cassé (ancrage centré en dur : la pointe s'éloignait proportionnellement à la
     /// taille). On dessine la même flèche à deux tailles et on vérifie que le point désigné
@@ -7793,6 +7874,7 @@ mod tests {
             shape_fade: 0.0,
             webcam: WebcamOrientation::default(),
             webcam_cover: 0.0,
+            camera_layers: Vec::new(),
             window_frame: None,
             screen_mask: None,
         }

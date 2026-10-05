@@ -271,8 +271,8 @@ fn push_speed_segment(
 }
 
 // mêmes fenêtres de transition que le web (TRANSITION_WINDOW_MS etc., converties en secondes).
-const TRANSITION_WINDOW_S: f32 = 1.01505;
-const FULLSCREEN_LEAD_OUT_WINDOW_S: f32 = TRANSITION_WINDOW_S * 1.5;
+pub(crate) const TRANSITION_WINDOW_S: f32 = 1.01505;
+pub(crate) const FULLSCREEN_LEAD_OUT_WINDOW_S: f32 = TRANSITION_WINDOW_S * 1.5;
 // Durée d'un zoom à l'écran selon l'échelle visée, cf. `zoom_transition_s` ; miroir de
 // `ZOOM_TRANSITION_BASE_MS` / `ZOOM_TRANSITION_PER_LN_MS` (TS).
 const ZOOM_TRANSITION_BASE_S: f32 = 0.6;
@@ -328,7 +328,7 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
 }
 
 /// Port de `easeOutScreenStudio` (TS) : cubic-bezier(0.16, 1, 0.3, 1).
-fn ease_out_screen_studio(t: f32) -> f32 {
+pub(crate) fn ease_out_screen_studio(t: f32) -> f32 {
     cubic_bezier(0.16, 1.0, 0.3, 1.0, t)
 }
 
