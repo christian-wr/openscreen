@@ -2941,9 +2941,62 @@ describe("useTimeline camera layouts", () => {
 		});
 		const { result } = renderTimeline();
 		await act(async () => {
-			await result.current.setLayoutSlotCamera("camlayout_1", 0, 1);
+			await result.current.setLayoutSlotCamera({ kind: "cameraLayout", id: "camlayout_1" }, 0, 1);
 		});
 		expect(legacyNow().cameraLayoutRegions?.[0].slots).toEqual([{ camera: 1 }, { camera: 0 }]);
+	});
+
+	it("refuses a template that needs more cameras than were given", async () => {
+		seed(null);
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addCameraLayout("side-by-side", [0]);
+		});
+		expect(outcome).toBe("too-few-cameras");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+	});
+
+	it("choosing camera 2 for a full camera section turns it into camera-full of camera 2 in one undo step", async () => {
+		seed({
+			cameraFullscreenRegions: [{ ...fullRow("camfull_1", 1000, 3000), rotation: 180 }],
+		});
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		let handle: { kind: string; id: string } | undefined;
+		await act(async () => {
+			handle = await result.current.setLayoutSlotCamera(
+				{ kind: "cameraFullscreen", id: "camfull_1" },
+				0,
+				1,
+			);
+		});
+		expect(bridgeMocks.save).toHaveBeenCalledTimes(1);
+		expect(past).toHaveLength(1);
+		expect(handle?.kind).toBe("cameraLayout");
+		expect(legacyNow().cameraFullscreenRegions).toEqual([]);
+		expect(legacyNow().cameraLayoutRegions).toEqual([
+			{ ...fullRow(handle?.id ?? "", 1000, 3000), template: "camera-full", slots: [{ camera: 1 }] },
+		]);
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(useProjectStore.getState().document).toEqual(before);
+	});
+
+	it("choosing camera 1 for a full camera section again is a no-op", async () => {
+		seed({ cameraFullscreenRegions: [fullRow("camfull_1", 1000, 3000)] });
+		const { result } = renderTimeline();
+		let handle: { kind: string; id: string } | undefined;
+		await act(async () => {
+			handle = await result.current.setLayoutSlotCamera(
+				{ kind: "cameraFullscreen", id: "camfull_1" },
+				0,
+				0,
+			);
+		});
+		expect(handle).toEqual({ kind: "cameraFullscreen", id: "camfull_1" });
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
 	});
 
 	it("a slot rect drag is one undo step", async () => {

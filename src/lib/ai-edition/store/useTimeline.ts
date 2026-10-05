@@ -140,7 +140,8 @@ export interface CameraSectionHandle {
 	id: string;
 }
 
-export type AddCameraSectionOutcome = "added" | "occupied" | "no-camera";
+/** `too-few-cameras`: the project has a camera, but the template needs more than were given. */
+export type AddCameraSectionOutcome = "added" | "occupied" | "no-camera" | "too-few-cameras";
 
 interface CameraLanes {
 	legacy: Record<string, unknown>;
@@ -269,6 +270,30 @@ function movePill<From extends AnchoredRow, To extends AnchoredRow>(
 		moved.push(toRow(anchorOf(row, rowId)));
 	}
 	return { remaining: from.filter((r) => !under.has(r.id)), moved, newId };
+}
+
+/**
+ * The document with the Full Camera pill `id` turned into a layout section with the given
+ * template and places. The desk fields stay behind: desk view exists only on Full Camera.
+ */
+function fullCameraPillToLayout(
+	doc: AxcutDocument,
+	lanes: CameraLanes,
+	id: string,
+	template: CameraLayoutTemplate,
+	slots: CameraLayoutSlot[],
+): { doc: AxcutDocument; handle: CameraSectionHandle } | null {
+	const move = movePill(
+		lanes.full,
+		id,
+		"camlayout",
+		(anchor): AnchoredCameraLayoutRegion => ({ ...anchor, template, slots }),
+	);
+	if (!move) return null;
+	return {
+		doc: withCameraLanes(doc, lanes, move.remaining, [...lanes.layout, ...move.moved]),
+		handle: { kind: "cameraLayout", id: move.newId },
+	};
 }
 
 /** The document with the layout pill `id` turned into a Full Camera region of camera 1. */
@@ -777,7 +802,7 @@ export function useTimeline() {
 			if (!document) return "no-camera";
 			if (!hasAnyClipWithCamera(document.assets, document.timeline.clips)) return "no-camera";
 			const picked = camerasForTemplate(template, [], cameras);
-			if (!picked) return "no-camera";
+			if (!picked) return "too-few-cameras";
 			const slots: CameraLayoutSlot[] = picked.map((camera) => ({ camera }));
 			const timeMs = Math.round(playheadSec() * 1000);
 			const endMs = timeMs + Math.round(durationSec * 1000);
@@ -1399,18 +1424,7 @@ export function useTimeline() {
 			let result: { doc: AxcutDocument; handle: CameraSectionHandle } | null = null;
 			if (handle.kind === "cameraFullscreen") {
 				if (toFullCamera) return handle;
-				const move = movePill(
-					lanes.full,
-					handle.id,
-					"camlayout",
-					(anchor): AnchoredCameraLayoutRegion => ({ ...anchor, template, slots }),
-				);
-				if (move) {
-					result = {
-						doc: withCameraLanes(document, lanes, move.remaining, [...lanes.layout, ...move.moved]),
-						handle: { kind: "cameraLayout", id: move.newId },
-					};
-				}
+				result = fullCameraPillToLayout(document, lanes, handle.id, template, slots);
 			} else if (toFullCamera) {
 				result = layoutPillToFullCamera(document, lanes, handle.id);
 			} else {
@@ -1428,13 +1442,28 @@ export function useTimeline() {
 
 	// Put `camera` in place `slotIndex` of a layout section. A camera shows once per
 	// section, so if it already has another place the two swap; each place keeps its rect.
-	// A `camera-full` section that ends up showing camera 1 becomes a Full Camera region.
+	// A `camera-full` section that ends up showing camera 1 becomes a Full Camera region,
+	// and a Full Camera region given another camera becomes that camera's `camera-full`
+	// section. Returns the section's handle afterwards, or the given one when nothing changed.
 	const setLayoutSlotCamera = useCallback(
-		async (id: string, slotIndex: number, camera: number): Promise<CameraSectionHandle> => {
-			const handle: CameraSectionHandle = { kind: "cameraLayout", id };
+		async (
+			handle: CameraSectionHandle,
+			slotIndex: number,
+			camera: number,
+		): Promise<CameraSectionHandle> => {
 			if (!document) return handle;
 			if (!Number.isInteger(camera) || camera < 0 || camera >= MAX_CAMERAS) return handle;
 			const lanes = cameraLanes(document);
+			if (handle.kind === "cameraFullscreen") {
+				// Its one place shows camera 1; choosing camera 1 again changes nothing.
+				if (slotIndex !== 0 || camera === 0) return handle;
+				const moved = fullCameraPillToLayout(document, lanes, handle.id, "camera-full", [
+					{ camera },
+				]);
+				if (!moved) return handle;
+				return (await saveDocument(moved.doc, { history: true })) ? moved.handle : handle;
+			}
+			const id = handle.id;
 			const member = lanes.layout.find((r) => r.id === id);
 			const place = member?.slots[slotIndex];
 			if (!member || !place || place.camera === camera) return handle;

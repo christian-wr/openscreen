@@ -295,6 +295,9 @@ const DECLARED: WritePath[] = [
 	w("src/lib/ai-edition/store/useTimeline.ts", "saveZoomPatch", "save", "gesture"),
 	// Template and camera changes of a layout section, including a move between the
 	// Full Camera and layout lists: one save each, so one undo step.
+	// Two exits, one gesture each: a Full Camera region moving to the layout list, or a
+	// layout section changing a place (possibly moving to the Full Camera list).
+	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSlotCamera", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSlotCamera", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutTemplate", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setTrimEntries", "save", "gesture"),
