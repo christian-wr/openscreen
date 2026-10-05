@@ -35,10 +35,13 @@ export interface CamerasSectionProps {
 	onOpenCalibration?: (cameraIndex: number, mode: CalibrationMode) => void;
 }
 
-type CameraStill = { src: string; timeSec: number };
+export type CameraStill = { src: string; timeSec: number };
 
 /** Where each camera's file is, and which time of it the playhead shows. */
-function stillsAt(document: AxcutDocument | null, playheadSec: number): Map<number, CameraStill> {
+export function stillsAt(
+	document: AxcutDocument | null,
+	playheadSec: number,
+): Map<number, CameraStill> {
 	const stills = new Map<number, CameraStill>();
 	if (!document) return stills;
 	const position = locateVirtualPosition(document.timeline.clips, playheadSec);
@@ -51,6 +54,20 @@ function stillsAt(document: AxcutDocument | null, playheadSec: number): Map<numb
 		stills.set(index, { src, timeSec: Math.max(0, position.sourceTimeSec - source.offsetSec) });
 	});
 	return stills;
+}
+
+/** The camera the calibration dialog opens on: its label and its still at the playhead. */
+export function calibrationCameraAt(
+	document: AxcutDocument | null,
+	playheadSec: number,
+	index: number,
+	t: (key: string, vars?: Record<string, string | number>) => string,
+): { index: number; label: string; src: string; timeSec: number } | null {
+	if (!document) return null;
+	const camera = camerasForClipAt(document, playheadSec, t).find((c) => c.index === index);
+	const still = stillsAt(document, playheadSec).get(index);
+	if (!camera?.available || !still) return null;
+	return { index, label: camera.label, ...still };
 }
 
 function CameraThumbnail({ still, label }: { still: CameraStill | undefined; label: string }) {

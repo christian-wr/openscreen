@@ -88,5 +88,33 @@
 		"audioFiles": "File audio",
 		"openscreenProject": "Progetto OpenScreen",
 		"allFiles": "Tutti i file"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Correggi prospettiva – {{camera}}",
+		"titleCrop": "Ritaglia – {{camera}}",
+		"loading": "Caricamento dell'immagine della videocamera…",
+		"loadFailed": "Impossibile caricare l'immagine della videocamera.",
+		"perspectiveHelp": "Trascina i quattro angoli sugli angoli del foglio o della scrivania. I tasti freccia spostano l'angolo selezionato di un pixel, con Maiusc di dieci.",
+		"cropHelp": "Trascina il riquadro o le sue maniglie sulla parte dell'immagine da tenere. Le frecce lo spostano, Maiusc + frecce lo ridimensionano.",
+		"corners": {
+			"topLeft": "Angolo in alto a sinistra",
+			"topRight": "Angolo in alto a destra",
+			"bottomRight": "Angolo in basso a destra",
+			"bottomLeft": "Angolo in basso a sinistra"
+		},
+		"format": "Formato di destinazione",
+		"formats": {
+			"a4Portrait": "A4 verticale",
+			"a4Landscape": "A4 orizzontale",
+			"free": "Libero"
+		},
+		"freeRatio": "Rapporto (larghezza ÷ altezza)",
+		"margin": "Margine",
+		"preview": "Anteprima",
+		"loupe": "Lente",
+		"cropArea": "Area di ritaglio",
+		"invalidQuad": "Gli angoli si incrociano o sono allineati. Disponili a formare un quadrilatero per applicare.",
+		"reset": "Ripristina",
+		"apply": "Applica"
 	}
 }

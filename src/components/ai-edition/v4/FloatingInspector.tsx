@@ -134,7 +134,7 @@ interface FloatingInspectorProps {
 	 * selected. Clicking elsewhere on the timeline clears the selection
 	 * (see V4Timeline's empty-area click handler) which closes this pane. */
 	tl: TimelineApi;
-	/** Opens the camera calibration dialog; unwired until the dialog exists. */
+	/** Opens the camera calibration dialog (the shell holds its one instance). */
 	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 }
 

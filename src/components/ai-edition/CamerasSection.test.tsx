@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { act } from "@testing-library/react";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { grabFrameDataUrl } from "@/lib/ai-edition/timeline/grabFrame";
-import { CamerasSection } from "./CamerasSection";
+import { CamerasSection, calibrationCameraAt } from "./CamerasSection";
 
 const track = (sourcePath: string, extra: Record<string, unknown> = {}) => ({
 	sourcePath,
@@ -115,5 +115,18 @@ describe("CamerasSection", () => {
 		const start = source.indexOf("export function LayoutPane(");
 		const end = source.indexOf("/** The tightest the frame gets");
 		expect(source.slice(start, end)).not.toContain("currentTimeSec");
+	});
+
+	it("finds the calibration still of a camera at the playhead", () => {
+		const t = (key: string, vars?: Record<string, string | number>) =>
+			vars?.n !== undefined ? `${key}#${vars.n}` : key;
+		const doc = makeDoc(1);
+		const desk = calibrationCameraAt(doc, 2, 1, t);
+		expect(desk).toMatchObject({ index: 1, label: "Desk", timeSec: 2 });
+		expect(desk?.src).toMatch(/^file:\/\/.*cam2\.mp4$/);
+		expect(calibrationCameraAt(doc, 2, 0, t)?.label).toBe("cameras.cameraN#1");
+		// No such camera, or no document: nothing to calibrate.
+		expect(calibrationCameraAt(doc, 2, 3, t)).toBeNull();
+		expect(calibrationCameraAt(null, 2, 0, t)).toBeNull();
 	});
 });

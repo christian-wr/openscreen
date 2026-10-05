@@ -88,5 +88,33 @@
 		"audioFiles": "音訊檔案",
 		"openscreenProject": "OpenScreen 專案",
 		"allFiles": "所有檔案"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "校正透視 – {{camera}}",
+		"titleCrop": "裁切 – {{camera}}",
+		"loading": "正在載入攝影機畫面…",
+		"loadFailed": "無法載入攝影機畫面。",
+		"perspectiveHelp": "將四個角拖到紙張或桌面的角上。方向鍵可將所選的角移動 1 像素，按住 Shift 則移動 10 像素。",
+		"cropHelp": "將框線或其控點拖到要保留的畫面部分。方向鍵移動框線，Shift + 方向鍵調整大小。",
+		"corners": {
+			"topLeft": "左上角",
+			"topRight": "右上角",
+			"bottomRight": "右下角",
+			"bottomLeft": "左下角"
+		},
+		"format": "目標格式",
+		"formats": {
+			"a4Portrait": "A4 直向",
+			"a4Landscape": "A4 橫向",
+			"free": "自由"
+		},
+		"freeRatio": "比例（寬 ÷ 高）",
+		"margin": "邊距",
+		"preview": "預覽",
+		"loupe": "放大鏡",
+		"cropArea": "裁切區域",
+		"invalidQuad": "這些角互相交叉或位於同一直線上。請將它們排成四邊形後再套用。",
+		"reset": "重設",
+		"apply": "套用"
 	}
 }

@@ -88,5 +88,33 @@
 		"audioFiles": "Fichiers audio",
 		"openscreenProject": "Projet OpenScreen",
 		"allFiles": "Tous les fichiers"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Corriger la perspective – {{camera}}",
+		"titleCrop": "Recadrer – {{camera}}",
+		"loading": "Chargement de l'image de la caméra…",
+		"loadFailed": "Impossible de charger l'image de la caméra.",
+		"perspectiveHelp": "Faites glisser les quatre coins sur ceux de la feuille ou du bureau. Les flèches déplacent le coin choisi d'un pixel, de dix avec Maj.",
+		"cropHelp": "Faites glisser le cadre ou ses poignées sur la partie de l'image à garder. Les flèches le déplacent, Maj + flèches le redimensionnent.",
+		"corners": {
+			"topLeft": "Coin supérieur gauche",
+			"topRight": "Coin supérieur droit",
+			"bottomRight": "Coin inférieur droit",
+			"bottomLeft": "Coin inférieur gauche"
+		},
+		"format": "Format cible",
+		"formats": {
+			"a4Portrait": "A4 portrait",
+			"a4Landscape": "A4 paysage",
+			"free": "Libre"
+		},
+		"freeRatio": "Rapport (largeur ÷ hauteur)",
+		"margin": "Marge",
+		"preview": "Aperçu",
+		"loupe": "Loupe",
+		"cropArea": "Zone de recadrage",
+		"invalidQuad": "Les coins se croisent ou sont alignés. Disposez-les en quadrilatère pour appliquer.",
+		"reset": "Réinitialiser",
+		"apply": "Appliquer"
 	}
 }

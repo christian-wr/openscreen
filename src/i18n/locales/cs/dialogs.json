@@ -88,5 +88,33 @@
 		"audioFiles": "Zvukové soubory",
 		"openscreenProject": "Projekt OpenScreen",
 		"allFiles": "Všechny soubory"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Opravit perspektivu – {{camera}}",
+		"titleCrop": "Oříznout – {{camera}}",
+		"loading": "Načítání obrazu kamery…",
+		"loadFailed": "Obraz kamery se nepodařilo načíst.",
+		"perspectiveHelp": "Přetáhněte čtyři rohy na rohy listu nebo stolu. Šipky posunou vybraný roh o jeden pixel, se Shiftem o deset.",
+		"cropHelp": "Přetáhněte rámeček nebo jeho úchyty na část obrazu, která má zůstat. Šipky jej posouvají, Shift + šipky mění velikost.",
+		"corners": {
+			"topLeft": "Levý horní roh",
+			"topRight": "Pravý horní roh",
+			"bottomRight": "Pravý dolní roh",
+			"bottomLeft": "Levý dolní roh"
+		},
+		"format": "Cílový formát",
+		"formats": {
+			"a4Portrait": "A4 na výšku",
+			"a4Landscape": "A4 na šířku",
+			"free": "Volný"
+		},
+		"freeRatio": "Poměr (šířka ÷ výška)",
+		"margin": "Okraj",
+		"preview": "Náhled",
+		"loupe": "Lupa",
+		"cropArea": "Oblast ořezu",
+		"invalidQuad": "Rohy se kříží nebo leží na jedné přímce. Rozmístěte je do čtyřúhelníku, abyste mohli použít.",
+		"reset": "Obnovit",
+		"apply": "Použít"
 	}
 }

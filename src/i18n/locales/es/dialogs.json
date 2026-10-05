@@ -88,5 +88,33 @@
 		"audioFiles": "Archivos de audio",
 		"openscreenProject": "Proyecto OpenScreen",
 		"allFiles": "Todos los archivos"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Corregir perspectiva – {{camera}}",
+		"titleCrop": "Recortar – {{camera}}",
+		"loading": "Cargando la imagen de la cámara…",
+		"loadFailed": "No se pudo cargar la imagen de la cámara.",
+		"perspectiveHelp": "Arrastra las cuatro esquinas a las esquinas de la hoja o del escritorio. Las flechas mueven la esquina seleccionada un píxel; con Mayús, diez.",
+		"cropHelp": "Arrastra el marco o sus controles sobre la parte de la imagen que quieres conservar. Las flechas lo mueven; Mayús + flechas cambian su tamaño.",
+		"corners": {
+			"topLeft": "Esquina superior izquierda",
+			"topRight": "Esquina superior derecha",
+			"bottomRight": "Esquina inferior derecha",
+			"bottomLeft": "Esquina inferior izquierda"
+		},
+		"format": "Formato de destino",
+		"formats": {
+			"a4Portrait": "A4 vertical",
+			"a4Landscape": "A4 horizontal",
+			"free": "Libre"
+		},
+		"freeRatio": "Proporción (ancho ÷ alto)",
+		"margin": "Margen",
+		"preview": "Vista previa",
+		"loupe": "Lupa",
+		"cropArea": "Área de recorte",
+		"invalidQuad": "Las esquinas se cruzan o están en una misma línea. Colócalas formando un cuadrilátero para aplicar.",
+		"reset": "Restablecer",
+		"apply": "Aplicar"
 	}
 }

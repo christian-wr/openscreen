@@ -88,5 +88,33 @@
 		"audioFiles": "Audiodateien",
 		"openscreenProject": "OpenScreen-Projekt",
 		"allFiles": "Alle Dateien"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Perspektive korrigieren – {{camera}}",
+		"titleCrop": "Zuschneiden – {{camera}}",
+		"loading": "Kamerabild wird geladen…",
+		"loadFailed": "Das Kamerabild konnte nicht geladen werden.",
+		"perspectiveHelp": "Ziehe die vier Ecken auf die Ecken des Blatts oder Tischs. Die Pfeiltasten verschieben die gewählte Ecke um ein Pixel, mit Umschalt um zehn.",
+		"cropHelp": "Ziehe den Rahmen oder seine Griffe auf den Bildteil, der bleiben soll. Die Pfeiltasten verschieben ihn, Umschalt + Pfeiltasten ändern die Größe.",
+		"corners": {
+			"topLeft": "Ecke oben links",
+			"topRight": "Ecke oben rechts",
+			"bottomRight": "Ecke unten rechts",
+			"bottomLeft": "Ecke unten links"
+		},
+		"format": "Zielformat",
+		"formats": {
+			"a4Portrait": "A4 hoch",
+			"a4Landscape": "A4 quer",
+			"free": "Frei"
+		},
+		"freeRatio": "Verhältnis (Breite ÷ Höhe)",
+		"margin": "Rand",
+		"preview": "Vorschau",
+		"loupe": "Lupe",
+		"cropArea": "Zuschnittbereich",
+		"invalidQuad": "Die Ecken überkreuzen sich oder liegen auf einer Linie. Ordne sie zu einem Viereck an, um zu übernehmen.",
+		"reset": "Zurücksetzen",
+		"apply": "Übernehmen"
 	}
 }

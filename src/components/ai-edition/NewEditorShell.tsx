@@ -65,6 +65,8 @@ import { nativeBridgeClient } from "@/native";
 import type { AiEditionProjectSummary } from "@/native/contracts";
 import { resolveVisibleClips } from "@/native/sceneDescription";
 import { useNativePlaybackSync } from "@/native/useNativePlaybackSync";
+import { type CalibrationCamera, CameraCalibrationModal } from "./CameraCalibrationModal";
+import { type CalibrationMode, calibrationCameraAt } from "./CamerasSection";
 import { ExportDialog } from "./ExportDialog";
 import { insertionsEnabled } from "./insertionsEnabled";
 import { ChatStripPanel } from "./LeftPanel";
@@ -200,6 +202,7 @@ export async function runLoadedMetadataWrite(
 export function NewEditorShell() {
 	const te = useScopedT("editor");
 	const tt = useScopedT("timeline");
+	const ts = useScopedT("settings");
 	useMcpDocumentHost();
 	const document = useProjectStore((s) => s.document);
 	const projectId = useProjectStore((s) => s.projectId);
@@ -274,6 +277,20 @@ export function NewEditorShell() {
 	// "Edit clip" rail button — a single shell-level instance instead of one
 	// mounted per trigger site.
 	const [editClipTarget, setEditClipTarget] = useState<AxcutClip | null>(null);
+	// The camera calibration dialog (perspective or crop), opened from the layout pane's camera
+	// list. The still is taken at the playhead as it opens; one instance for the editor.
+	const [calibration, setCalibration] = useState<{
+		camera: CalibrationCamera;
+		mode: CalibrationMode;
+	} | null>(null);
+	const openCalibration = useCallback(
+		(cameraIndex: number, mode: CalibrationMode) => {
+			const { document: doc, currentTimeSec } = useProjectStore.getState();
+			const camera = calibrationCameraAt(doc, currentTimeSec, cameraIndex, ts);
+			if (camera) setCalibration({ camera, mode });
+		},
+		[ts],
+	);
 	const [exportOpen, setExportOpen] = useState(false);
 	const [unsavedPrompt, setUnsavedPrompt] = useState<{
 		action: "close" | "new" | "open" | "record";
@@ -1661,6 +1678,7 @@ export function NewEditorShell() {
 								clips={tl.clips}
 								onEditClip={setEditClipTarget}
 								transcriptProps={transcriptProps}
+								onOpenCalibration={openCalibration}
 							/>
 						</>
 					) : mode === "media" ? (
@@ -1752,6 +1770,20 @@ export function NewEditorShell() {
 					setEditClipTarget(null);
 				}}
 			/>
+			{calibration ? (
+				<CameraCalibrationModal
+					key={`${calibration.camera.index}-${calibration.mode}`}
+					open
+					camera={calibration.camera}
+					mode={calibration.mode}
+					initial={tl.cameraSettings[calibration.camera.index] ?? null}
+					onApply={(patch) => {
+						const index = calibration.camera.index;
+						void enqueueTimelineWrite(() => tl.setCameraSettings(index, patch));
+					}}
+					onClose={() => setCalibration(null)}
+				/>
+			) : null}
 			<UnsavedChangesModal
 				open={unsavedPrompt !== null}
 				onClose={() => {

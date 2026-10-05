@@ -88,5 +88,33 @@
 		"audioFiles": "Ses dosyaları",
 		"openscreenProject": "OpenScreen Projesi",
 		"allFiles": "Tüm Dosyalar"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Perspektifi düzelt – {{camera}}",
+		"titleCrop": "Kırp – {{camera}}",
+		"loading": "Kamera görüntüsü yükleniyor…",
+		"loadFailed": "Kamera görüntüsü yüklenemedi.",
+		"perspectiveHelp": "Dört köşeyi kâğıdın veya masanın köşelerine sürükleyin. Ok tuşları seçili köşeyi bir piksel, Shift ile on piksel taşır.",
+		"cropHelp": "Çerçeveyi veya tutamaçlarını görüntünün kalacak kısmına sürükleyin. Ok tuşları onu taşır, Shift + ok tuşları boyutunu değiştirir.",
+		"corners": {
+			"topLeft": "Sol üst köşe",
+			"topRight": "Sağ üst köşe",
+			"bottomRight": "Sağ alt köşe",
+			"bottomLeft": "Sol alt köşe"
+		},
+		"format": "Hedef biçim",
+		"formats": {
+			"a4Portrait": "A4 dikey",
+			"a4Landscape": "A4 yatay",
+			"free": "Serbest"
+		},
+		"freeRatio": "Oran (genişlik ÷ yükseklik)",
+		"margin": "Kenar boşluğu",
+		"preview": "Önizleme",
+		"loupe": "Büyüteç",
+		"cropArea": "Kırpma alanı",
+		"invalidQuad": "Köşeler kesişiyor veya aynı doğru üzerinde. Uygulamak için onları bir dörtgen oluşturacak şekilde yerleştirin.",
+		"reset": "Sıfırla",
+		"apply": "Uygula"
 	}
 }

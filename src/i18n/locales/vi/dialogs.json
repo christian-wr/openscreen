@@ -88,5 +88,33 @@
 		"audioFiles": "Tệp âm thanh",
 		"openscreenProject": "Dự án OpenScreen",
 		"allFiles": "Tất cả các tệp"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Chỉnh phối cảnh – {{camera}}",
+		"titleCrop": "Cắt – {{camera}}",
+		"loading": "Đang tải hình ảnh camera…",
+		"loadFailed": "Không thể tải hình ảnh camera.",
+		"perspectiveHelp": "Kéo bốn góc vào các góc của tờ giấy hoặc mặt bàn. Phím mũi tên di chuyển góc đang chọn một pixel, giữ Shift để di chuyển mười pixel.",
+		"cropHelp": "Kéo khung hoặc các tay cầm của nó lên phần hình ảnh cần giữ. Phím mũi tên di chuyển khung, Shift + mũi tên thay đổi kích thước.",
+		"corners": {
+			"topLeft": "Góc trên bên trái",
+			"topRight": "Góc trên bên phải",
+			"bottomRight": "Góc dưới bên phải",
+			"bottomLeft": "Góc dưới bên trái"
+		},
+		"format": "Định dạng đích",
+		"formats": {
+			"a4Portrait": "A4 dọc",
+			"a4Landscape": "A4 ngang",
+			"free": "Tự do"
+		},
+		"freeRatio": "Tỉ lệ (rộng ÷ cao)",
+		"margin": "Lề",
+		"preview": "Xem trước",
+		"loupe": "Kính lúp",
+		"cropArea": "Vùng cắt",
+		"invalidQuad": "Các góc cắt nhau hoặc nằm trên một đường thẳng. Hãy sắp xếp chúng thành hình tứ giác để áp dụng.",
+		"reset": "Đặt lại",
+		"apply": "Áp dụng"
 	}
 }
