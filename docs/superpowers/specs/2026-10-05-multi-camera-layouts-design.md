@@ -30,7 +30,13 @@ zeigen dasselbe. Projekte mit nur einer Kamera und alte Projekte sehen unveränd
 - Ansatz: **echte Kamera-Ebenen im Compositor** (kein vorab gerendertes Mosaik, keine DOM-Ebene).
 - **Hintergrund-Effekte** (Personenmaske: Unschärfe/Entfernen) bleiben vorerst auf Kamera 1; die
   übrigen Kamera-Einstellungen gelten für jede Kamera.
-- Reihenfolge: erst Teilprojekt 2, dann 3 — jedes mit eigenem Plan und Review.
+- **Perspektivkorrektur per Homographie** für statische Kameras (Tischkamera schräg vom Monitorrand):
+  einmal kalibrieren, auf jeden Frame anwenden. Kalibrierung über 4 ziehbare Eckpunkte, optional
+  vorbelegt durch erkannte ArUco-Marker (die App liefert ein druckbares Markerblatt). Ergebnis zeigt
+  **nur das Rechteck** zwischen den 4 Punkten in einem gewählten Zielformat (A4 hoch/quer, 16:9, 4:3,
+  quadratisch, frei), optional mit kleinem Rand.
+- Reihenfolge: erst Teilprojekt 2, dann 3 — jedes mit eigenem Plan und Review. Der Shader-Teil der
+  Perspektivkorrektur gehört zu Teilprojekt 2, der Kalibrier-Dialog zu Teilprojekt 3.
 
 ## Nicht in diesem Schritt
 
@@ -53,7 +59,24 @@ interface CameraSettings {
 	rotation?: 0 | 180;   // fehlt = 0
 	mirror?: boolean;     // fehlt = Projekt-Spiegel (`webcamMirrored`) für Kamera 1, aus für die übrigen
 	crop?: SceneCrop;     // fehlt = ganzes Bild; Kamera 1 nutzt weiterhin den bestehenden Crop
+	perspective?: CameraPerspective; // fehlt = keine Korrektur
 }
+
+interface CameraPerspective {
+	// Die 4 Quellpunkte im Kamerabild, normiert 0..1, Reihenfolge oben-links, oben-rechts,
+	// unten-rechts, unten-links (aus Sicht des fertigen, entzerrten Bildes).
+	corners: [Point, Point, Point, Point];
+	aspect: number;   // Zielformat Breite/Höhe, z. B. 297/210 für A4 quer
+	margin?: number;  // Rand um das Rechteck, Anteil der Rechteckgröße, 0..0.2; fehlt = 0
+}
+```
+
+Gespeichert werden die Punkte, nicht die Matrix: die Matrix (3×3, Ziel → Quelle) wird bei Bedarf aus
+den 4 Punktpaaren berechnet (`src/lib/cameraPerspective.ts`, eine Stelle für App und Szene). Mit
+gesetzter Perspektive ist der Zuschnitt (`crop`) wirkungslos und im Editor ausgegraut. Ein
+degeneriertes Viereck (Punkte kollinear, überschlagen) wird abgelehnt.
+
+```ts
 ```
 
 Kamera 1 behält ihre heutigen Einstellungen an den heutigen Stellen; die Liste trägt nur
@@ -115,6 +138,9 @@ Abschnitte überlappen sich nicht (Regel wie bei Full Camera).
   Kamera-Index, Zielrechteck (Anteile des Ausgaberahmens), Eckenradius, Form, Ebenen-Reihenfolge
   und ob die Ebene den Rahmen füllt.
 
+Pro Kamera mit Perspektive sendet die App die fertige 3×3-Matrix (Ziel-UV → Quell-UV) und das
+Zielformat mit; das Seitenverhältnis der Kamera-Ebene ist dann das Zielformat.
+
 Ohne weitere Kameras und ohne Layout-Abschnitte sendet die App diese Felder nicht; der Compositor
 verhält sich dann exakt wie heute.
 
@@ -146,8 +172,12 @@ projiziert die Abschnitte wie die übrigen Regionen auf die Clips der Timeline.
 
 ### Zeichnen
 
-- Jede Ebene mit dem bestehenden Kamera-Shader und eigenem `LayerCB`; kein neuer Shader, keine
-  Änderung am `LayerCB`-Layout. Die drei Backends ersetzen den einen Aufruf durch eine Schleife in der
+- Jede Ebene mit dem bestehenden Kamera-Shader und eigenem `LayerCB`; kein neuer Shader.
+- **Perspektive:** der Kamera-Shader bekommt eine optionale 3×3-Homographie im `LayerCB` (drei
+  `float4`-Zeilen, hinten angehängt — Rust, HLSL, WGSL und MSL gleich, vom bestehenden
+  Größen-/Offset-Test festgehalten). Pro Pixel: `q = H · (u, v, 1)`, Quell-UV = `q.xy / q.z`; außerhalb
+  des Kamerabildes transparent. Ohne Korrektur ist `H` die Einheitsmatrix und das Ergebnis bit-gleich
+  zu heute. Die Personenmaske (Kamera 1) wird über dieselbe UV abgetastet und dreht mit. Die drei Backends ersetzen den einen Aufruf durch eine Schleife in der
   Ebenen-Reihenfolge: Kameras, die den Rahmen füllen (`camera-full`, `side-by-side`), verdecken den
   Bildschirm wie heute die Full Camera; Bild-im-Bild liegt darüber, wie heute Kamera 1. Bildschirm
   plus zwei Kameras ist `screen-pip` mit zwei Plätzen.
@@ -161,6 +191,17 @@ Kameras nicht mehr als doppelt so lang wie mit einer. Werden die Ziele verfehlt,
 berichtet und nicht stillschweigend hingenommen.
 
 ## 3. Editor (Teilprojekt 3)
+
+### Perspektive kalibrieren
+
+- In der Kamera-Liste je Kamera „Perspektive korrigieren…“: Dialog mit Standbild der Kamera (Frame
+  an der Abspielposition), 4 ziehbare Eckpunkte mit Lupe, Zielformat, Rand, Vorschau des
+  entzerrten Ergebnisses, „Zurücksetzen“.
+- „Marker erkennen“: sucht 4 ArUco-Marker (Wörterbuch 4×4) im Standbild mit einer kleinen
+  JavaScript-Bibliothek (kein OpenCV) und setzt die Eckpunkte auf die inneren Ecken der Marker;
+  findet sie nicht alle 4, sagt er das und lässt die Punkte unverändert.
+- „Markerblatt drucken“: ein PDF/A4 mit den 4 Markern zum Ausschneiden und einer kurzen Anleitung.
+- Ein Undo-Schritt pro bestätigter Kalibrierung.
 
 ### Timeline
 
@@ -198,6 +239,10 @@ berichtet und nicht stillschweigend hingenommen.
 
 ## 5. Tests und Abnahme
 
+- **Perspektive:** Homographie aus 4 Punktpaaren bildet die Ecken exakt aufeinander ab; degenerierte
+  Vierecke abgelehnt; Einheitsmatrix lässt den Shader-Ausgang bit-gleich; gemessener Export mit
+  einem schräg aufgenommenen Schachbrett ergibt rechte Winkel und gleiche Feldgrößen; Marker-Erkennung
+  an einem gerenderten Testbild. Echter Lauf: Tischkamera mit A4-Blatt und Markerblatt.
 - **Rust:** Ebenenliste aus Szene und Zeit; Übergang interpoliert Rechteck/Radius und blendet
   ein-/ausfallende Kameras; ohne Abschnitte identisch zu heute; Schreibtisch-Ansicht auf der richtigen
   Ebene; naga-Validierung unverändert grün.
