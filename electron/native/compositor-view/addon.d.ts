@@ -119,6 +119,13 @@ export interface ExportParamsInput {
 }
 
 /** One timeline clip for the native multiclip export (screen + webcam files + source trim). */
+/** An additional camera (2-4) of a clip, for `setActiveClip`. = napi `ClipCameraInput`. */
+export interface ClipCameraInput {
+	path: string;
+	/** Camera source time = screen source time - this. */
+	offsetSec: number;
+}
+
 export interface ClipInput {
 	screenPath: string;
 	webcamPath: string;
@@ -198,6 +205,8 @@ export interface CompositorViewAddon {
 	/** Installs the app scene (JSON `SceneDescription`) — layout preset etc. drive the render
 	 *  instead of the fixture. Invalid JSON is ignored native-side. */
 	setScene(id: number, sceneJson: string): void;
+	/** `additionalCameras`: cameras 2-4 of the clip (index k-1 = camera k, empty `path` = none).
+	 *  An addon built before it ignores the argument. */
 	setActiveClip(
 		id: number,
 		screenPath: string,
@@ -205,6 +214,7 @@ export interface CompositorViewAddon {
 		webcamOffsetSec: number,
 		clipIndex: number,
 		sourceTimeSec: number,
+		additionalCameras?: ClipCameraInput[],
 	): void;
 	destroyView(id: number): void;
 	/** Renders the fixture to `outPath` (C8), auto-pausing live previews. `onProgress`

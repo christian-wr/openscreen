@@ -15,7 +15,7 @@ use openscreen_compositor::frame_geometry::FootageQuad;
 use openscreen_compositor::gif_export::{GifExportParams, GifStats};
 use openscreen_compositor::gif_export_control::{GifExportCancelled, GifExportControl};
 use openscreen_compositor::live::{LiveView, PausedPreviews};
-use openscreen_compositor::scene::Scene;
+use openscreen_compositor::scene::{Scene, SceneClipCamera};
 use openscreen_compositor::{config, pipeline};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -368,6 +368,9 @@ pub fn present_time(id: i32, seconds: f64) {
 /// Remplace les sources du clip actif sans recréer la vue ni son thread de rendu. L'identité
 /// timeline et le playhead source sont atomiques avec le switch : deux clips partageant les
 /// mêmes fichiers restent distincts, et les deux décodeurs ouvrent directement la bonne frame.
+///
+/// `additional_cameras`: cameras 2-4 of the clip (index k-1 = camera k, an empty `path` = no
+/// camera in that slot). Absent = none; the view decodes only those its layout regions show.
 #[napi]
 pub fn set_active_clip(
     id: i32,
@@ -376,16 +379,31 @@ pub fn set_active_clip(
     webcam_offset_sec: f64,
     clip_index: u32,
     source_time_sec: f64,
+    additional_cameras: Option<Vec<ClipCameraInput>>,
 ) {
     if let Some(v) = registry().lock().unwrap().get(&id) {
+        let cameras = additional_cameras
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| SceneClipCamera { path: c.path, offset_sec: c.offset_sec })
+            .collect();
         v.set_active_clip(
             &screen_path,
             &webcam_path,
             webcam_offset_sec,
+            cameras,
             clip_index as usize,
             source_time_sec,
         );
     }
+}
+
+/// An additional camera of a clip (= TS `CompositorClipCamera`).
+#[napi(object)]
+pub struct ClipCameraInput {
+    pub path: String,
+    /// Camera source time = screen source time - this.
+    pub offset_sec: f64,
 }
 
 /// Installe la scène de l'app (JSON `SceneDescription`) sur la vue : layout preset piloté par

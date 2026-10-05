@@ -157,8 +157,29 @@ describe("NativeCompositorOverlay while playing", () => {
 
 		setPlayhead(8, true);
 
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 10);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 10, []);
 		expect(native.setNativePlaying).not.toHaveBeenCalledWith(false);
+	});
+
+	it("sends the asset's extra cameras with the clip", async () => {
+		const document = makeDocument();
+		document.assets[0] = {
+			...document.assets[0],
+			additionalCameraTracks: [
+				{ sourcePath: "/cam-2.mp4", startMs: 500, offsetMs: 0, visible: true, label: "" },
+				{ sourcePath: "/cam-3.mp4", startMs: 0, offsetMs: 0, visible: false, label: "" },
+			],
+		};
+		useProjectStore.setState({ document });
+		await mountAtFirstClip();
+		publishNativePosition({ clipIndex: 0, sourceTimeSec: 4.9 }, now);
+
+		setPlayhead(8, true);
+
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 10, [
+			{ path: "/cam-2.mp4", offsetSec: 0.5 },
+			{ path: "", offsetSec: 0 },
+		]);
 	});
 
 	it("re-anchors a view that stays behind, once the gap holds", async () => {
@@ -173,7 +194,7 @@ describe("NativeCompositorOverlay while playing", () => {
 		setPlayhead(2.52, true);
 
 		expect(native.setActiveClip).toHaveBeenCalledTimes(1);
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 2.52);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 2.52, []);
 	});
 
 	// At 16× a frame that takes 30 ms to arrive shows the playhead 0.48 s of programme ago.
@@ -228,8 +249,8 @@ describe("NativeCompositorOverlay while playing", () => {
 			setPlayhead(time, false);
 		}
 
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 14.4);
-		expect(native.setActiveClip).toHaveBeenLastCalledWith(7, "/take.mp4", "", 0, 0, 14.4);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 14.4, []);
+		expect(native.setActiveClip).toHaveBeenLastCalledWith(7, "/take.mp4", "", 0, 0, 14.4, []);
 	});
 
 	it("still sends the clip on a change while paused", async () => {
@@ -239,7 +260,7 @@ describe("NativeCompositorOverlay while playing", () => {
 
 		setPlayhead(6, false);
 
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 8);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 8, []);
 	});
 
 	// An addon that reports no position cannot be read, so it is driven as before.

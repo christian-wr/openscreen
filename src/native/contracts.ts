@@ -916,6 +916,8 @@ export type NativeBridgeRequest =
 				clipIndex: number;
 				/** Current screen-source time within the active clip's source window. */
 				sourceTimeSec: number;
+				/** Cameras 2-4 of the clip; the view decodes only those its layout regions show. */
+				additionalCameras?: CompositorClipCamera[];
 			};
 			requestId?: string;
 	  }
