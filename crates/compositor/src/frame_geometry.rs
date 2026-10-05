@@ -416,12 +416,47 @@ pub(crate) fn camera_source_rect(
     [u0, v0, u1, v1]
 }
 
+/// The window of a corrected picture (`aspect` = its width/height) a box of ratio `box_ar`
+/// shows, as `[u0, v0, du, dv]` of the picture's unit square: centred and cover-fitted, so the
+/// picture is cropped, never stretched — what `cover_uv_rect` does for an uncorrected camera,
+/// whose `src` the shader stops reading once a homography is set. The whole picture without a
+/// usable aspect or box.
+pub(crate) fn corrected_cover_window(aspect: Option<f32>, box_ar: f32) -> [f32; 4] {
+    let Some(aspect) = aspect.filter(|a| a.is_finite() && *a > 0.0) else {
+        return [0.0, 0.0, 1.0, 1.0];
+    };
+    if !(box_ar.is_finite() && box_ar > 0.0) {
+        return [0.0, 0.0, 1.0, 1.0];
+    }
+    if box_ar > aspect {
+        let dv = aspect / box_ar;
+        [0.0, (1.0 - dv) * 0.5, 1.0, dv]
+    } else {
+        let du = box_ar / aspect;
+        [(1.0 - du) * 0.5, 0.0, du, 1.0]
+    }
+}
+
 /// `cb` with the camera's homography in `persp` and `layer_fx.y = 1`; unchanged without one.
+/// The matrix is composed with `corrected_cover_window` for the box `cb.quad_px`, so a box
+/// whose ratio is not the camera's `aspect` (a frame-filling layer, a half of side-by-side)
+/// crops the corrected picture instead of stretching it.
 pub(crate) fn with_camera_homography(
     mut cb: LayerCB,
     camera: Option<&crate::scene::SceneCamera>,
 ) -> LayerCB {
     if let Some(h) = camera_homography(camera) {
+        let box_ar = cb.quad_px[0] / cb.quad_px[1];
+        let [u0, v0, du, dv] = corrected_cover_window(camera.and_then(|c| c.aspect), box_ar);
+        // H * C, with C = [[du, 0, u0], [0, dv, v0], [0, 0, 1]] taking box uv to picture uv.
+        let h: [f32; 9] = std::array::from_fn(|i| {
+            let (r, c) = (i / 3, i % 3);
+            match c {
+                0 => h[r * 3] * du,
+                1 => h[r * 3 + 1] * dv,
+                _ => h[r * 3] * u0 + h[r * 3 + 1] * v0 + h[r * 3 + 2],
+            }
+        });
         cb.persp = [
             [h[0], h[1], h[2], 0.0],
             [h[3], h[4], h[5], 0.0],
@@ -7732,6 +7767,62 @@ mod tests {
         let f = camera_layer_cb(&faded, None, [64.0; 2], [64.0; 2], render, &base);
         assert_eq!(f.dst_prev, faded.dst);
         assert_eq!(f.mb, [1.0, 0.0, 1.0, 0.0]);
+    }
+
+    /// A corrected camera in a box of another ratio is cover-cropped, not stretched: the box's
+    /// local uv lands on a centred window of the corrected picture with the box's own ratio.
+    #[test]
+    fn a_corrected_camera_is_cover_fitted_into_its_box() {
+        let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let cam = crate::scene::SceneCamera {
+            homography: Some(identity),
+            aspect: Some(16.0 / 9.0),
+            ..extra_camera(2)
+        };
+        let row = |cb: &LayerCB, r: usize| [cb.persp[r][0], cb.persp[r][1], cb.persp[r][2]];
+        let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5);
+
+        // A box narrower than 16:9 (1752x1080, a 1.62 export): the full height, a centred
+        // slice of the width with the box's ratio.
+        let narrow = LayerCB { quad_px: [1752.0, 1080.0], ..Default::default() };
+        let cb = with_camera_homography(narrow, Some(&cam));
+        let du = (1752.0 / 1080.0) / (16.0 / 9.0);
+        assert!(near(row(&cb, 0), [du, 0.0, (1.0 - du) * 0.5]), "{:?}", cb.persp);
+        assert!(near(row(&cb, 1), [0.0, 1.0, 0.0]), "{:?}", cb.persp);
+        assert!(near(row(&cb, 2), [0.0, 0.0, 1.0]), "{:?}", cb.persp);
+
+        // A wider box (a 16:9 picture in a 21:9 box): full width, a centred band of height.
+        let wide = LayerCB { quad_px: [2100.0, 900.0], ..Default::default() };
+        let cb = with_camera_homography(wide, Some(&cam));
+        let dv = (16.0 / 9.0) / (2100.0 / 900.0);
+        assert!(near(row(&cb, 0), [1.0, 0.0, 0.0]), "{:?}", cb.persp);
+        assert!(near(row(&cb, 1), [0.0, dv, (1.0 - dv) * 0.5]), "{:?}", cb.persp);
+
+        // The box the template gives a PiP of this camera has its aspect: nothing is cropped.
+        let pip = LayerCB { quad_px: [422.4, 237.6], ..Default::default() };
+        let cb = with_camera_homography(pip, Some(&cam));
+        assert!(near(row(&cb, 0), [1.0, 0.0, 0.0]) && near(row(&cb, 1), [0.0, 1.0, 0.0]));
+
+        // A real (projective) matrix is composed on the right: H * C, so H's third row picks
+        // up the window too.
+        let h = [0.8, 0.1, 0.05, -0.02, 0.9, 0.04, 0.1, -0.2, 1.0];
+        let cam = crate::scene::SceneCamera { homography: Some(h), ..cam };
+        let cb = with_camera_homography(narrow, Some(&cam));
+        let u0 = (1.0 - du) * 0.5;
+        assert!(near(row(&cb, 2), [0.1 * du, -0.2, 0.1 * u0 + 1.0]), "{:?}", cb.persp);
+        assert_eq!(cb.layer_fx[1], 1.0);
+    }
+
+    /// Without an aspect, or with a degenerate box, the whole corrected picture is shown.
+    #[test]
+    fn the_cover_window_falls_back_to_the_whole_picture() {
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        assert_eq!(corrected_cover_window(None, 1.5), whole);
+        assert_eq!(corrected_cover_window(Some(0.0), 1.5), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), f32::NAN), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), f32::INFINITY), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), 0.0), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), 1.5), whole);
     }
 
     /// A homography with a NaN or an infinity in it counts as none.
