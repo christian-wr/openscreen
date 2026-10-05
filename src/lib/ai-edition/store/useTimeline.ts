@@ -12,6 +12,7 @@ import type {
 	CameraFullscreenRegion,
 	CameraLayoutSlot,
 	CameraLayoutTemplate,
+	CameraSettings,
 	NormalizedRect,
 	Rotation3DPreset,
 } from "@/components/video-editor/types";
@@ -21,6 +22,8 @@ import {
 	isFullCameraLayout,
 	MAX_CAMERAS,
 	normalizeCameraLayoutRegions,
+	normalizeCameraSettings,
+	patchCameraSettings,
 	TEMPLATE_SLOTS,
 } from "@/lib/cameraLayouts";
 import {
@@ -1377,6 +1380,23 @@ export function useTimeline() {
 		[document, saveDocument],
 	);
 
+	// Per-camera settings (`legacyEditor.cameraSettings`). One write, one undo step; the key
+	// is deleted when nothing is left, so untouched projects stay byte-identical.
+	const setCameraSettings = useCallback(
+		async (index: number, patch: Partial<CameraSettings> | null) => {
+			if (!document) return;
+			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
+			const list = patchCameraSettings(legacy.cameraSettings, index, patch);
+			const { cameraSettings: _prev, ...rest } = legacy;
+			const next: AxcutDocument = {
+				...document,
+				legacyEditor: list ? { ...rest, cameraSettings: list } : rest,
+			};
+			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
 	const updateCameraFullscreenDeskLabel = useCallback(
 		async (id: string, show: boolean) => {
 			if (!document) return;
@@ -2118,6 +2138,14 @@ export function useTimeline() {
 		[updateAudioTrack],
 	);
 
+	const cameraSettings = useMemo(
+		() =>
+			normalizeCameraSettings(
+				(document?.legacyEditor as Record<string, unknown> | null)?.cameraSettings,
+			),
+		[document?.legacyEditor],
+	);
+
 	return {
 		zoomRegions: document?.zoomRanges ?? [],
 		trimRanges: document?.timeline.trimRanges ?? [],
@@ -2183,6 +2211,8 @@ export function useTimeline() {
 		updateSpeedValue,
 		updateCameraFullscreenOrientation,
 		updateCameraFullscreenDeskLabel,
+		setCameraSettings,
+		cameraSettings,
 		updateCameraFullscreenSpan,
 		updateCameraLayoutSpan,
 		setLayoutTemplate,

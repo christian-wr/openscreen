@@ -462,5 +462,8 @@
 		"dark": "Dunkel",
 		"light": "Hell",
 		"custom": "Eigene"
+	},
+	"cameras": {
+		"cameraN": "Kamera {{n}}"
 	}
 }

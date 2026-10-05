@@ -462,5 +462,8 @@
 		"dark": "Oscura",
 		"light": "Clara",
 		"custom": "Personalizada"
+	},
+	"cameras": {
+		"cameraN": "Cámara {{n}}"
 	}
 }

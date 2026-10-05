@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CameraPerspective } from "@/components/video-editor/types";
 import { I18nProvider } from "@/contexts/I18nContext";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
 import { type RegionKind, readSpeedRegions } from "../document/timeline";
@@ -3067,5 +3068,65 @@ describe("useTimeline camera layouts", () => {
 		});
 		expect(legacyNow().cameraLayoutRegions).toEqual([]);
 		expect(legacyNow().cameraFullscreenRegions).toEqual([]);
+	});
+});
+
+describe("useTimeline.setCameraSettings", () => {
+	const stored = () =>
+		(useProjectStore.getState().document?.legacyEditor ?? {}) as { cameraSettings?: unknown };
+
+	function seed(legacyEditor: Record<string, unknown> | null) {
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: { ...sampleDoc, legacyEditor },
+			currentTimeSec: 1,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+	}
+
+	it("setting camera 2 mirror stores only that", async () => {
+		seed({});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setCameraSettings(1, { mirror: true });
+		});
+		expect(stored().cameraSettings).toEqual([null, { mirror: true }]);
+	});
+
+	it("resetting the last camera removes the key", async () => {
+		seed({ other: 1, cameraSettings: [null, { mirror: true }] });
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setCameraSettings(1, null);
+		});
+		expect(stored()).toEqual({ other: 1 });
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(stored().cameraSettings).toEqual([null, { mirror: true }]);
+	});
+
+	it("camera 1 accepts only a perspective", async () => {
+		seed({});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setCameraSettings(0, { mirror: true, rotation: 180 });
+		});
+		expect(stored().cameraSettings).toBeUndefined();
+		const perspective: CameraPerspective = {
+			corners: [
+				{ x: 0.1, y: 0.1 },
+				{ x: 0.9, y: 0.1 },
+				{ x: 0.9, y: 0.9 },
+				{ x: 0.1, y: 0.9 },
+			],
+			aspect: 1.5,
+		};
+		await act(async () => {
+			await result.current.setCameraSettings(0, { mirror: true, perspective });
+		});
+		expect(stored().cameraSettings).toEqual([{ perspective }]);
 	});
 });

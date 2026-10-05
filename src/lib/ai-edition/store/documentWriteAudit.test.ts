@@ -310,6 +310,7 @@ const DECLARED: WritePath[] = [
 		"save",
 		"gesture",
 	),
+	w("src/lib/ai-edition/store/useTimeline.ts", "setCameraSettings", "save", "gesture"),
 	w(
 		"src/lib/ai-edition/store/useTimeline.ts",
 		"updateCameraFullscreenDeskLabel",

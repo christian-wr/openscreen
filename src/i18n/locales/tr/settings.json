@@ -462,5 +462,8 @@
 		"dark": "Koyu",
 		"light": "Açık",
 		"custom": "Özel"
+	},
+	"cameras": {
+		"cameraN": "Kamera {{n}}"
 	}
 }
