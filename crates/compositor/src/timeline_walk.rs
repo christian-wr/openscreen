@@ -355,7 +355,7 @@ pub(crate) unsafe fn walk_composited_timeline(
                     break 'clip_frames;
                 }
 
-                let extra_frames = {
+                let (extra_frames, closed) = {
                     let _p = crate::export_probe::scope(crate::export_probe::Stage::DecodeWebcam);
                     step_extra_cameras(
                         &mut extras,
@@ -365,6 +365,12 @@ pub(crate) unsafe fn walk_composited_timeline(
                         target_source_time,
                     )
                 };
+                if closed {
+                    // A dropped decoder's textures may still sit in the SRV cache; a later
+                    // decoder could reuse their addresses (same contract as the preview's
+                    // `hand_extra_frames`).
+                    comp.clear_srv_cache();
+                }
                 comp.set_extra_camera_frames(&extra_frames);
 
                 comp.set_timeline_time(Some(target_source_time as f32));
@@ -433,14 +439,16 @@ struct ExportExtraCamera {
 
 /// The frames for `set_extra_camera_frames` at screen source time `t`: each camera that is
 /// near one of its regions steps toward its own source time, the others give null. A camera
-/// that stops decoding is dropped with a warning and not reopened for the rest of the export.
+/// that stops decoding is dropped with a warning and not reopened for the rest of the export;
+/// the `bool` says one was dropped, so the caller clears the compositor's texture cache.
 unsafe fn step_extra_cameras(
     extras: &mut [Option<ExportExtraCamera>],
     extra_decs: &mut HashMap<String, Decoder>,
     unreadable: &mut HashSet<String>,
     regions: &[SceneCameraLayoutRegion],
     t: f64,
-) -> Vec<*const AVFrame> {
+) -> (Vec<*const AVFrame>, bool) {
+    let mut closed = false;
     let mut frames = Vec::with_capacity(extras.len());
     for (k, slot) in extras.iter_mut().enumerate() {
         let camera = k + 1;
@@ -458,13 +466,14 @@ unsafe fn step_extra_cameras(
                         extra_decs.remove(&cam.path);
                         unreadable.insert(cam.path.clone());
                         *slot = None;
+                        closed = true;
                     }
                 }
             }
         }
         frames.push(frame);
     }
-    frames
+    (frames, closed)
 }
 
 #[cfg(test)]
