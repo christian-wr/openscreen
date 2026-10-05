@@ -1416,11 +1416,20 @@ export function buildSceneDescription(
 			// of the short side (= roundness of half of it).
 			const pipRadiusFrac =
 				layoutByClip[region.clipIndex]?.webcamRadiusFrac ?? clamp01(settings.webcamRoundness) / 2;
+			// The template PiPs start where the project puts camera 1's PiP — only in the
+			// picture-in-picture preset; a block preset's camera box is no PiP to anchor on.
+			const clip = visibleClips[region.clipIndex];
+			const pipPreset =
+				clip !== undefined &&
+				resolveWebcamLayoutPreset(settings.webcamLayoutPreset, clipHasCamera(clip)) ===
+					"picture-in-picture";
+			const defaultPipRect = pipPreset ? layoutByClip[region.clipIndex]?.webcamRect : null;
 			const layers = resolveCameraLayout(region, {
 				frame: outputDims,
 				cameraAspect,
 				pipShape,
 				pipRadiusFrac,
+				defaultPipRect,
 			}).filter((layer) => (sources[layer.camera]?.path ?? "") !== "");
 			if (layers.length === 0) return [];
 			return [

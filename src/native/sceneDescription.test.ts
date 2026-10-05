@@ -3356,6 +3356,44 @@ describe("buildSceneDescription cameras", () => {
 		expect(webcamBoxSourceSize(camera, null, crop)).toEqual({ width: 960, height: 1080 });
 	});
 
+	it("a template's first PiP sits where the project places camera 1's PiP", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{
+					cameraTrack: {
+						sourcePath: "/w-1.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1920,
+						height: 1080,
+					},
+					additionalCameraTracks: [{ ...extra, width: 1920, height: 1080 }],
+				},
+				{
+					webcamMaskShape: "rectangle",
+					cameraLayoutRegions: [layoutRegion("screen-pip", [{ camera: 0 }, { camera: 1 }])],
+				},
+			),
+		);
+		const defaultRect = scene.layout.layoutByClip?.[0]?.webcamRect;
+		expect(defaultRect).toBeTruthy();
+		const [first, second] = scene.cameraLayoutRegions?.[0].layers ?? [];
+		// Within a pixel: the default rect is laid out in whole pixels, the PiP's height comes
+		// from the camera's exact 16:9.
+		const { width, height } = scene.output;
+		for (const [key, px] of [
+			["x", width],
+			["y", height],
+			["width", width],
+			["height", height],
+		] as const) {
+			expect(Math.abs(first.rect[key] - (defaultRect?.[key] ?? Number.NaN)) * px).toBeLessThan(1);
+		}
+		expect(second.rect.x + second.rect.width).toBeLessThan(first.rect.x);
+		expect(second.rect.width).toBeCloseTo(first.rect.width, 6);
+	});
+
 	it("an extra camera's PiP is sized from its cropped picture", () => {
 		const scene = buildSceneDescription(
 			docWith(

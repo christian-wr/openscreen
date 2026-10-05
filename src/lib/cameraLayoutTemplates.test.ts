@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PIP_MARGIN_FRAC, PIP_WIDTH_FRAC, resolveCameraLayout } from "./cameraLayoutTemplates";
+import {
+	PIP_GAP_FRAC,
+	PIP_MARGIN_FRAC,
+	PIP_WIDTH_FRAC,
+	resolveCameraLayout,
+} from "./cameraLayoutTemplates";
 
 const ctx = {
 	frame: { width: 1920, height: 1080 },
@@ -42,6 +47,37 @@ describe("resolveCameraLayout", () => {
 		expect(a.rect.height).toBeCloseTo(PIP_WIDTH_FRAC, 9); // 16:9 camera in a 16:9 frame
 		expect(b.rect.x + b.rect.width).toBeLessThan(a.rect.x);
 		expect([a.fillsFrame, b.fillsFrame]).toEqual([false, false]);
+	});
+	it("the first pip takes the project's default pip rect, the next stacks left of it", () => {
+		// A 16:9 camera's default PiP, 0.3 wide, in the top-left corner of a 16:9 frame.
+		const defaultPipRect = { x: 0.05, y: 0.06, width: 0.3, height: 0.3 };
+		const [a, b] = resolveCameraLayout(region("screen-pip" as never, [0, 1]), {
+			...ctx,
+			defaultPipRect,
+		});
+		for (const key of ["x", "y", "width", "height"] as const) {
+			expect(a.rect[key]).toBeCloseTo(defaultPipRect[key], 9);
+		}
+		expect(b.rect.width).toBeCloseTo(0.3, 9);
+		expect(b.rect.x + b.rect.width).toBeCloseTo(a.rect.x - PIP_GAP_FRAC, 9);
+		expect(b.rect.y + b.rect.height).toBeCloseTo(a.rect.y + a.rect.height, 9);
+		// A portrait camera keeps the width and bottom edge, with its own height.
+		const [p] = resolveCameraLayout(region("screen-pip" as never, [1]), {
+			...ctx,
+			cameraAspect: () => 9 / 16,
+			defaultPipRect,
+		});
+		expect(p.rect.width).toBeCloseTo(0.3, 9);
+		expect(p.rect.y + p.rect.height).toBeCloseTo(0.36, 9);
+		expect((p.rect.width * 1920) / (p.rect.height * 1080)).toBeCloseTo(9 / 16, 6);
+	});
+	it("without a usable default pip rect the corner constants stay", () => {
+		const plain = resolveCameraLayout(region("screen-pip" as never, [0, 1]), ctx);
+		for (const defaultPipRect of [null, { x: 0, y: 0, width: 0, height: 0.2 }]) {
+			expect(
+				resolveCameraLayout(region("screen-pip" as never, [0, 1]), { ...ctx, defaultPipRect }),
+			).toEqual(plain);
+		}
 	});
 	it("camera-full-pip draws the full camera first, then the pip", () => {
 		const layers = resolveCameraLayout(region("camera-full-pip" as never, [1, 0]), ctx);
