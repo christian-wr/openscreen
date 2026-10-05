@@ -231,6 +231,35 @@ describe("CameraCalibrationModal", () => {
 		]);
 	});
 
+	it("the marker message goes away once a handle moves", async () => {
+		detectCornerMarkers.mockReturnValueOnce(null);
+		renderModal("perspective", null);
+		await stillLoaded();
+		const detect = () =>
+			fireEvent.click(
+				screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
+			);
+		detect();
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"dialogs.cameraCalibration.markersNotFound",
+		);
+		fireEvent.keyDown(screen.getByTestId("calibration-handle-1"), { key: "ArrowLeft" });
+		expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+		// A drag that starts clears it too, before the pointer even moves.
+		detectCornerMarkers.mockReturnValueOnce(null);
+		detect();
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"dialogs.cameraCalibration.markersNotFound",
+		);
+		const frame = screen.getByTestId("calibration-frame");
+		vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 80));
+		// Corner 0 sits at 15 % / 15 % of the frame.
+		fireEvent.pointerDown(frame, { clientX: 15, clientY: 12 });
+		expect(screen.getByRole("status")).toBeEmptyDOMElement();
+		fireEvent(window, new Event("pointerup"));
+	});
+
 	it("print hands the translated texts to the sheet", async () => {
 		renderModal("perspective", null);
 		await stillLoaded();

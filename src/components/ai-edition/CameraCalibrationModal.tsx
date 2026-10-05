@@ -172,7 +172,9 @@ export function CameraCalibrationModal({
 		[],
 	);
 
+	// The marker message describes the corners as detected; any manual change makes it stale.
 	const startDrag = (e: ReactPointerEvent, onMove: (dxPx: number, dyPx: number) => void) => {
+		setMarkerResult(null);
 		stopDragRef.current?.();
 		stopDragRef.current = trackDrag(e, onMove);
 	};
@@ -253,12 +255,14 @@ export function CameraCalibrationModal({
 		ctx.stroke();
 	}, [image, corners, activeHandle]);
 
-	const setCorner = (index: number, p: CameraPoint) =>
+	const setCorner = (index: number, p: CameraPoint) => {
+		setMarkerResult(null);
 		setCorners((prev) => {
 			const next = copyCorners(prev);
 			next[index] = clampPoint(p);
 			return next;
 		});
+	};
 
 	// A press anywhere near a corner grabs it, so a corner is found without aiming at its dot.
 	const onFramePointerDown = (e: ReactPointerEvent) => {
@@ -370,6 +374,7 @@ export function CameraCalibrationModal({
 
 	// Reset removes the stored correction (or crop) altogether.
 	const reset = () => {
+		setMarkerResult(null);
 		onApply(isPerspective ? { perspective: undefined } : { crop: undefined });
 		onClose();
 	};

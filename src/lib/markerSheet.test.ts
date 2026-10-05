@@ -2,7 +2,12 @@
 // jsdom for `printMarkerSheet` (iframe) and for parsing the sheet with DOMParser.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { markerBits } from "./arucoMarkers";
-import { MARKER_SIZE_MM, markerSheetSvg, printMarkerSheet } from "./markerSheet";
+import {
+	MARKER_SIZE_MM,
+	markerSheetSvg,
+	PRINT_FRAME_FALLBACK_MS,
+	printMarkerSheet,
+} from "./markerSheet";
 
 function parse(svg: string): Document {
 	return new DOMParser().parseFromString(svg, "image/svg+xml");
@@ -55,7 +60,17 @@ describe("markerSheetSvg", () => {
 describe("printMarkerSheet", () => {
 	afterEach(() => {
 		for (const f of document.querySelectorAll("iframe")) f.remove();
+		vi.useRealTimers();
 	});
+
+	function loadAndPrint(iframe: HTMLIFrameElement) {
+		const win = iframe.contentWindow;
+		if (!win) throw new Error("no iframe window");
+		vi.spyOn(win, "focus").mockImplementation(() => undefined);
+		const print = vi.spyOn(win, "print").mockImplementation(() => undefined);
+		iframe.dispatchEvent(new Event("load"));
+		return print;
+	}
 
 	it("prints the sheet from a hidden iframe and removes it afterwards", () => {
 		printMarkerSheet();
@@ -68,6 +83,24 @@ describe("printMarkerSheet", () => {
 		iframe.dispatchEvent(new Event("load"));
 		expect(print).toHaveBeenCalledTimes(1);
 		win.dispatchEvent(new Event("afterprint"));
+		expect(document.querySelector("iframe")).toBeNull();
+	});
+
+	it("a second click replaces the first iframe instead of stacking another", () => {
+		printMarkerSheet();
+		printMarkerSheet();
+		expect(document.querySelectorAll("iframe")).toHaveLength(1);
+	});
+
+	it("removes the iframe after a timeout when afterprint never fires", () => {
+		vi.useFakeTimers();
+		printMarkerSheet();
+		const iframe = document.querySelector("iframe");
+		if (!iframe) throw new Error("no iframe");
+		expect(loadAndPrint(iframe)).toHaveBeenCalledTimes(1);
+		vi.advanceTimersByTime(PRINT_FRAME_FALLBACK_MS - 1);
+		expect(document.querySelector("iframe")).not.toBeNull();
+		vi.advanceTimersByTime(1);
 		expect(document.querySelector("iframe")).toBeNull();
 	});
 });

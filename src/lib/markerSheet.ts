@@ -90,12 +90,24 @@ export function markerSheetHtml(text?: MarkerSheetText): string {
 	);
 }
 
+/** Marks the iframe so a second click replaces it instead of stacking another one. */
+const PRINT_FRAME_ATTR = "data-marker-sheet-print";
+
+/**
+ * Removal fallback for when `afterprint` never fires (a dialog that never opened, a print
+ * cancelled in a way the frame does not report). Counted from the moment `print()` returns.
+ */
+export const PRINT_FRAME_FALLBACK_MS = 60_000;
+
 /**
  * Opens the print dialog for the sheet (the OS dialog offers "Save as PDF"). A hidden iframe
  * carries the page so the editor itself is not printed; it goes away once printing is done.
+ * Only one such iframe exists at a time: a repeated call replaces the previous one.
  */
 export function printMarkerSheet(text?: MarkerSheetText): void {
+	for (const old of document.querySelectorAll(`iframe[${PRINT_FRAME_ATTR}]`)) old.remove();
 	const iframe = document.createElement("iframe");
+	iframe.setAttribute(PRINT_FRAME_ATTR, "");
 	iframe.setAttribute("aria-hidden", "true");
 	iframe.tabIndex = -1;
 	Object.assign(iframe.style, {
@@ -106,7 +118,12 @@ export function printMarkerSheet(text?: MarkerSheetText): void {
 		height: "0",
 		border: "0",
 	});
-	const remove = () => iframe.remove();
+	let fallback: ReturnType<typeof setTimeout> | undefined;
+	const remove = () => {
+		if (fallback !== undefined) clearTimeout(fallback);
+		fallback = undefined;
+		iframe.remove();
+	};
 	iframe.addEventListener(
 		"load",
 		() => {
@@ -118,6 +135,7 @@ export function printMarkerSheet(text?: MarkerSheetText): void {
 			win.addEventListener("afterprint", remove, { once: true });
 			win.focus();
 			win.print();
+			fallback = setTimeout(remove, PRINT_FRAME_FALLBACK_MS);
 		},
 		{ once: true },
 	);
