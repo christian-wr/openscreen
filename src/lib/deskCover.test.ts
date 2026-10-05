@@ -3,6 +3,14 @@ import { TRANSITION_WINDOW_MS } from "@/lib/zoomMath/constants";
 import { DESK_COVER_FADE_MS, deskCoverLabelWindows } from "./deskCover";
 
 describe("deskCoverLabelWindows", () => {
+	it("an end at a seam with a layout region is the fade alone", () => {
+		const w = deskCoverLabelWindows({ startMs: 10_000, endMs: 30_000 }, { start: true, end: true });
+		expect(w.start).toEqual([10_000, 10_000 + DESK_COVER_FADE_MS]);
+		expect(w.end).toEqual([30_000 - DESK_COVER_FADE_MS, 30_000]);
+		const lone = deskCoverLabelWindows({ startMs: 10_000, endMs: 30_000 });
+		expect(lone.start[1]).toBeGreaterThan(w.start[1]);
+	});
+
 	it("covers the hold plus the fade at each end, like the compositor", () => {
 		const w = deskCoverLabelWindows({ startMs: 10_000, endMs: 30_000 });
 		expect(w.start).toEqual([10_000, 10_000 + TRANSITION_WINDOW_MS + DESK_COVER_FADE_MS]);

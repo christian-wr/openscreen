@@ -6,6 +6,7 @@
 // crop / settings mapping / output dims).
 
 import { describe, expect, it, vi } from "vitest";
+import type { CameraPerspective } from "@/components/video-editor/types";
 import {
 	DEFAULT_CROP_REGION,
 	getZoomScale,
@@ -20,13 +21,14 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { axcutSchemaVersion } from "@/lib/ai-edition/schema";
 import { CURSOR_KIND_IDS, DEFAULT_CURSOR_THEME_ID } from "@/lib/cursor/cursorThemes";
-import { deskCoverLabelWindows } from "@/lib/deskCover";
+import { DESK_COVER_FADE_MS, deskCoverLabelWindows } from "@/lib/deskCover";
 import { DEVICE_FRAMES } from "@/lib/projectDefaults";
 import { getFocusBoundsForScale } from "@/lib/zoomMath/focusUtils";
 import {
 	annotationFootageRect,
 	buildSceneDescription,
 	wallpaperAcceptsMotion,
+	webcamBoxSourceSize,
 	zoomScaleLimit,
 } from "./sceneDescription";
 
@@ -933,6 +935,77 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		);
 		expect(labels.map((a) => a.text?.content)).toEqual(["Desk mode", "Desk mode"]);
 		expect(labels.every((a) => a.space === "frame")).toBe(true);
+	});
+
+	it("reads Full Camera from the layout regions alone once they are stored", () => {
+		// The save rule writes a camera-1 Full Camera section to both lists; the load rule
+		// ignores the legacy copy as soon as `cameraLayoutRegions` exists.
+		const section = { id: "cf1", startMs: 0, endMs: 20_000, rotation: 180 };
+		const doc = makeDoc({
+			legacyEditor: {
+				cameraFullscreenRegions: [section],
+				cameraLayoutRegions: [{ ...section, template: "camera-full", slots: [{ camera: 0 }] }],
+			},
+		});
+		const scene = buildSceneDescription(doc);
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		const labels = scene.annotations.filter((a) => a.text?.animation?.startsWith("deskCover"));
+		expect(labels.map((a) => a.text?.animation)).toEqual(["deskCoverStart", "deskCoverEnd"]);
+		// Even an empty list of layout regions is the authority.
+		const emptied = makeDoc({
+			legacyEditor: { cameraFullscreenRegions: [section], cameraLayoutRegions: [] },
+		});
+		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toEqual([]);
+	});
+
+	it("a label end that meets a layout region covers only the fade", () => {
+		// A turned section right before a camera-full-pip region: the compositor holds no cover
+		// over a shrink there (`full_camera_seams`), so the end label is the fade alone.
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/a.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [
+				{ sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "Desk" },
+			],
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 30,
+			timelineStartSec: 0,
+			timelineEndSec: 30,
+		});
+		const section = {
+			id: "cf1",
+			startMs: 0,
+			endMs: 10_000,
+			rotation: 180,
+			template: "camera-full",
+			slots: [{ camera: 0 }],
+		};
+		const pip = {
+			id: "l1",
+			startMs: 10_000,
+			endMs: 20_000,
+			template: "camera-full-pip",
+			slots: [{ camera: 1 }, { camera: 0 }],
+		};
+		const doc = makeDoc({
+			assets: [asset],
+			clips: [clip],
+			legacyEditor: { cameraLayoutRegions: [section, pip] },
+		});
+		const labels = buildSceneDescription(doc).annotations.filter((a) =>
+			a.text?.animation?.startsWith("deskCover"),
+		);
+		const w = deskCoverLabelWindows({ startMs: 0, endMs: 10_000 }, { end: true });
+		expect(w.end).toEqual([10_000 - DESK_COVER_FADE_MS, 10_000]);
+		expect(labels.map((a) => [a.text?.animation, a.startSec * 1000, a.endSec * 1000])).toEqual([
+			["deskCoverStart", ...w.start],
+			["deskCoverEnd", ...w.end],
+		]);
 	});
 
 	it("no label for a plain section or with the label off", () => {
@@ -3133,8 +3206,8 @@ describe("buildSceneDescription cameras", () => {
 				{ cameraSettings: [null, { perspective: { corners: collinear, aspect: 1.5 } }] },
 			),
 		);
-		expect(scene.cameras ?? []).toEqual(scene.cameras ? [{ index: 1 }] : []);
-		for (const camera of scene.cameras ?? []) expect(camera).not.toHaveProperty("homography");
+		// The camera draws uncorrected: its entry carries no matrix (and no settings at all).
+		expect(scene.cameras).toEqual([{ index: 1 }]);
 	});
 
 	it("a valid perspective sends the matrix and replaces rotation, mirror and crop", () => {
@@ -3213,6 +3286,112 @@ describe("buildSceneDescription cameras", () => {
 		// Same unit as `computeCompositeLayout`: the radius is a fraction of the short side
 		// (= roundness of half of it).
 		expect(pip?.radiusFrac).toBeCloseTo(0.3, 6);
+	});
+
+	it("camera 1's box takes its perspective's aspect, in the default PiP and in a template", () => {
+		const corners = [
+			{ x: 0.1, y: 0.1 },
+			{ x: 0.9, y: 0.15 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.15, y: 0.8 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{
+					cameraTrack: {
+						sourcePath: "/w-1.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1920,
+						height: 1080,
+					},
+					additionalCameraTracks: [extra],
+				},
+				{
+					webcamMaskShape: "rectangle",
+					// The crop is ignored once the perspective is valid.
+					webcamCropRegion: { x: 0, y: 0, width: 0.5, height: 1 },
+					cameraSettings: [{ perspective: { corners, aspect: 4 / 3 } }],
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		const { width, height } = scene.output;
+		const ratio = (rect: { width: number; height: number } | null | undefined) =>
+			((rect?.width ?? 0) * width) / ((rect?.height ?? 1) * height);
+		expect(ratio(scene.layout.webcamRect)).toBeCloseTo(4 / 3, 2);
+		expect(ratio(scene.layout.layoutByClip?.[0]?.webcamRect)).toBeCloseTo(4 / 3, 2);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 0);
+		expect(ratio(pip?.rect)).toBeCloseTo(4 / 3, 2);
+	});
+
+	it("the box source size reads a valid perspective and ignores a degenerate one", () => {
+		const camera = { width: 1920, height: 1080 };
+		const crop = { width: 0.5, height: 1 };
+		const square: CameraPerspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 1, y: 1 },
+				{ x: 0, y: 1 },
+			],
+			aspect: 0.75,
+		};
+		const valid = webcamBoxSourceSize(camera, null, crop, square);
+		expect(valid.width / valid.height).toBeCloseTo(0.75, 3);
+		const collinear: CameraPerspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 0.5, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 0.2, y: 0 },
+			],
+			aspect: 0.75,
+		};
+		expect(webcamBoxSourceSize(camera, null, crop, collinear)).toEqual({
+			width: 960,
+			height: 1080,
+		});
+		expect(webcamBoxSourceSize(camera, null, crop)).toEqual({ width: 960, height: 1080 });
+	});
+
+	it("a template's first PiP sits where the project places camera 1's PiP", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{
+					cameraTrack: {
+						sourcePath: "/w-1.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1920,
+						height: 1080,
+					},
+					additionalCameraTracks: [{ ...extra, width: 1920, height: 1080 }],
+				},
+				{
+					webcamMaskShape: "rectangle",
+					cameraLayoutRegions: [layoutRegion("screen-pip", [{ camera: 0 }, { camera: 1 }])],
+				},
+			),
+		);
+		const defaultRect = scene.layout.layoutByClip?.[0]?.webcamRect;
+		expect(defaultRect).toBeTruthy();
+		const [first, second] = scene.cameraLayoutRegions?.[0].layers ?? [];
+		// Within a pixel: the default rect is laid out in whole pixels, the PiP's height comes
+		// from the camera's exact 16:9.
+		const { width, height } = scene.output;
+		for (const [key, px] of [
+			["x", width],
+			["y", height],
+			["width", width],
+			["height", height],
+		] as const) {
+			expect(Math.abs(first.rect[key] - (defaultRect?.[key] ?? Number.NaN)) * px).toBeLessThan(1);
+		}
+		expect(second.rect.x + second.rect.width).toBeLessThan(first.rect.x);
+		expect(second.rect.width).toBeCloseTo(first.rect.width, 6);
 	});
 
 	it("an extra camera's PiP is sized from its cropped picture", () => {

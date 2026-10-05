@@ -80,7 +80,9 @@ function normalizeRegion(raw: unknown): CameraLayoutRegion | null {
 	const slots = normalizeSlots(raw.slots, template);
 	if (slots.length < TEMPLATE_SLOTS[template].min) return null;
 	const region: CameraLayoutRegion = { id, startMs, endMs, template, slots };
-	if (template === "camera-full") {
+	// The desk-view fields belong to camera 1's Full Camera alone (it stays a Full Camera
+	// region); another camera's camera-full draws through the layout path, which ignores them.
+	if (template === "camera-full" && slots[0].camera === 0) {
 		const rotation = normalizeCameraRotation(raw.rotation);
 		const mirror = normalizeCameraMirror(raw.mirror);
 		if (rotation !== 0) region.rotation = rotation;

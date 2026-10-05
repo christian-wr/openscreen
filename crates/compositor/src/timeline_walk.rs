@@ -154,6 +154,16 @@ pub(crate) unsafe fn advance_decoder_to(
 /// `on_frame` runs after `compose_frame` with the running output index;
 /// `on_clip_end` runs once per clip with its clamped source window, the frames
 /// it produced, and the speed segments used (MP4 needs those for audio).
+/// Runs its closure when dropped, so on every exit path of a scope, early `?` returns
+/// included.
+struct OnExit<F: FnMut()>(F);
+
+impl<F: FnMut()> Drop for OnExit<F> {
+    fn drop(&mut self) {
+        (self.0)();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn walk_composited_timeline(
     clips: &[ClipSource],
@@ -179,6 +189,13 @@ pub(crate) unsafe fn walk_composited_timeline(
 
     let mut frames: u64 = 0;
     let mut unreadable_extras: HashSet<String> = HashSet::new();
+    // The extra decoders outlive this call in the caller's map, but the compositor must not
+    // keep pointers into their frames once the walk is over — also when it fails half-way
+    // (a decode or encode error returns early through `?`).
+    let _forget_extra_frames = OnExit(|| {
+        // SAFETY: an empty list only resets the compositor's slots; no frame is read.
+        unsafe { comp.set_extra_camera_frames(&[]) }
+    });
 
     // L'export doit être reproductible : deux rendus du même projet, les mêmes pixels. Cette
     // boucle avance aussi vite que la machine décode, sans rapport avec le temps réel, alors que
@@ -401,9 +418,6 @@ pub(crate) unsafe fn walk_composited_timeline(
     comp.set_cursor_time(None);
     comp.set_timeline_time(None);
     comp.set_programme_time(None);
-    // The extra decoders outlive this call in the caller's map, but the compositor must not
-    // keep pointers into their frames once the walk is over.
-    comp.set_extra_camera_frames(&[]);
     // Le compositeur est réutilisé par la preview après un export : lui rendre sa cadence.
     comp.set_segmentation_deterministic(false);
     Ok(frames)
@@ -478,7 +492,25 @@ unsafe fn step_extra_cameras(
 
 #[cfg(test)]
 mod tests {
-    use super::{available_clip_end, frame_step, FrameStep, NextFrameTime};
+    use super::{available_clip_end, frame_step, FrameStep, NextFrameTime, OnExit};
+
+    /// The guard that forgets the extra camera frames runs on an early `?` return as well as
+    /// at the end of the walk.
+    #[test]
+    fn the_exit_guard_runs_on_every_exit_path() {
+        fn walk(fail: bool, ran: &std::cell::Cell<u32>) -> anyhow::Result<()> {
+            let _guard = OnExit(|| ran.set(ran.get() + 1));
+            if fail {
+                Err(anyhow::anyhow!("decode error"))?;
+            }
+            Ok(())
+        }
+        let ran = std::cell::Cell::new(0);
+        assert!(walk(true, &ran).is_err());
+        assert_eq!(ran.get(), 1, "early return");
+        assert!(walk(false, &ran).is_ok());
+        assert_eq!(ran.get(), 2, "normal end");
+    }
 
     #[test]
     fn a_short_extra_camera_does_not_shorten_the_clip() {

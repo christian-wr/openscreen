@@ -21,6 +21,12 @@ export interface CameraLayoutContext {
 	pipShape: ResolvedCameraLayer["shape"];
 	/** The project's webcam radius fraction. */
 	pipRadiusFrac: number;
+	/**
+	 * The clip's default camera-1 PiP (output-frame fractions), where the project places it.
+	 * The first PiP takes its width and its right/bottom edges; further PiPs stack leftwards
+	 * at the same width. Without it the PiPs sit in the bottom-right corner at `PIP_WIDTH_FRAC`.
+	 */
+	defaultPipRect?: NormalizedRect | null;
 }
 
 export const PIP_WIDTH_FRAC = 0.22;
@@ -35,16 +41,24 @@ function fullLayer(camera: number, rect: NormalizedRect): ResolvedCameraLayer {
 	return { camera, rect, radiusFrac: 0, shape: "rectangle", fillsFrame: true };
 }
 
+function usableRect(rect: NormalizedRect | null | undefined): NormalizedRect | null {
+	if (!rect) return null;
+	const values = [rect.x, rect.y, rect.width, rect.height];
+	return values.every(Number.isFinite) && rect.width > 0 && rect.height > 0 ? rect : null;
+}
+
 function pipLayer(camera: number, index: number, ctx: CameraLayoutContext): ResolvedCameraLayer {
 	const { width, height } = ctx.frame;
-	const w = PIP_WIDTH_FRAC;
+	const anchor = usableRect(ctx.defaultPipRect);
+	const w = anchor ? anchor.width : PIP_WIDTH_FRAC;
 	const squareBox = ctx.pipShape === "circle" || ctx.pipShape === "square";
 	const cameraAspect = ctx.cameraAspect(camera);
 	const safeAspect = Number.isFinite(cameraAspect) && cameraAspect > 0 ? cameraAspect : 16 / 9;
 	const aspect = squareBox ? 1 : safeAspect;
 	const h = (w * width) / aspect / height;
-	const right = 1 - PIP_MARGIN_FRAC - index * (w + PIP_GAP_FRAC);
-	const bottom = 1 - (PIP_MARGIN_FRAC * width) / height;
+	const firstRight = anchor ? anchor.x + anchor.width : 1 - PIP_MARGIN_FRAC;
+	const right = firstRight - index * (w + PIP_GAP_FRAC);
+	const bottom = anchor ? anchor.y + anchor.height : 1 - (PIP_MARGIN_FRAC * width) / height;
 	return {
 		camera,
 		rect: { x: right - w, y: bottom - h, width: w, height: h },

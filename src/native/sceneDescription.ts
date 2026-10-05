@@ -18,6 +18,7 @@
 import type {
 	CameraFullscreenRegion,
 	CameraLayoutRegion,
+	CameraPerspective,
 	Rotation3DPreset,
 	SpeedRegion,
 	WallpaperMotion,
@@ -808,20 +809,38 @@ type Size = { width: number; height: number };
  * That ordering is the fix: the box used to depend on WHO was asking rather than on what
  * was recorded, so a 16:9 camera was framed 16:9 in the preview and 4:3 in the export.
  * The scene and the editor's drag box both read the same answer now.
+ *
+ * A valid `perspective` replaces the crop: the box then takes the corrected picture's own
+ * ratio (`perspective.aspect`), the target format the corners were drawn for.
  */
 export function webcamBoxSourceSize(
 	camera: { width?: number; height?: number } | null | undefined,
 	probed: Size | null,
 	crop: Size,
+	perspective?: CameraPerspective | null,
 ): Size {
 	const source =
 		camera?.width && camera?.height
 			? { width: camera.width, height: camera.height }
 			: (probed ?? { width: 960, height: 720 });
+	if (perspective && perspectiveMatrix(perspective)) {
+		return {
+			width: Math.max(1, Math.round(source.width)),
+			height: Math.max(1, Math.round(source.width / perspective.aspect)),
+		};
+	}
 	return {
 		width: Math.max(1, Math.round(source.width * crop.width)),
 		height: Math.max(1, Math.round(source.height * crop.height)),
 	};
+}
+
+/** Camera 1's stored perspective (`legacyEditor.cameraSettings[0]`), if any. */
+export function camera0PerspectiveOf(
+	document: Pick<AxcutDocument, "legacyEditor"> | null | undefined,
+): CameraPerspective | null {
+	const legacyRaw = document?.legacyEditor as Record<string, unknown> | null | undefined;
+	return normalizeCameraSettings(legacyRaw?.cameraSettings)[0]?.perspective ?? null;
 }
 
 const DESK_LABEL_KEY = "cameraFullscreen.deskLabel";
@@ -845,12 +864,24 @@ function deskLabelTextRegions(
 		clipIndex?: number;
 		underTrim?: boolean;
 	})[],
+	layoutRegions: SceneCameraLayoutRegion[],
 ) {
 	const label = deskLabelText();
 	if (!label) return [];
+	// Same seam rule as the compositor (`REGION_SEAM_S`, 1 ms of source time, same clip).
+	const meets = (piece: { clipIndex?: number }, ms: number, side: "startSec" | "endSec") =>
+		layoutRegions.some(
+			(l) =>
+				l.endSec > l.startSec &&
+				l.clipIndex === piece.clipIndex &&
+				Math.abs(l[side] * 1000 - ms) <= 1,
+		);
 	return pieces.flatMap((region) => {
 		if (normalizeCameraRotation(region.rotation) !== 180 || !showsDeskLabel(region)) return [];
-		const windows = deskCoverLabelWindows(region);
+		const windows = deskCoverLabelWindows(region, {
+			start: meets(region, region.startMs, "endSec"),
+			end: meets(region, region.endMs, "startSec"),
+		});
 		return (["start", "end"] as const).map((side) => ({
 			space: "frame" as const,
 			verticalAlign: "center" as const,
@@ -1147,9 +1178,15 @@ export function buildSceneDescription(
 	// A Full Camera of camera 1 stays a Full Camera region: that keeps the desk view and its label.
 	const isPlainFullCamera = (region: CameraLayoutRegion) =>
 		region.template === "camera-full" && region.slots.length === 1 && region.slots[0].camera === 0;
+	// Once a project stores `cameraLayoutRegions` (even empty), its Full Camera sections live
+	// there and the legacy list is only a copy kept for older builds: reading both would emit
+	// every section twice (two covers, two desk labels).
+	const legacyFullscreenRegions = Array.isArray(legacyRaw?.cameraLayoutRegions)
+		? []
+		: ((legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? []);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
 		[
-			...((legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? []),
+			...legacyFullscreenRegions,
 			...layoutRegions.filter(isPlainFullCamera).map(
 				({ id, startMs, endMs, rotation, mirror, deskLabel }): CameraFullscreenRegion => ({
 					id,
@@ -1179,15 +1216,6 @@ export function buildSceneDescription(
 		visibleClips,
 		document.timeline.clips,
 		() => createId("ann"),
-	);
-	// The desk-view label: caption-styled text over both covered ends of every PROJECTED piece of
-	// a turned section, fading with the camera cover (`deskCoverStart` / `deskCoverEnd` in
-	// text_anim.rs). Per piece because the compositor covers each piece's own ends; the pieces are
-	// already in source time, so they are appended after the annotation projection, not through it.
-	projectedAnnotations.push(
-		...(deskLabelTextRegions(
-			projectedCameraFullscreenRegions,
-		) as unknown as typeof projectedAnnotations),
 	);
 	// Speed regions carry an extra `speed` field the standard `rangeSchema` does not, so we
 	// can't read from `document.timeline.speedRanges` today (see SceneDescription.speedRegions
@@ -1272,6 +1300,7 @@ export function buildSceneDescription(
 			assetById.get(clip.assetId)?.cameraTrack,
 			webcamSourceSize,
 			settings.webcamCropRegion,
+			cameraSettings[0]?.perspective,
 		);
 	const layoutForClip = (
 		screenSize: { width: number; height: number },
@@ -1364,6 +1393,7 @@ export function buildSceneDescription(
 						asset.cameraTrack,
 						webcamSourceSize,
 						settings.webcamCropRegion,
+						cameraSettings[0]?.perspective,
 					);
 				}
 				const track = asset.additionalCameraTracks?.[camera - 1];
@@ -1386,11 +1416,20 @@ export function buildSceneDescription(
 			// of the short side (= roundness of half of it).
 			const pipRadiusFrac =
 				layoutByClip[region.clipIndex]?.webcamRadiusFrac ?? clamp01(settings.webcamRoundness) / 2;
+			// The template PiPs start where the project puts camera 1's PiP — only in the
+			// picture-in-picture preset; a block preset's camera box is no PiP to anchor on.
+			const clip = visibleClips[region.clipIndex];
+			const pipPreset =
+				clip !== undefined &&
+				resolveWebcamLayoutPreset(settings.webcamLayoutPreset, clipHasCamera(clip)) ===
+					"picture-in-picture";
+			const defaultPipRect = pipPreset ? layoutByClip[region.clipIndex]?.webcamRect : null;
 			const layers = resolveCameraLayout(region, {
 				frame: outputDims,
 				cameraAspect,
 				pipShape,
 				pipRadiusFrac,
+				defaultPipRect,
 			}).filter((layer) => (sources[layer.camera]?.path ?? "") !== "");
 			if (layers.length === 0) return [];
 			return [
@@ -1403,6 +1442,17 @@ export function buildSceneDescription(
 				},
 			];
 		},
+	);
+	// The desk-view label: caption-styled text over both covered ends of every PROJECTED piece of
+	// a turned section, fading with the camera cover (`deskCoverStart` / `deskCoverEnd` in
+	// text_anim.rs). Per piece because the compositor covers each piece's own ends; the pieces are
+	// already in source time, so they are appended after the annotation projection, not through it.
+	// After the layout regions: an end that meets one is covered for its fade only.
+	projectedAnnotations.push(
+		...(deskLabelTextRegions(
+			projectedCameraFullscreenRegions,
+			sceneCameraLayoutRegions,
+		) as unknown as typeof projectedAnnotations),
 	);
 	const sceneCameras = cameraSettings.flatMap((camera, index): SceneCamera[] => {
 		if (!camera) return [];

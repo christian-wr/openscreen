@@ -5083,6 +5083,7 @@ mod tests {
         let clock = crate::regions::ScreenClock::new(&[], 0);
         let layers = crate::camera_layers::camera_layers_at(
             std::slice::from_ref(region),
+            &[],
             t,
             &clock,
             Some(default_cam0),
