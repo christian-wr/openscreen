@@ -34,6 +34,12 @@ import {
 import { useMcpDocumentHost } from "@/lib/ai-edition/store/mcpDocumentHost";
 import { saveWithDeadline, useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import {
+	copySourceKey,
+	pasteHitsCameraSection,
+	pasteIdPrefix,
+	pasteTarget,
+} from "@/lib/ai-edition/store/regionClipboardKinds";
+import {
 	useAssetTranscriptions,
 	useAutoTranscription,
 	useTimelineTranscriptGate,
@@ -44,6 +50,7 @@ import { future as redoStack, past as undoStack } from "@/lib/ai-edition/store/u
 import { useChatPromptBus } from "@/lib/ai-edition/store/useChatPromptBus";
 import { useSequentialTimelineOps } from "@/lib/ai-edition/store/useSequentialTimelineOps";
 import { useTimeline } from "@/lib/ai-edition/store/useTimeline";
+import { showCameraSectionOutcome } from "@/lib/ai-edition/timeline/cameraSectionNotice";
 import { isGeneratedAssetId } from "@/lib/ai-edition/timeline/clip-parts";
 import { mergeCloseCuts } from "@/lib/ai-edition/timeline/cut-breath";
 import { newRegionDurationSec } from "@/lib/ai-edition/timeline/newRegionDuration";
@@ -58,6 +65,8 @@ import { nativeBridgeClient } from "@/native";
 import type { AiEditionProjectSummary } from "@/native/contracts";
 import { resolveVisibleClips } from "@/native/sceneDescription";
 import { useNativePlaybackSync } from "@/native/useNativePlaybackSync";
+import { type CalibrationCamera, CameraCalibrationModal } from "./CameraCalibrationModal";
+import { type CalibrationMode, calibrationCameraAt } from "./CamerasSection";
 import { ExportDialog } from "./ExportDialog";
 import { insertionsEnabled } from "./insertionsEnabled";
 import { ChatStripPanel } from "./LeftPanel";
@@ -192,6 +201,8 @@ export async function runLoadedMetadataWrite(
 
 export function NewEditorShell() {
 	const te = useScopedT("editor");
+	const tt = useScopedT("timeline");
+	const ts = useScopedT("settings");
 	useMcpDocumentHost();
 	const document = useProjectStore((s) => s.document);
 	const projectId = useProjectStore((s) => s.projectId);
@@ -266,6 +277,20 @@ export function NewEditorShell() {
 	// "Edit clip" rail button — a single shell-level instance instead of one
 	// mounted per trigger site.
 	const [editClipTarget, setEditClipTarget] = useState<AxcutClip | null>(null);
+	// The camera calibration dialog (perspective or crop), opened from the layout pane's camera
+	// list. The still is taken at the playhead as it opens; one instance for the editor.
+	const [calibration, setCalibration] = useState<{
+		camera: CalibrationCamera;
+		mode: CalibrationMode;
+	} | null>(null);
+	const openCalibration = useCallback(
+		(cameraIndex: number, mode: CalibrationMode) => {
+			const { document: doc, currentTimeSec } = useProjectStore.getState();
+			const camera = calibrationCameraAt(doc, currentTimeSec, cameraIndex, ts);
+			if (camera) setCalibration({ camera, mode });
+		},
+		[ts],
+	);
 	const [exportOpen, setExportOpen] = useState(false);
 	const [unsavedPrompt, setUnsavedPrompt] = useState<{
 		action: "close" | "new" | "open" | "record";
@@ -1082,7 +1107,9 @@ export function NewEditorShell() {
 		// Land it at the playhead, keeping the copied length.
 		const timeMs = Math.round(useProjectStore.getState().currentTimeSec * 1000);
 		const src = snapshot.region as { startMs: number; endMs: number };
-		const prefix = snapshot.kind === "annotation" ? "ann" : snapshot.kind;
+		const prefix = pasteIdPrefix(snapshot.kind);
+		const target = pasteTarget(snapshot.kind);
+		if (!target) return;
 
 		// Audio re-ventilates through its own anchorer, which advances each
 		// fragment's source offset — the generic one would copy the offset into
@@ -1120,32 +1147,24 @@ export function NewEditorShell() {
 			() => createId(prefix),
 		);
 
-		if (snapshot.kind === "zoom") {
-			await saveDocument(
-				{
-					...doc,
-					zoomRanges: [...doc.zoomRanges, ...anchored] as typeof doc.zoomRanges,
-				},
-				{ history: true },
-			);
-		} else if (snapshot.kind === "annotation") {
-			await saveDocument(
-				{
-					...doc,
-					annotations: [...doc.annotations, ...anchored] as typeof doc.annotations,
-				},
-				{ history: true },
-			);
+		if (target.store === "document") {
+			const rows = doc[target.key] as unknown[];
+			await saveDocument({ ...doc, [target.key]: [...rows, ...anchored] }, { history: true });
 		} else {
-			// speed and cameraFullscreen are both plain spans on legacyEditor.
-			const key = snapshot.kind === "speed" ? "speedRegions" : "cameraFullscreenRegions";
 			const legacy = (doc.legacyEditor as Record<string, unknown>) ?? {};
-			const prev = (legacy[key] as unknown[]) ?? [];
+			// Full Camera and layout sections share one lane: a paste that would land on the
+			// other list is refused like an add is, instead of being dropped by the scene. A Full
+			// Camera over Full Camera is not refused: those merge, as they do on add.
+			if (
+				target.key !== "speedRegions" &&
+				pasteHitsCameraSection(legacy, target.key, pasted.startMs, pasted.endMs)
+			) {
+				showCameraSectionOutcome("occupied", tt);
+				return;
+			}
+			const prev = (legacy[target.key] as unknown[]) ?? [];
 			await saveDocument(
-				{
-					...doc,
-					legacyEditor: { ...legacy, [key]: [...prev, ...anchored] },
-				},
+				{ ...doc, legacyEditor: { ...legacy, [target.key]: [...prev, ...anchored] } },
 				{ history: true },
 			);
 		}
@@ -1153,7 +1172,7 @@ export function NewEditorShell() {
 		// `tl` belongs here now that the trim branch calls tl.addTrim: useTimeline
 		// returns a fresh object each render, so memoizing on saveDocument alone
 		// would paste through a callback holding a stale document.
-	}, [saveDocument, tl, te]);
+	}, [saveDocument, tl, te, tt]);
 
 	// Copy the SELECTED pill. Reads the same arrays the lanes render, so what gets
 	// copied is what the user is looking at — the old version dug into the raw
@@ -1197,14 +1216,9 @@ export function NewEditorShell() {
 			return;
 		}
 
-		const source =
-			sel.kind === "zoom"
-				? tl.zoomRegions
-				: sel.kind === "annotation"
-					? tl.annotationRegions
-					: sel.kind === "speed"
-						? tl.speedRegions
-						: tl.cameraFullscreenRegions;
+		const sourceKey = copySourceKey(sel.kind);
+		if (!sourceKey) return;
+		const source = tl[sourceKey];
 		const region = (source as Array<{ id: string }>).find((r) => r.id === sel.id);
 		if (!region) return;
 		copyRegion({ kind: sel.kind, region: region as unknown as Record<string, unknown> });
@@ -1386,7 +1400,9 @@ export function NewEditorShell() {
 			}
 			if (matchesShortcut(e, shortcuts.addCameraFullscreen, isMac)) {
 				e.preventDefault();
-				void tl.addCameraFullscreen(newRegionDurationSec());
+				void tl.addCameraFullscreen(newRegionDurationSec()).then((outcome) => {
+					showCameraSectionOutcome(outcome, tt);
+				});
 				return;
 			}
 
@@ -1433,6 +1449,7 @@ export function NewEditorShell() {
 		isMac,
 		togglePlay,
 		handleSeek,
+		tt,
 	]);
 
 	const showTimeline = mode !== "rec";
@@ -1622,6 +1639,12 @@ export function NewEditorShell() {
 									selectedZoomRegionId={tl.selection?.kind === "zoom" ? tl.selection.id : null}
 									onZoomFocusChange={tl.updateZoomFocusLive}
 									onZoomFocusCommit={() => void tl.commitZoomFocus()}
+									cameraLayoutRegions={tl.cameraLayoutRegions}
+									selectedLayoutRegionId={
+										tl.selection?.kind === "cameraLayout" ? tl.selection.id : null
+									}
+									onLayoutSlotRectLive={tl.updateLayoutSlotRectLive}
+									onLayoutSlotRectCommit={() => void tl.commitLayoutSlotRect()}
 									annotationRegions={tl.annotationRegions}
 									selectedAnnotationId={
 										tl.selection?.kind === "annotation" ? tl.selection.id : null
@@ -1655,6 +1678,7 @@ export function NewEditorShell() {
 								clips={tl.clips}
 								onEditClip={setEditClipTarget}
 								transcriptProps={transcriptProps}
+								onOpenCalibration={openCalibration}
 							/>
 						</>
 					) : mode === "media" ? (
@@ -1746,6 +1770,20 @@ export function NewEditorShell() {
 					setEditClipTarget(null);
 				}}
 			/>
+			{calibration ? (
+				<CameraCalibrationModal
+					key={`${calibration.camera.index}-${calibration.mode}`}
+					open
+					camera={calibration.camera}
+					mode={calibration.mode}
+					initial={tl.cameraSettings[calibration.camera.index] ?? null}
+					onApply={(patch) => {
+						const index = calibration.camera.index;
+						void enqueueTimelineWrite(() => tl.setCameraSettings(index, patch));
+					}}
+					onClose={() => setCalibration(null)}
+				/>
+			) : null}
 			<UnsavedChangesModal
 				open={unsavedPrompt !== null}
 				onClose={() => {

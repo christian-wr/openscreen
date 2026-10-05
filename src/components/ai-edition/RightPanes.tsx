@@ -149,6 +149,7 @@ import { ROUNDNESS_SLIDER_MAX_PX } from "@/native/paramUnits";
 import { wallpaperAcceptsMotion } from "@/native/sceneDescription";
 import { ASPECT_RATIO_PRESETS, type AspectRatio } from "@/utils/aspectRatioUtils";
 import { useCanSegmentCamera } from "../../native/hooks/useSegmentationSupport";
+import { CamerasSection, type CamerasSectionProps } from "./CamerasSection";
 import { CaptionsPane } from "./CaptionsPane";
 import { ColorField } from "./ColorField";
 import { insertionsEnabled } from "./insertionsEnabled";
@@ -2779,7 +2780,12 @@ const CAMERA_BACKGROUND_MODES: Array<{
 	},
 ];
 
-export function LayoutPane() {
+export function LayoutPane({
+	cameras,
+}: {
+	/** The per-camera list; absent where the pane has no timeline store at hand. */
+	cameras?: Pick<CamerasSectionProps, "cameraSettings" | "setCameraSettings" | "onOpenCalibration">;
+} = {}) {
 	const canSegmentCamera = useCanSegmentCamera();
 	const ts = useScopedT("settings");
 	const { settings, set, setLive, commit, hasDocument } = useEditorSettings();
@@ -3114,6 +3120,7 @@ export function LayoutPane() {
 				onFrameLive={setCropFrame}
 				onCommit={() => void commit()}
 			/>
+			{cameras ? <CamerasSection document={document} {...cameras} /> : null}
 		</Pane>
 	);
 }

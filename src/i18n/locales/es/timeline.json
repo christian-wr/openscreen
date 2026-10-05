@@ -7,7 +7,8 @@
 		"addTrim": "Agregar un recorte: quita una parte del video en el momento actual",
 		"addAnnotation": "Agregar texto, una flecha, una imagen o un desenfoque en el momento actual",
 		"addSpeed": "Agregar un cambio de velocidad en el momento actual",
-		"addCameraFullscreen": "Agregar Cámara a pantalla completa: muestra la cámara a pantalla completa en el momento actual"
+		"addCameraFullscreen": "Agregar Cámara a pantalla completa: muestra la cámara a pantalla completa en el momento actual",
+		"addLayout": "Añadir diseño: disposición de pantalla y cámaras para una sección"
 	},
 	"hints": {
 		"pressZoom": "Presiona {{key}} para agregar zoom",
@@ -31,7 +32,11 @@
 		"imageItem": "Imagen",
 		"emptyText": "Texto vacío",
 		"cameraFullscreen": "Cámara a pantalla completa",
-		"cameraFullscreenItem": "Cámara a pantalla completa {{index}}"
+		"cameraFullscreenItem": "Cámara a pantalla completa {{index}}",
+		"layoutScreenPip": "Pantalla + cámara",
+		"layoutCameraFull": "Cámara completa",
+		"layoutCameraFullPip": "Cámara + recuadro",
+		"layoutSideBySide": "Lado a lado"
 	},
 	"emptyState": {
 		"noVideo": "No hay video cargado",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "No se puede colocar la velocidad aquí",
 		"speedExistsAtLocation": "Ya existe una región de velocidad en esta ubicación o no hay suficiente espacio disponible.",
 		"cannotPlaceCameraFullscreen": "No se puede colocar la cámara a pantalla completa aquí",
-		"cameraFullscreenExistsAtLocation": "Ya existe un segmento de cámara a pantalla completa en esta ubicación o no hay suficiente espacio disponible."
+		"cameraFullscreenExistsAtLocation": "Ya existe un segmento de cámara a pantalla completa en esta ubicación o no hay suficiente espacio disponible.",
+		"tooFewCameras": "Este diseño necesita más cámaras de las disponibles aquí",
+		"noCamera": "Este proyecto no tiene cámara"
 	},
 	"success": {
 		"addedZoomSuggestions": "Se agregó {{count}} sugerencia de zoom basada en el cursor",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "La grabación no está disponible aquí",
 		"saveFailed": "No se pudo guardar la grabación",
 		"importFailed": "No se pudo importar el archivo de audio"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "No disponible con este ajuste de diseño",
+		"needsCamerasHint": "Necesita más cámaras"
 	}
 }

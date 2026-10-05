@@ -11,6 +11,7 @@ export type RegionSnapshot =
 	| { kind: "annotation"; region: Record<string, unknown> }
 	| { kind: "speed"; region: Record<string, unknown> }
 	| { kind: "cameraFullscreen"; region: Record<string, unknown> }
+	| { kind: "cameraLayout"; region: Record<string, unknown> }
 	// An audio track copies its whole payload (asset, gain, fades, loop) so a
 	// paste is a second placement of the same audio, like every other kind. The
 	// snapshot is the COLLAPSED pill, never a stored fragment.

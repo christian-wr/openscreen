@@ -88,5 +88,39 @@
 		"audioFiles": "Archivos de audio",
 		"openscreenProject": "Proyecto OpenScreen",
 		"allFiles": "Todos los archivos"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Corregir perspectiva – {{camera}}",
+		"titleCrop": "Recortar – {{camera}}",
+		"loading": "Cargando la imagen de la cámara…",
+		"loadFailed": "No se pudo cargar la imagen de la cámara.",
+		"perspectiveHelp": "Arrastra las cuatro esquinas a las esquinas de la hoja o del escritorio. Las flechas mueven la esquina seleccionada un píxel; con Mayús, diez.",
+		"cropHelp": "Arrastra el marco o sus controles sobre la parte de la imagen que quieres conservar. Las flechas lo mueven; Mayús + flechas cambian su tamaño.",
+		"corners": {
+			"topLeft": "Esquina superior izquierda",
+			"topRight": "Esquina superior derecha",
+			"bottomRight": "Esquina inferior derecha",
+			"bottomLeft": "Esquina inferior izquierda"
+		},
+		"format": "Formato de destino",
+		"formats": {
+			"a4Portrait": "A4 vertical",
+			"a4Landscape": "A4 horizontal",
+			"free": "Libre"
+		},
+		"freeRatio": "Proporción (ancho ÷ alto)",
+		"margin": "Margen",
+		"preview": "Vista previa",
+		"loupe": "Lupa",
+		"cropArea": "Área de recorte",
+		"invalidQuad": "Las esquinas se cruzan, están en una misma línea o forman una figura hundida (no convexa). Colócalas formando un cuadrilátero convexo para aplicar.",
+		"reset": "Restablecer",
+		"apply": "Aplicar",
+		"invalidRatio": "Introduce una proporción entre {{min}} y {{max}}.",
+		"detectMarkers": "Detectar marcadores",
+		"printMarkerSheet": "Imprimir hoja de marcadores",
+		"markersFound": "Se encontraron los cuatro marcadores; las esquinas se colocaron sobre ellos.",
+		"markersNotFound": "No se encontraron los cuatro marcadores (0–3). Asegúrate de que estén completos en la imagen, planos y con iluminación uniforme. Las esquinas no se han cambiado.",
+		"markerSheetInstruction": "Recorta por las líneas. Pon la esquina interior de cada marcador en su esquina."
 	}
 }

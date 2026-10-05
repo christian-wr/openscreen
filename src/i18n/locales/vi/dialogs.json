@@ -88,5 +88,39 @@
 		"audioFiles": "Tệp âm thanh",
 		"openscreenProject": "Dự án OpenScreen",
 		"allFiles": "Tất cả các tệp"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Chỉnh phối cảnh – {{camera}}",
+		"titleCrop": "Cắt – {{camera}}",
+		"loading": "Đang tải hình ảnh camera…",
+		"loadFailed": "Không thể tải hình ảnh camera.",
+		"perspectiveHelp": "Kéo bốn góc vào các góc của tờ giấy hoặc mặt bàn. Phím mũi tên di chuyển góc đang chọn một pixel, giữ Shift để di chuyển mười pixel.",
+		"cropHelp": "Kéo khung hoặc các tay cầm của nó lên phần hình ảnh cần giữ. Phím mũi tên di chuyển khung, Shift + mũi tên thay đổi kích thước.",
+		"corners": {
+			"topLeft": "Góc trên bên trái",
+			"topRight": "Góc trên bên phải",
+			"bottomRight": "Góc dưới bên phải",
+			"bottomLeft": "Góc dưới bên trái"
+		},
+		"format": "Định dạng đích",
+		"formats": {
+			"a4Portrait": "A4 dọc",
+			"a4Landscape": "A4 ngang",
+			"free": "Tự do"
+		},
+		"freeRatio": "Tỉ lệ (rộng ÷ cao)",
+		"margin": "Lề",
+		"preview": "Xem trước",
+		"loupe": "Kính lúp",
+		"cropArea": "Vùng cắt",
+		"invalidQuad": "Các góc cắt nhau, nằm trên một đường thẳng hoặc tạo thành hình lõm (không lồi). Hãy sắp xếp chúng thành hình tứ giác lồi để áp dụng.",
+		"reset": "Đặt lại",
+		"apply": "Áp dụng",
+		"invalidRatio": "Nhập tỷ lệ từ {{min}} đến {{max}}.",
+		"detectMarkers": "Phát hiện điểm đánh dấu",
+		"printMarkerSheet": "In trang điểm đánh dấu",
+		"markersFound": "Đã tìm thấy cả bốn điểm đánh dấu; các góc đã được đặt lên chúng.",
+		"markersNotFound": "Không tìm thấy đủ bốn điểm đánh dấu (0–3). Hãy đảm bảo chúng nằm trọn trong khung hình, phẳng và được chiếu sáng đều. Các góc được giữ nguyên.",
+		"markerSheetInstruction": "Cắt theo nét đứt. Đặt góc trong của mỗi điểm đánh dấu vào góc tương ứng."
 	}
 }

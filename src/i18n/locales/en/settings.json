@@ -462,5 +462,25 @@
 		"dark": "Dark",
 		"light": "Light",
 		"custom": "Custom"
+	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Place {{n}} · large",
+		"placeSmall": "Place {{n}} · small",
+		"placeLeft": "Place {{n}} · left",
+		"placeRight": "Place {{n}} · right",
+		"cameraUnavailable": "{{name}} (unavailable)",
+		"resetWindows": "Reset windows"
+	},
+	"cameras": {
+		"cameraN": "Camera {{n}}",
+		"title": "Cameras",
+		"unavailable": "Unavailable",
+		"camera1Hint": "Rotation, mirror and crop of camera 1 are the controls above.",
+		"rotation": "Rotation",
+		"mirror": "Mirror",
+		"crop": "Crop…",
+		"perspective": "Correct perspective…",
+		"reset": "Reset"
 	}
 }

@@ -462,5 +462,25 @@
 		"dark": "Scura",
 		"light": "Chiara",
 		"custom": "Personalizzata"
+	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Posizione {{n}} · grande",
+		"placeSmall": "Posizione {{n}} · piccola",
+		"placeLeft": "Posizione {{n}} · sinistra",
+		"placeRight": "Posizione {{n}} · destra",
+		"cameraUnavailable": "{{name}} (non disponibile)",
+		"resetWindows": "Reimposta finestre"
+	},
+	"cameras": {
+		"cameraN": "Fotocamera {{n}}",
+		"title": "Fotocamere",
+		"unavailable": "Non disponibile",
+		"camera1Hint": "Rotazione, specchio e ritaglio della fotocamera 1 sono nei controlli qui sopra.",
+		"rotation": "Rotazione",
+		"mirror": "Specchio",
+		"crop": "Ritaglio…",
+		"perspective": "Correggi prospettiva…",
+		"reset": "Ripristina"
 	}
 }

@@ -462,5 +462,25 @@
 		"dark": "ダーク",
 		"light": "ライト",
 		"custom": "カスタム"
+	},
+	"cameraLayout": {
+		"template": "レイアウト",
+		"placeLarge": "配置 {{n}}・大",
+		"placeSmall": "配置 {{n}}・小",
+		"placeLeft": "配置 {{n}}・左",
+		"placeRight": "配置 {{n}}・右",
+		"cameraUnavailable": "{{name}}（利用不可）",
+		"resetWindows": "ウィンドウをリセット"
+	},
+	"cameras": {
+		"cameraN": "カメラ {{n}}",
+		"title": "カメラ",
+		"unavailable": "利用できません",
+		"camera1Hint": "カメラ1の回転・反転・切り抜きは上のコントロールで設定します。",
+		"rotation": "回転",
+		"mirror": "反転",
+		"crop": "切り抜き…",
+		"perspective": "パースを補正…",
+		"reset": "リセット"
 	}
 }

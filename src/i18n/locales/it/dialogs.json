@@ -88,5 +88,39 @@
 		"audioFiles": "File audio",
 		"openscreenProject": "Progetto OpenScreen",
 		"allFiles": "Tutti i file"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Correggi prospettiva – {{camera}}",
+		"titleCrop": "Ritaglia – {{camera}}",
+		"loading": "Caricamento dell'immagine della videocamera…",
+		"loadFailed": "Impossibile caricare l'immagine della videocamera.",
+		"perspectiveHelp": "Trascina i quattro angoli sugli angoli del foglio o della scrivania. I tasti freccia spostano l'angolo selezionato di un pixel, con Maiusc di dieci.",
+		"cropHelp": "Trascina il riquadro o le sue maniglie sulla parte dell'immagine da tenere. Le frecce lo spostano, Maiusc + frecce lo ridimensionano.",
+		"corners": {
+			"topLeft": "Angolo in alto a sinistra",
+			"topRight": "Angolo in alto a destra",
+			"bottomRight": "Angolo in basso a destra",
+			"bottomLeft": "Angolo in basso a sinistra"
+		},
+		"format": "Formato di destinazione",
+		"formats": {
+			"a4Portrait": "A4 verticale",
+			"a4Landscape": "A4 orizzontale",
+			"free": "Libero"
+		},
+		"freeRatio": "Rapporto (larghezza ÷ altezza)",
+		"margin": "Margine",
+		"preview": "Anteprima",
+		"loupe": "Lente",
+		"cropArea": "Area di ritaglio",
+		"invalidQuad": "Gli angoli si incrociano, sono allineati o formano una figura rientrante (non convessa). Disponili a formare un quadrilatero convesso per applicare.",
+		"reset": "Ripristina",
+		"apply": "Applica",
+		"invalidRatio": "Inserisci un rapporto compreso tra {{min}} e {{max}}.",
+		"detectMarkers": "Rileva marcatori",
+		"printMarkerSheet": "Stampa foglio marcatori",
+		"markersFound": "Trovati tutti e quattro i marcatori; gli angoli sono stati posizionati su di essi.",
+		"markersNotFound": "Non sono stati trovati tutti e quattro i marcatori (0–3). Assicurati che siano interamente nell’immagine, piatti e illuminati in modo uniforme. Gli angoli non sono stati modificati.",
+		"markerSheetInstruction": "Ritaglia lungo le linee. Metti l’angolo interno di ogni marcatore sul suo angolo."
 	}
 }

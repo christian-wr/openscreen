@@ -462,5 +462,25 @@
 		"dark": "Koyu",
 		"light": "Açık",
 		"custom": "Özel"
+	},
+	"cameraLayout": {
+		"template": "Düzen",
+		"placeLarge": "Yer {{n}} · büyük",
+		"placeSmall": "Yer {{n}} · küçük",
+		"placeLeft": "Yer {{n}} · sol",
+		"placeRight": "Yer {{n}} · sağ",
+		"cameraUnavailable": "{{name}} (kullanılamıyor)",
+		"resetWindows": "Pencereleri sıfırla"
+	},
+	"cameras": {
+		"cameraN": "Kamera {{n}}",
+		"title": "Kameralar",
+		"unavailable": "Kullanılamıyor",
+		"camera1Hint": "Kamera 1'in döndürme, yansıtma ve kırpma ayarları yukarıdaki denetimlerdedir.",
+		"rotation": "Döndürme",
+		"mirror": "Yansıt",
+		"crop": "Kırp…",
+		"perspective": "Perspektifi düzelt…",
+		"reset": "Sıfırla"
 	}
 }

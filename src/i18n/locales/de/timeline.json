@@ -7,7 +7,8 @@
 		"addTrim": "Trim hinzufügen: entfernt einen Abschnitt des Videos zum aktuellen Zeitpunkt",
 		"addAnnotation": "Text, Pfeil, Bild oder Weichzeichner zum aktuellen Zeitpunkt hinzufügen",
 		"addSpeed": "Tempowechsel zum aktuellen Zeitpunkt hinzufügen",
-		"addCameraFullscreen": "Vollbild-Kamera hinzufügen: zeigt die Kamera im Vollbild zum aktuellen Zeitpunkt"
+		"addCameraFullscreen": "Vollbild-Kamera hinzufügen: zeigt die Kamera im Vollbild zum aktuellen Zeitpunkt",
+		"addLayout": "Layout hinzufügen: Anordnung von Bildschirm und Kameras für einen Abschnitt"
 	},
 	"hints": {
 		"pressZoom": "Drücke {{key}}, um einen Zoom hinzuzufügen",
@@ -31,7 +32,11 @@
 		"imageItem": "Bild",
 		"emptyText": "Leerer Text",
 		"cameraFullscreen": "Vollbild-Kamera",
-		"cameraFullscreenItem": "Vollbild-Kamera {{index}}"
+		"cameraFullscreenItem": "Vollbild-Kamera {{index}}",
+		"layoutScreenPip": "Bildschirm + Kamera",
+		"layoutCameraFull": "Kamera voll",
+		"layoutCameraFullPip": "Kamera + Einblendung",
+		"layoutSideBySide": "Nebeneinander"
 	},
 	"emptyState": {
 		"noVideo": "Kein Video geladen",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "Tempo kann hier nicht platziert werden",
 		"speedExistsAtLocation": "An dieser Stelle gibt es bereits einen Tempo-Bereich oder es ist nicht genug Platz.",
 		"cannotPlaceCameraFullscreen": "Vollbild-Kamera kann hier nicht platziert werden",
-		"cameraFullscreenExistsAtLocation": "An dieser Stelle gibt es bereits einen Vollbild-Kamera-Abschnitt oder es ist nicht genug Platz."
+		"cameraFullscreenExistsAtLocation": "An dieser Stelle gibt es bereits einen Vollbild-Kamera-Abschnitt oder es ist nicht genug Platz.",
+		"tooFewCameras": "Dieses Layout braucht mehr Kameras, als hier verfügbar sind",
+		"noCamera": "Dieses Projekt hat keine Kamera"
 	},
 	"success": {
 		"addedZoomSuggestions": "{{count}} Zoom-Vorschlag aus der Cursorbewegung hinzugefügt",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "Aufnahme ist hier nicht verfügbar",
 		"saveFailed": "Die Aufnahme konnte nicht gespeichert werden",
 		"importFailed": "Die Audiodatei konnte nicht importiert werden"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Mit diesem Layout-Preset nicht verfügbar",
+		"needsCamerasHint": "Braucht mehr Kameras"
 	}
 }

@@ -7,7 +7,8 @@
 		"addTrim": "Adicionar um recorte: remove uma parte do vídeo no momento atual",
 		"addAnnotation": "Adicionar texto, seta, imagem ou desfoque no momento atual",
 		"addSpeed": "Adicionar uma mudança de velocidade no momento atual",
-		"addCameraFullscreen": "Adicionar Câmera em Tela Cheia: mostra a câmera em tela cheia no momento atual"
+		"addCameraFullscreen": "Adicionar Câmera em Tela Cheia: mostra a câmera em tela cheia no momento atual",
+		"addLayout": "Adicionar layout: disposição de tela e câmeras para uma seção"
 	},
 	"hints": {
 		"pressZoom": "Pressione {{key}} para adicionar zoom",
@@ -31,7 +32,11 @@
 		"imageItem": "Imagem",
 		"emptyText": "Texto vazio",
 		"cameraFullscreen": "Câmera em Tela Cheia",
-		"cameraFullscreenItem": "Câmera em Tela Cheia {{index}}"
+		"cameraFullscreenItem": "Câmera em Tela Cheia {{index}}",
+		"layoutScreenPip": "Tela + câmera",
+		"layoutCameraFull": "Câmera em tela cheia",
+		"layoutCameraFullPip": "Câmera + inserção",
+		"layoutSideBySide": "Lado a lado"
 	},
 	"emptyState": {
 		"noVideo": "Nenhum Vídeo Carregado",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "Não é possível colocar velocidade aqui",
 		"speedExistsAtLocation": "Já existe uma região de velocidade neste local ou não há espaço suficiente disponível.",
 		"cannotPlaceCameraFullscreen": "Não é possível colocar Câmera em Tela Cheia aqui",
-		"cameraFullscreenExistsAtLocation": "Já existe um segmento de Câmera em Tela Cheia neste local ou não há espaço suficiente disponível."
+		"cameraFullscreenExistsAtLocation": "Já existe um segmento de Câmera em Tela Cheia neste local ou não há espaço suficiente disponível.",
+		"tooFewCameras": "Este layout precisa de mais câmeras do que as disponíveis aqui",
+		"noCamera": "Este projeto não tem câmera"
 	},
 	"success": {
 		"addedZoomSuggestions": "Adicionada {{count}} sugestão de zoom baseada no cursor",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "A gravação não está disponível aqui",
 		"saveFailed": "Não foi possível salvar a gravação",
 		"importFailed": "Não foi possível importar o arquivo de áudio"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Indisponível com esta predefinição de layout",
+		"needsCamerasHint": "Precisa de mais câmeras"
 	}
 }

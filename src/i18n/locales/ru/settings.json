@@ -462,5 +462,25 @@
 		"dark": "Тёмная",
 		"light": "Светлая",
 		"custom": "Своя"
+	},
+	"cameraLayout": {
+		"template": "Макет",
+		"placeLarge": "Место {{n}} · большое",
+		"placeSmall": "Место {{n}} · малое",
+		"placeLeft": "Место {{n}} · слева",
+		"placeRight": "Место {{n}} · справа",
+		"cameraUnavailable": "{{name}} (недоступна)",
+		"resetWindows": "Сбросить окна"
+	},
+	"cameras": {
+		"cameraN": "Камера {{n}}",
+		"title": "Камеры",
+		"unavailable": "Недоступна",
+		"camera1Hint": "Поворот, отражение и обрезка камеры 1 находятся в элементах управления выше.",
+		"rotation": "Поворот",
+		"mirror": "Отразить",
+		"crop": "Обрезка…",
+		"perspective": "Исправить перспективу…",
+		"reset": "Сбросить"
 	}
 }

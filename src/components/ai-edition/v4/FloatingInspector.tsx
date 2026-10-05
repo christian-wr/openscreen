@@ -23,7 +23,6 @@ import {
 	Trash2,
 	Type,
 	Undo2,
-	X,
 	ZoomIn,
 } from "lucide-react";
 import type { ComponentProps } from "react";
@@ -59,6 +58,7 @@ import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { rafCoalesce } from "@/lib/ai-edition/store/rafCoalesce";
 import { useEditorSettings } from "@/lib/ai-edition/store/useEditorSettings";
 import type { useTimeline } from "@/lib/ai-edition/store/useTimeline";
+import { camerasOfSection } from "@/lib/ai-edition/timeline/cameraList";
 import { formatSeconds } from "@/lib/ai-edition/timeline/format";
 import { coalescedTrimGroups } from "@/lib/ai-edition/timeline/trim-mapping";
 import {
@@ -69,8 +69,10 @@ import {
 	normalizeCameraRotation,
 	showsDeskLabel,
 } from "@/lib/cameraOrientation";
+import { isWebcamBlockLayout } from "@/lib/compositeLayout";
 import { clampToBound } from "@/lib/projectDefaults";
 import { annotationFootageRect, zoomScaleLimit } from "@/native/sceneDescription";
+import type { CamerasSectionProps } from "../CamerasSection";
 import { ColorField } from "../ColorField";
 import shell from "../NewEditorShell.module.css";
 import {
@@ -87,6 +89,8 @@ import {
 import { useHasRecordedCursor } from "../recordedCursorTypes";
 import { TextColorField } from "../TextColorField";
 import styles from "./EditorShellV4.module.css";
+import { LayoutSectionPane, LayoutTemplateChoice } from "./LayoutSectionPane";
+import { PANE_BODY_STYLE, PANE_BUTTON, paneHeader, paneRow, paneStack } from "./paneParts";
 
 type TimelineApi = ReturnType<typeof useTimeline>;
 
@@ -130,6 +134,8 @@ interface FloatingInspectorProps {
 	 * selected. Clicking elsewhere on the timeline clears the selection
 	 * (see V4Timeline's empty-area click handler) which closes this pane. */
 	tl: TimelineApi;
+	/** Opens the camera calibration dialog (the shell holds its one instance). */
+	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 }
 
 export function FloatingInspector({
@@ -141,6 +147,7 @@ export function FloatingInspector({
 	onEditClip,
 	transcriptProps,
 	tl,
+	onOpenCalibration,
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
 	const te = useScopedT("editor");
@@ -185,7 +192,13 @@ export function FloatingInspector({
 					) : audioTrackSelected ? (
 						<AudioTrackPane tl={tl} onClose={() => tl.clearSelection()} />
 					) : (
-						<FacetBody facet={facet} onCollapse={onToggleOpen} transcriptProps={transcriptProps} />
+						<FacetBody
+							facet={facet}
+							onCollapse={onToggleOpen}
+							transcriptProps={transcriptProps}
+							tl={tl}
+							onOpenCalibration={onOpenCalibration}
+						/>
 					)}
 				</div>
 			) : null}
@@ -303,80 +316,6 @@ export function FloatingInspector({
 					) : null}
 				</div>
 			</div>
-		</div>
-	);
-}
-
-function paneHeader(icon: React.ReactNode, title: string, onClose: () => void, closeLabel: string) {
-	return (
-		<header
-			style={{
-				display: "flex",
-				alignItems: "center",
-				gap: 8,
-				padding: "14px 16px 12px",
-				borderBottom: "1px solid var(--border-soft)",
-				// Le corps défile sous l'en-tête : sans ça, l'en-tête se comprime avec lui.
-				flexShrink: 0,
-			}}
-		>
-			<span style={{ display: "grid", placeItems: "center", color: "var(--muted)" }}>{icon}</span>
-			<h2
-				style={{
-					margin: 0,
-					flex: 1,
-					fontSize: 14,
-					fontWeight: 600,
-					color: "var(--fg-emphasis)",
-					letterSpacing: "-0.01em",
-				}}
-			>
-				{title}
-			</h2>
-			<button
-				type="button"
-				className={styles.iconBtn}
-				title={closeLabel}
-				aria-label={closeLabel}
-				onClick={onClose}
-				style={{
-					width: 30,
-					height: 30,
-				}}
-			>
-				<X size={16} />
-			</button>
-		</header>
-	);
-}
-
-function paneRow(label: string, control: React.ReactNode) {
-	return (
-		<div
-			style={{
-				display: "flex",
-				alignItems: "center",
-				justifyContent: "space-between",
-				gap: 10,
-			}}
-		>
-			<span style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>{label}</span>
-			{control}
-		</div>
-	);
-}
-
-/** Un libellé au-dessus de son contrôle, pour ceux qui prennent toute la largeur du panneau
- *  (une `ChoiceRow`) : à côté d'un libellé, ils n'auraient plus la place de montrer leurs choix.
- *  `value` nomme le choix courant quand les boutons ne font que le dessiner. */
-function paneStack(label: string, control: React.ReactNode, value?: string) {
-	return (
-		<div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-			<span style={{ fontSize: 13, color: "var(--fg-2)", fontWeight: 500 }}>
-				{label}
-				{value ? <span className={shell.sectionLabelValue}>{value}</span> : null}
-			</span>
-			{control}
 		</div>
 	);
 }
@@ -812,23 +751,7 @@ function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }
 		onClose();
 	};
 
-	// Le panneau découpe son contenu (coins arrondis + flou), donc un corps sans ascenseur perd
-	// silencieusement ce qui dépasse — c'est ce qui arrivait au pane d'annotation, le plus haut de
-	// tous, dès qu'on réduisait la fenêtre. L'en-tête reste fixe, le corps défile, comme les
-	// panneaux de facette (cf. `.paneBody` de NewEditorShell).
-	const bodyStyle: React.CSSProperties = {
-		padding: "16px",
-		display: "flex",
-		flexDirection: "column",
-		gap: 16,
-		flex: "1 1 auto",
-		minHeight: 0,
-		overflowY: "auto",
-		overflowX: "hidden",
-		overscrollBehavior: "contain",
-		scrollbarWidth: "thin",
-		scrollbarColor: "var(--border) transparent",
-	};
+	const bodyStyle = PANE_BODY_STYLE;
 
 	if (selection.kind === "zoom") {
 		const region = tl.zoomRegions.find((z) => z.id === selection.id);
@@ -1274,12 +1197,34 @@ function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }
 		);
 	}
 
+	// The cameras of the asset a camera section is anchored to (its row's `assetId`).
+	const camerasUnder = (region: { assetId?: string; startMs: number; endMs: number }) =>
+		doc ? camerasOfSection(doc, region, ts) : [];
+	const blockPreset = isWebcamBlockLayout(settings.webcamLayoutPreset);
+
+	if (selection.kind === "cameraLayout") {
+		const region = tl.cameraLayoutRegions.find((r) => r.id === selection.id);
+		if (!region) return null;
+		return (
+			<LayoutSectionPane
+				tl={tl}
+				region={region}
+				cameras={camerasUnder(region)}
+				blockPreset={blockPreset}
+				onClose={onClose}
+			/>
+		);
+	}
+
 	if (selection.kind === "cameraFullscreen") {
 		const region = tl.cameraFullscreenRegions.find((c) => c.id === selection.id);
 		if (!region) return null;
 		const rotation = normalizeCameraRotation(region.rotation);
 		const mirror = normalizeCameraMirror(region.mirror);
 		const desk = isDeskView(region);
+		const available = camerasUnder(region)
+			.filter((c) => c.available)
+			.map((c) => c.index);
 		const setOrientation = (next: { rotation: CameraRotation; mirror: CameraMirrorMode }) =>
 			void tl.updateCameraFullscreenOrientation(region.id, next);
 		return (
@@ -1291,6 +1236,19 @@ function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }
 					tc("actions.close"),
 				)}
 				<div style={bodyStyle}>
+					<LayoutTemplateChoice
+						current="camera-full"
+						cameraCount={new Set([0, ...available]).size}
+						blockPreset={blockPreset}
+						onPick={(template) =>
+							void tl
+								.setLayoutTemplate({ kind: "cameraFullscreen", id: region.id }, template, available)
+								.then((next) => {
+									if (next.kind !== "cameraFullscreen" || next.id !== region.id)
+										tl.selectRegion(next.kind, next.id);
+								})
+						}
+					/>
 					{/* One click for the common case: a camera tilted onto the desk is upside down
 					    and must not be mirrored, or the papers' text reads back to front. */}
 					<button
@@ -1380,18 +1338,18 @@ function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }
 	);
 }
 
-/** Every action of the selection pane, delete included: the red icon says it destroys; a red
- *  slab outshouted every setting above it. */
-const PANE_BUTTON = `${shell.btn} ${shell.btnSecondary}`;
-
 function FacetBody({
 	facet,
 	onCollapse,
 	transcriptProps,
+	tl,
+	onOpenCalibration,
 }: {
 	facet: Facet;
 	onCollapse: () => void;
 	transcriptProps: TranscriptProps;
+	tl: TimelineApi;
+	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 }) {
 	const te = useScopedT("editor");
 	// A small collapse affordance floated over the reused pane header.
@@ -1421,7 +1379,17 @@ function FacetBody({
 		</button>
 	);
 
-	if (facet === "layout") return wrap(collapse, <LayoutPane />);
+	if (facet === "layout")
+		return wrap(
+			collapse,
+			<LayoutPane
+				cameras={{
+					cameraSettings: tl.cameraSettings,
+					setCameraSettings: tl.setCameraSettings,
+					onOpenCalibration,
+				}}
+			/>,
+		);
 	if (facet === "audio") return wrap(collapse, <AudioPane />);
 	if (facet === "cursor") return wrap(collapse, <CursorPane />);
 	if (facet === "transcript") return wrap(collapse, <TranscriptPane {...transcriptProps} />);

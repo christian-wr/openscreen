@@ -28,6 +28,7 @@ import {
 	type CameraFullscreenRegion,
 	type CropRegion,
 	DEFAULT_CROP_REGION,
+	type NormalizedRect,
 	type WebcamLayoutPreset,
 	type WebcamMaskShape,
 	type ZoomFocus,
@@ -47,9 +48,23 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { useEditorSettings } from "@/lib/ai-edition/store/useEditorSettings";
-import { resolveActiveCameraTrack } from "@/lib/ai-edition/timeline/camera";
+import {
+	assetAdditionalCameraSources,
+	assetCameraSource,
+	resolveActiveCameraTrack,
+} from "@/lib/ai-edition/timeline/camera";
+import {
+	inwardCorner,
+	moveSlotRect,
+	type PipPlace,
+	pipPlacesOf,
+	resizeSlotRect,
+	type SlotCorner,
+} from "@/lib/ai-edition/timeline/layoutSlotDrag";
 import type { SpeedRegion } from "@/lib/ai-edition/timeline/speed";
+import { resolvePillIds } from "@/lib/ai-edition/timeline/timelineMap";
 import { locateVirtualPosition } from "@/lib/ai-edition/timeline/virtual-preview";
+import { type AnchoredCameraLayoutRegion, normalizeCameraSettings } from "@/lib/cameraLayouts";
 import {
 	computeCameraFullscreenRect,
 	computeCompositeLayout,
@@ -61,7 +76,12 @@ import { webcamAnchorAt } from "@/lib/projectDefaults";
 import { wallpaperStyle } from "@/lib/wallpaper";
 import { getCssClipPath } from "@/lib/webcamMaskShapes";
 import { computeCameraFullscreenProgress } from "@/lib/zoomMath/cameraFullscreenUtils";
-import { camera0PerspectiveOf, webcamBoxSourceSize } from "@/native/sceneDescription";
+import {
+	camera0PerspectiveOf,
+	cameraLayoutContextOf,
+	clipPipLayoutOf,
+	webcamBoxSourceSize,
+} from "@/native/sceneDescription";
 import {
 	getWebcamNativeSize,
 	getWebcamNativeSizeRevision,
@@ -92,6 +112,13 @@ interface PreviewCanvasProps {
 	selectedZoomRegionId?: string | null;
 	onZoomFocusChange?: (id: string, focus: ZoomFocus) => void;
 	onZoomFocusCommit?: () => void;
+	/** Layout sections; the selected one's PiP places get move/resize hitboxes. */
+	cameraLayoutRegions?: AnchoredCameraLayoutRegion[];
+	selectedLayoutRegionId?: string | null;
+	/** Live edit of a place's rect during a gesture (no undo step). */
+	onLayoutSlotRectLive?: (id: string, slotIndex: number, rect: NormalizedRect) => void;
+	/** End of the gesture: one undo step. */
+	onLayoutSlotRectCommit?: () => void;
 	annotationRegions?: AxcutAnnotationRegion[];
 	selectedAnnotationId?: string | null;
 	onSelectAnnotation?: (id: string) => void;
@@ -354,6 +381,60 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 	// camera-less clip, so this is belt-and-braces rather than the only guard.
 	const showWebcamSlot = Boolean(layout?.webcamRect && activeClipHasCamera);
 	const [isPlaying, setIsPlaying] = useState(false);
+
+	// The selected layout section's row under the playhead: one pill can span several clip-
+	// anchored rows, and the one under the playhead names the asset whose cameras are drawn.
+	const layoutRow = useMemo(() => {
+		const id = props.selectedLayoutRegionId;
+		const regions = props.cameraLayoutRegions;
+		if (!id || !regions) return null;
+		const pill = new Set(resolvePillIds(regions, id));
+		const nowMs = props.currentTimeSec * 1000;
+		return regions.find((r) => pill.has(r.id) && nowMs >= r.startMs && nowMs < r.endMs) ?? null;
+	}, [props.selectedLayoutRegionId, props.cameraLayoutRegions, props.currentTimeSec]);
+	// Its PiP places, through the context the scene builds, so each hitbox sits on the window
+	// the compositor draws. Frame-filling places get none.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the revision re-reads the probed-size cache
+	const layoutPlaces = useMemo((): PipPlace[] => {
+		if (!layoutRow || frameSize.width <= 0 || frameSize.height <= 0) return [];
+		const asset = assets.find((a) => a.id === (layoutRow.assetId ?? activeClip?.assetId));
+		if (!asset) return [];
+		const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
+		const legacy = document?.legacyEditor as Record<string, unknown> | null | undefined;
+		const camera0Path = asset.cameraTrack?.sourcePath;
+		const maskShape = settings.webcamMaskShape as WebcamMaskShape;
+		const ctx = cameraLayoutContextOf({
+			frame: frameSize,
+			asset,
+			cameraSettings: normalizeCameraSettings(legacy?.cameraSettings),
+			webcamCropRegion: settings.webcamCropRegion,
+			probedCamera0Size: camera0Path ? getWebcamNativeSize(camera0Path) : null,
+			clipLayout: clipPipLayoutOf(layout, frameSize, maskShape),
+			webcamMaskShape: maskShape,
+			webcamRoundness: settings.webcamRoundness,
+			pipPreset:
+				resolveWebcamLayoutPreset(
+					settings.webcamLayoutPreset as WebcamLayoutPreset,
+					activeClipHasCamera,
+				) === "picture-in-picture",
+		});
+		return pipPlacesOf(layoutRow, ctx).filter((p) => (sources[p.camera]?.path ?? "") !== "");
+	}, [
+		layoutRow,
+		frameSize,
+		assets,
+		activeClip,
+		document,
+		layout,
+		activeClipHasCamera,
+		settings.webcamCropRegion,
+		settings.webcamMaskShape,
+		settings.webcamRoundness,
+		settings.webcamLayoutPreset,
+		webcamSizeRevision,
+	]);
+	const editsLayoutPlaces =
+		layoutPlaces.length > 0 && !isPlaying && props.onLayoutSlotRectLive !== undefined;
 	const handleVideoElement = useMemo(() => props.onVideoElement, [props.onVideoElement]);
 	// L'élément `<video>` lui-même n'est plus retenu : il ne servait qu'à échantillonner des pixels
 	// pour la mosaïque dessinée en DOM, que le compositeur natif rend désormais.
@@ -427,7 +508,55 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 		slot.addEventListener("pointercancel", handleUp);
 	};
 
-	const isPipGrab = settings.webcamLayoutPreset === "picture-in-picture";
+	// Moving (the place itself) or resizing (its corner handle) a layout section's PiP place:
+	// pointer capture on the grabbed element, live rects while it moves, one commit on release.
+	const handleLayoutPlacePointerDown = (
+		event: ReactPointerEvent<HTMLDivElement>,
+		place: PipPlace,
+		mode: "move" | SlotCorner,
+	) => {
+		const onLive = props.onLayoutSlotRectLive;
+		if (!layoutRow || !onLive || isPlaying) return;
+		const frameRect = frameRef.current?.getBoundingClientRect();
+		if (!frameRect || frameRect.width <= 0 || frameRect.height <= 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const target = event.currentTarget;
+		target.setPointerCapture(event.pointerId);
+		const sectionId = layoutRow.id;
+		const startX = event.clientX;
+		const startY = event.clientY;
+		const frame = { width: frameRect.width, height: frameRect.height };
+		let moved = false;
+		const handleMove = (e: PointerEvent) => {
+			const dx = (e.clientX - startX) / frame.width;
+			const dy = (e.clientY - startY) / frame.height;
+			const rect =
+				mode === "move"
+					? moveSlotRect(place.rect, dx, dy)
+					: resizeSlotRect(place.rect, mode, dx, dy, place.aspect, frame);
+			moved = true;
+			onLive(sectionId, place.slotIndex, rect);
+		};
+		const handleUp = () => {
+			target.removeEventListener("pointermove", handleMove);
+			target.removeEventListener("pointerup", handleUp);
+			target.removeEventListener("pointercancel", handleUp);
+			try {
+				target.releasePointerCapture(event.pointerId);
+			} catch {
+				// pointer already released
+			}
+			// A click without a move changes nothing and leaves no undo step.
+			if (moved) props.onLayoutSlotRectCommit?.();
+		};
+		target.addEventListener("pointermove", handleMove);
+		target.addEventListener("pointerup", handleUp);
+		target.addEventListener("pointercancel", handleUp);
+	};
+
+	// Inside a selected layout section the places take the pointer, not camera 1's anchor drag.
+	const isPipGrab = settings.webcamLayoutPreset === "picture-in-picture" && !editsLayoutPlaces;
 
 	const selectedZoomRegion = props.selectedZoomRegionId
 		? (props.zoomRegions?.find((z) => z.id === props.selectedZoomRegionId) ?? null)
@@ -495,6 +624,29 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 					<WebcamOverlay clips={props.clips} currentTimeSec={props.currentTimeSec} />
 				</div>
 			) : null}
+			{editsLayoutPlaces
+				? layoutPlaces.map((place) => {
+						const corner = inwardCorner(place.rect);
+						return (
+							<div
+								key={place.slotIndex}
+								className={styles.layoutPlace}
+								style={layoutPlaceStyle(place.rect)}
+								data-testid="layout-place"
+								aria-label={te("preview.layoutPlace")}
+								onPointerDown={(e) => handleLayoutPlacePointerDown(e, place, "move")}
+							>
+								<div
+									className={styles.layoutPlaceHandle}
+									style={layoutHandleStyle(corner)}
+									data-testid="layout-place-handle"
+									aria-label={te("preview.layoutPlaceResize")}
+									onPointerDown={(e) => handleLayoutPlacePointerDown(e, place, corner)}
+								/>
+							</div>
+						);
+					})
+				: null}
 			{/* Last, so a selected annotation over the camera takes the pointer before the
 			    camera's drag hitbox does. It spans the frame: text, images and arrows move
 			    anywhere in it, over the padding too. */}
@@ -585,4 +737,23 @@ function buildWebcamStyle(
 		background: "transparent",
 	};
 	return clipPath ? { ...base, clipPath } : base;
+}
+
+// A layout place's hitbox: its rect in percent of the frame. No clip-path, unlike the webcam
+// slot: the resize handle sits on the rect's corner, outside a circle's disc.
+function layoutPlaceStyle(rect: NormalizedRect): React.CSSProperties {
+	return {
+		left: `${rect.x * 100}%`,
+		top: `${rect.y * 100}%`,
+		width: `${rect.width * 100}%`,
+		height: `${rect.height * 100}%`,
+	};
+}
+
+function layoutHandleStyle(corner: SlotCorner): React.CSSProperties {
+	return {
+		left: corner === "nw" || corner === "sw" ? 0 : "100%",
+		top: corner === "nw" || corner === "ne" ? 0 : "100%",
+		cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize",
+	};
 }

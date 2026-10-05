@@ -88,5 +88,39 @@
 		"audioFiles": "音訊檔案",
 		"openscreenProject": "OpenScreen 專案",
 		"allFiles": "所有檔案"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "校正透視 – {{camera}}",
+		"titleCrop": "裁切 – {{camera}}",
+		"loading": "正在載入攝影機畫面…",
+		"loadFailed": "無法載入攝影機畫面。",
+		"perspectiveHelp": "將四個角拖到紙張或桌面的角上。方向鍵可將所選的角移動 1 像素，按住 Shift 則移動 10 像素。",
+		"cropHelp": "將框線或其控點拖到要保留的畫面部分。方向鍵移動框線，Shift + 方向鍵調整大小。",
+		"corners": {
+			"topLeft": "左上角",
+			"topRight": "右上角",
+			"bottomRight": "右下角",
+			"bottomLeft": "左下角"
+		},
+		"format": "目標格式",
+		"formats": {
+			"a4Portrait": "A4 直向",
+			"a4Landscape": "A4 橫向",
+			"free": "自由"
+		},
+		"freeRatio": "比例（寬 ÷ 高）",
+		"margin": "邊距",
+		"preview": "預覽",
+		"loupe": "放大鏡",
+		"cropArea": "裁切區域",
+		"invalidQuad": "這些角互相交叉、位於同一直線上，或構成內凹（非凸）的形狀。請將它們排成凸四邊形後再套用。",
+		"reset": "重設",
+		"apply": "套用",
+		"invalidRatio": "請輸入 {{min}} 到 {{max}} 之間的比例。",
+		"detectMarkers": "偵測標記",
+		"printMarkerSheet": "列印標記紙",
+		"markersFound": "已找到全部四個標記，角點已放到標記上。",
+		"markersNotFound": "未找到全部四個標記（0–3）。請確認它們完整位於畫面中、平整且光線均勻。角點維持不變。",
+		"markerSheetInstruction": "沿虛線剪下，將每個標記的內側角對準其標示的角。"
 	}
 }

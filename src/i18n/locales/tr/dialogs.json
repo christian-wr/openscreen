@@ -88,5 +88,39 @@
 		"audioFiles": "Ses dosyaları",
 		"openscreenProject": "OpenScreen Projesi",
 		"allFiles": "Tüm Dosyalar"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Perspektifi düzelt – {{camera}}",
+		"titleCrop": "Kırp – {{camera}}",
+		"loading": "Kamera görüntüsü yükleniyor…",
+		"loadFailed": "Kamera görüntüsü yüklenemedi.",
+		"perspectiveHelp": "Dört köşeyi kâğıdın veya masanın köşelerine sürükleyin. Ok tuşları seçili köşeyi bir piksel, Shift ile on piksel taşır.",
+		"cropHelp": "Çerçeveyi veya tutamaçlarını görüntünün kalacak kısmına sürükleyin. Ok tuşları onu taşır, Shift + ok tuşları boyutunu değiştirir.",
+		"corners": {
+			"topLeft": "Sol üst köşe",
+			"topRight": "Sağ üst köşe",
+			"bottomRight": "Sağ alt köşe",
+			"bottomLeft": "Sol alt köşe"
+		},
+		"format": "Hedef biçim",
+		"formats": {
+			"a4Portrait": "A4 dikey",
+			"a4Landscape": "A4 yatay",
+			"free": "Serbest"
+		},
+		"freeRatio": "Oran (genişlik ÷ yükseklik)",
+		"margin": "Kenar boşluğu",
+		"preview": "Önizleme",
+		"loupe": "Büyüteç",
+		"cropArea": "Kırpma alanı",
+		"invalidQuad": "Köşeler kesişiyor, aynı doğru üzerinde veya içe göçük (dışbükey olmayan) bir şekil oluşturuyor. Uygulamak için onları dışbükey bir dörtgen oluşturacak şekilde yerleştirin.",
+		"reset": "Sıfırla",
+		"apply": "Uygula",
+		"invalidRatio": "{{min}} ile {{max}} arasında bir oran girin.",
+		"detectMarkers": "İşaretçileri algıla",
+		"printMarkerSheet": "İşaretçi sayfasını yazdır",
+		"markersFound": "Dört işaretçinin tümü bulundu; köşeler bunların üzerine yerleştirildi.",
+		"markersNotFound": "Dört işaretçinin (0–3) tümü bulunamadı. Tamamen görüntüde, düz ve eşit aydınlatılmış olduklarından emin olun. Köşeler değiştirilmedi.",
+		"markerSheetInstruction": "Kesikli çizgilerden kesin. Her işaretçinin iç köşesini kendi köşesine koyun."
 	}
 }

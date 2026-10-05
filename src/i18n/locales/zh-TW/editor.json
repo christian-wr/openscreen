@@ -361,6 +361,8 @@
 	"preview": {
 		"videoPreview": "影片預覽",
 		"webcamPreview": "攝影機預覽",
+		"layoutPlace": "攝影機視窗 — 拖曳以移動",
+		"layoutPlaceResize": "調整攝影機視窗大小",
 		"mediaError": {
 			"title": "預覽已停止",
 			"description": "無法解碼此影片。檔案可能已損毀、仍在寫入中，或已不在專案預期的位置——你的專案本身完好無缺。",

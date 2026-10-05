@@ -88,5 +88,39 @@
 		"audioFiles": "Arquivos de áudio",
 		"openscreenProject": "Projeto OpenScreen",
 		"allFiles": "Todos os Arquivos"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Corrigir perspectiva – {{camera}}",
+		"titleCrop": "Recortar – {{camera}}",
+		"loading": "Carregando a imagem da câmera…",
+		"loadFailed": "Não foi possível carregar a imagem da câmera.",
+		"perspectiveHelp": "Arraste os quatro cantos até os cantos da folha ou da mesa. As setas movem o canto selecionado um pixel; com Shift, dez.",
+		"cropHelp": "Arraste o quadro ou suas alças sobre a parte da imagem a manter. As setas o movem; Shift + setas o redimensionam.",
+		"corners": {
+			"topLeft": "Canto superior esquerdo",
+			"topRight": "Canto superior direito",
+			"bottomRight": "Canto inferior direito",
+			"bottomLeft": "Canto inferior esquerdo"
+		},
+		"format": "Formato de destino",
+		"formats": {
+			"a4Portrait": "A4 retrato",
+			"a4Landscape": "A4 paisagem",
+			"free": "Livre"
+		},
+		"freeRatio": "Proporção (largura ÷ altura)",
+		"margin": "Margem",
+		"preview": "Prévia",
+		"loupe": "Lupa",
+		"cropArea": "Área de recorte",
+		"invalidQuad": "Os cantos se cruzam, estão alinhados ou formam uma figura reentrante (não convexa). Posicione-os formando um quadrilátero convexo para aplicar.",
+		"reset": "Redefinir",
+		"apply": "Aplicar",
+		"invalidRatio": "Insira uma proporção entre {{min}} e {{max}}.",
+		"detectMarkers": "Detectar marcadores",
+		"printMarkerSheet": "Imprimir folha de marcadores",
+		"markersFound": "Os quatro marcadores foram encontrados; os cantos foram posicionados sobre eles.",
+		"markersNotFound": "Nem todos os quatro marcadores (0–3) foram encontrados. Verifique se estão inteiros na imagem, planos e com iluminação uniforme. Os cantos não foram alterados.",
+		"markerSheetInstruction": "Recorte nas linhas. Ponha o canto interno de cada marcador no seu canto."
 	}
 }

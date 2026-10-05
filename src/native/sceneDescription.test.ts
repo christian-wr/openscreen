@@ -937,25 +937,27 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		expect(labels.every((a) => a.space === "frame")).toBe(true);
 	});
 
-	it("reads Full Camera from the layout regions alone once they are stored", () => {
-		// The save rule writes a camera-1 Full Camera section to both lists; the load rule
-		// ignores the legacy copy as soon as `cameraLayoutRegions` exists.
+	it("a hand-written camera-1 camera-full layout row is not doubled", () => {
+		// The editor stores camera 1's Full Camera only in `cameraFullscreenRegions`. A
+		// hand-written layout row for the same span must not emit a second section.
 		const section = { id: "cf1", startMs: 0, endMs: 20_000, rotation: 180 };
 		const doc = makeDoc({
 			legacyEditor: {
 				cameraFullscreenRegions: [section],
-				cameraLayoutRegions: [{ ...section, template: "camera-full", slots: [{ camera: 0 }] }],
+				cameraLayoutRegions: [
+					{ ...section, id: "l1", template: "camera-full", slots: [{ camera: 0 }] },
+				],
 			},
 		});
 		const scene = buildSceneDescription(doc);
 		expect(scene.cameraFullscreenRegions).toHaveLength(1);
 		const labels = scene.annotations.filter((a) => a.text?.animation?.startsWith("deskCover"));
 		expect(labels.map((a) => a.text?.animation)).toEqual(["deskCoverStart", "deskCoverEnd"]);
-		// Even an empty list of layout regions is the authority.
+		// An empty layout list no longer hides the Full Camera regions.
 		const emptied = makeDoc({
 			legacyEditor: { cameraFullscreenRegions: [section], cameraLayoutRegions: [] },
 		});
-		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toEqual([]);
+		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toHaveLength(1);
 	});
 
 	it("a label end that meets a layout region covers only the fade", () => {
@@ -3172,6 +3174,69 @@ describe("buildSceneDescription cameras", () => {
 			{ startSec: 1, endSec: 4, rotation: 180 },
 		]);
 		expect(scene.cameraLayoutRegions).toBeUndefined();
+	});
+
+	it("legacy full camera regions still reach the scene next to layout regions", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }],
+					cameraLayoutRegions: [
+						layoutRegion("screen-pip", [{ camera: 1 }], { startMs: 4000, endMs: 6000 }),
+					],
+				},
+			),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 4, endSec: 6 });
+	});
+
+	it("a layout region follows its clip", () => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [extra],
+		});
+		const clips = [
+			makeClip({
+				id: "c1",
+				assetId: "a",
+				sourceStartSec: 0,
+				sourceEndSec: 10,
+				timelineStartSec: 0,
+				timelineEndSec: 10,
+			}),
+			makeClip({
+				id: "c2",
+				assetId: "a",
+				sourceStartSec: 20,
+				sourceEndSec: 30,
+				timelineStartSec: 10,
+				timelineEndSec: 20,
+			}),
+		];
+		// The ms cache still says 2-4 s (where c2 sat before it moved behind c1); the anchor
+		// says c2's source 22-24 s, and that is what the scene must follow.
+		const row = layoutRegion("screen-pip", [{ camera: 1 }], {
+			startMs: 2000,
+			endMs: 4000,
+			clipId: "c2",
+			assetId: "a",
+			sourceStartSec: 22,
+			sourceEndSec: 24,
+		});
+		const scene = buildSceneDescription(
+			makeDoc({ assets: [asset], clips, legacyEditor: { cameraLayoutRegions: [row] } }),
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({
+			startSec: 22,
+			endSec: 24,
+			clipIndex: 1,
+		});
 	});
 
 	it("a camera-full-pip region becomes resolved layers", () => {

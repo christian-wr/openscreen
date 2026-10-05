@@ -361,6 +361,8 @@
 	"preview": {
 		"videoPreview": "Video önizlemesi",
 		"webcamPreview": "Kamera önizlemesi",
+		"layoutPlace": "Kamera penceresi — taşımak için sürükleyin",
+		"layoutPlaceResize": "Kamera penceresini yeniden boyutlandır",
 		"mediaError": {
 			"title": "Önizleme durdu",
 			"description": "Video çözümlenemedi. Dosya bozulmuş, hâlâ yazılıyor ya da projenin beklediği yerde olmayabilir — projeniz olduğu gibi duruyor.",

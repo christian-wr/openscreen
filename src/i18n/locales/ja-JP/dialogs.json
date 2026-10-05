@@ -88,5 +88,39 @@
 		"audioFiles": "オーディオファイル",
 		"openscreenProject": "OpenScreen プロジェクト",
 		"allFiles": "すべてのファイル"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "遠近補正 – {{camera}}",
+		"titleCrop": "トリミング – {{camera}}",
+		"loading": "カメラ画像を読み込み中…",
+		"loadFailed": "カメラ画像を読み込めませんでした。",
+		"perspectiveHelp": "4 つの角を用紙や机の角までドラッグします。矢印キーで選択中の角を 1 ピクセル、Shift キーを押しながらで 10 ピクセル動かします。",
+		"cropHelp": "枠またはハンドルを、残したい部分までドラッグします。矢印キーで移動、Shift + 矢印キーでサイズを変更します。",
+		"corners": {
+			"topLeft": "左上の角",
+			"topRight": "右上の角",
+			"bottomRight": "右下の角",
+			"bottomLeft": "左下の角"
+		},
+		"format": "出力形式",
+		"formats": {
+			"a4Portrait": "A4 縦",
+			"a4Landscape": "A4 横",
+			"free": "自由"
+		},
+		"freeRatio": "比率（幅 ÷ 高さ）",
+		"margin": "余白",
+		"preview": "プレビュー",
+		"loupe": "ルーペ",
+		"cropArea": "トリミング範囲",
+		"invalidQuad": "角が交差している、一直線上にある、またはへこんだ（凸でない）形になっています。適用するには凸の四角形になるように配置してください。",
+		"reset": "リセット",
+		"apply": "適用",
+		"invalidRatio": "{{min}}～{{max}} の比率を入力してください。",
+		"detectMarkers": "マーカーを検出",
+		"printMarkerSheet": "マーカーシートを印刷",
+		"markersFound": "4 つのマーカーがすべて見つかり、角をその位置に合わせました。",
+		"markersNotFound": "4 つのマーカー（0～3）をすべて見つけられませんでした。マーカー全体が映っていて、平らで、均一に照らされているか確認してください。角は変更されていません。",
+		"markerSheetInstruction": "破線で切り取り、各マーカーの内側の角を表示された角に合わせます。"
 	}
 }

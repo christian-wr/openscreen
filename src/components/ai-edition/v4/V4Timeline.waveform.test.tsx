@@ -120,6 +120,7 @@ function renderBars(atGainDb: number): string[] {
 		annotationRegions: [],
 		speedRegions: [],
 		cameraFullscreenRegions: [],
+		cameraLayoutRegions: [],
 		zoomRegions: [],
 		trimRanges: [],
 		selection: null,

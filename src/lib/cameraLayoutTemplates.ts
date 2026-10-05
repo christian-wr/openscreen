@@ -68,6 +68,15 @@ function pipLayer(camera: number, index: number, ctx: CameraLayoutContext): Reso
 	};
 }
 
+/** Whether a template's place `index` covers the frame (or half of it) rather than being a PiP. */
+export function slotFillsFrame(template: CameraLayoutRegion["template"], index: number): boolean {
+	return (
+		template === "camera-full" ||
+		template === "side-by-side" ||
+		(template === "camera-full-pip" && index === 0)
+	);
+}
+
 /**
  * Turns a layout region into positioned camera layers in draw order: frame-filling layers
  * first, then the PiPs, each in slot order. A slot's own `rect` overrides the template's
@@ -81,10 +90,10 @@ export function resolveCameraLayout(
 	const pips: ResolvedCameraLayer[] = [];
 	region.slots.forEach((slot, i) => {
 		let layer: ResolvedCameraLayer;
-		if (region.template === "camera-full" || (region.template === "camera-full-pip" && i === 0)) {
-			layer = fullLayer(slot.camera, { ...FULL_RECT });
-		} else if (region.template === "side-by-side") {
+		if (region.template === "side-by-side") {
 			layer = fullLayer(slot.camera, { ...(i === 0 ? LEFT_HALF : RIGHT_HALF) });
+		} else if (slotFillsFrame(region.template, i)) {
+			layer = fullLayer(slot.camera, { ...FULL_RECT });
 		} else {
 			const pipIndex = region.template === "camera-full-pip" ? i - 1 : i;
 			layer = pipLayer(slot.camera, pipIndex, ctx);

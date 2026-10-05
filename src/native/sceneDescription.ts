@@ -17,12 +17,14 @@
 
 import type {
 	CameraFullscreenRegion,
-	CameraLayoutRegion,
 	CameraPerspective,
+	CameraSettings,
+	NormalizedRect,
 	Rotation3DPreset,
 	SpeedRegion,
 	WallpaperMotion,
 	WebcamBackgroundMode,
+	WebcamMaskShape,
 } from "@/components/video-editor/types";
 import { DEFAULT_CROP_REGION, getZoomScale } from "@/components/video-editor/types";
 import { toastText } from "@/i18n/toastText";
@@ -44,7 +46,12 @@ import {
 	readSpeedRegions,
 	resolvePlaybackSegments,
 } from "@/lib/ai-edition/document/timeline";
-import type { AxcutAudioTrack, AxcutClip, AxcutDocument } from "@/lib/ai-edition/schema";
+import type {
+	AxcutAsset,
+	AxcutAudioTrack,
+	AxcutClip,
+	AxcutDocument,
+} from "@/lib/ai-edition/schema";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
 import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
@@ -56,8 +63,12 @@ import {
 	MAX_ZOOM_SCALE,
 	maxZoomScaleFor,
 } from "@/lib/ai-edition/timeline/zoom-scale";
-import { normalizeCameraLayoutRegions, normalizeCameraSettings } from "@/lib/cameraLayouts";
-import { resolveCameraLayout } from "@/lib/cameraLayoutTemplates";
+import {
+	fullCameraRowsOfLayoutList,
+	normalizeCameraLayoutRegions,
+	normalizeCameraSettings,
+} from "@/lib/cameraLayouts";
+import { type CameraLayoutContext, resolveCameraLayout } from "@/lib/cameraLayoutTemplates";
 import {
 	normalizeCameraRotation,
 	resolveCameraOrientation,
@@ -70,6 +81,7 @@ import {
 	type RenderRect,
 	resolveWebcamLayoutPreset,
 	resolveWebcamReactiveZoom,
+	type WebcamCompositeLayout,
 	webcamSizeToFraction,
 } from "@/lib/compositeLayout";
 import type { CursorKind } from "@/lib/cursor/cursorThemes";
@@ -843,6 +855,101 @@ export function camera0PerspectiveOf(
 	return normalizeCameraSettings(legacyRaw?.cameraSettings)[0]?.perspective ?? null;
 }
 
+/** Camera 1's PiP box in a clip's resolved layout, in output-frame fractions. */
+export interface ClipPipLayout {
+	webcamRect: NormalizedRect | null;
+	webcamShape: WebcamMaskShape;
+	/** Corner radius as a fraction of the box's short side; null without a box. */
+	webcamRadiusFrac: number | null;
+}
+
+/**
+ * Camera 1's box of a `computeCompositeLayout` result (in `frame` pixels) as frame fractions,
+ * with its shape and radius. The scene ships these per clip; the editor anchors its layout
+ * hitboxes on the same values.
+ */
+export function clipPipLayoutOf(
+	layout: Pick<WebcamCompositeLayout, "webcamRect"> | null | undefined,
+	frame: Size,
+	fallbackShape: WebcamMaskShape,
+): ClipPipLayout {
+	const box = layout?.webcamRect ?? null;
+	if (!box) return { webcamRect: null, webcamShape: fallbackShape, webcamRadiusFrac: null };
+	const shortSide = Math.min(box.width, box.height);
+	return {
+		webcamRect: {
+			x: box.x / frame.width,
+			y: box.y / frame.height,
+			width: box.width / frame.width,
+			height: box.height / frame.height,
+		},
+		webcamShape: box.maskShape ?? fallbackShape,
+		webcamRadiusFrac:
+			shortSide > 0 && box.borderRadius != null ? box.borderRadius / shortSide : null,
+	};
+}
+
+/**
+ * What `resolveCameraLayout` needs to place a layout section's cameras, from the asset the
+ * section is anchored to. The scene and the editor's drag hitboxes both build it here, so
+ * the boxes the editor offers are the ones the compositor draws.
+ */
+export function cameraLayoutContextOf(input: {
+	/** Output frame (only its proportions matter). */
+	frame: Size;
+	asset: AxcutAsset;
+	cameraSettings: readonly (CameraSettings | null | undefined)[];
+	/** Camera 1's crop (`settings.webcamCropRegion`). */
+	webcamCropRegion: Size;
+	/** Camera 1's probed size, for a document whose camera has no stored dimensions. */
+	probedCamera0Size: Size | null;
+	/** The clip's resolved camera-1 layout, if it has one. */
+	clipLayout: ClipPipLayout | null | undefined;
+	webcamMaskShape: WebcamMaskShape;
+	webcamRoundness: number;
+	/** The clip lays out as picture-in-picture (a block preset's camera box is no PiP). */
+	pipPreset: boolean;
+}): CameraLayoutContext {
+	const { asset, cameraSettings, clipLayout } = input;
+	// The size of the picture each camera's box shows: after its crop, like the
+	// camera-1 box `webcamSourceSizeOf` lays out (a perspective replaces the crop).
+	const croppedSize = (camera: number): Size => {
+		if (camera === 0) {
+			return webcamBoxSourceSize(
+				asset.cameraTrack,
+				input.probedCamera0Size,
+				input.webcamCropRegion,
+				cameraSettings[0]?.perspective,
+			);
+		}
+		const track = asset.additionalCameraTracks?.[camera - 1];
+		const size =
+			track?.width && track?.height
+				? { width: track.width, height: track.height }
+				: { width: 16, height: 9 };
+		const crop = cameraSettings[camera]?.crop;
+		return crop ? { width: size.width * crop.width, height: size.height * crop.height } : size;
+	};
+	const cameraAspect = (camera: number) => {
+		const perspective = cameraSettings[camera]?.perspective;
+		if (perspective && perspectiveMatrix(perspective)) return perspective.aspect;
+		const size = croppedSize(camera);
+		return size.width / size.height;
+	};
+	return {
+		frame: input.frame,
+		cameraAspect,
+		pipShape: clipLayout?.webcamShape ?? input.webcamMaskShape,
+		// A clip without a camera-1 box (no-webcam preset, no camera 1) still rounds its
+		// PiPs the way `computeCompositeLayout` would: the radius is a fraction
+		// of the short side (= roundness of half of it).
+		pipRadiusFrac: clipLayout?.webcamRadiusFrac ?? clamp01(input.webcamRoundness) / 2,
+		// The template PiPs start where the project puts camera 1's PiP — only in the
+		// picture-in-picture preset; a block preset's camera box is no PiP to anchor on.
+		defaultPipRect: input.pipPreset ? clipLayout?.webcamRect : null,
+	};
+}
+
 const DESK_LABEL_KEY = "cameraFullscreen.deskLabel";
 
 /** The translated label, or "" when the locale has no such key (`translate` echoes the key). */
@@ -1175,35 +1282,33 @@ export function buildSceneDescription(
 	const legacyRaw = document.legacyEditor as Record<string, unknown> | null;
 	const layoutRegions = normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions);
 	const cameraSettings = normalizeCameraSettings(legacyRaw?.cameraSettings);
-	// A Full Camera of camera 1 stays a Full Camera region: that keeps the desk view and its label.
-	const isPlainFullCamera = (region: CameraLayoutRegion) =>
-		region.template === "camera-full" && region.slots.length === 1 && region.slots[0].camera === 0;
-	// Once a project stores `cameraLayoutRegions` (even empty), its Full Camera sections live
-	// there and the legacy list is only a copy kept for older builds: reading both would emit
-	// every section twice (two covers, two desk labels).
-	const legacyFullscreenRegions = Array.isArray(legacyRaw?.cameraLayoutRegions)
-		? []
-		: ((legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? []);
+	// Two disjoint lists: camera 1's Full Camera sections live in `cameraFullscreenRegions`
+	// (they keep the desk view and its label), every other layout in `cameraLayoutRegions`.
+	// Both are clip-anchored, so `projectRegionsToSource` takes its anchored branch for both.
+	const fullscreenRegions =
+		(legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? [];
+	// A hand-written layout list may still carry a camera-1 camera-full row. It becomes a Full
+	// Camera region unless one already covers its span, so the same section is never emitted
+	// twice (two covers, two desk labels).
+	const handWrittenFullCamera = fullCameraRowsOfLayoutList(legacyRaw?.cameraLayoutRegions)
+		.filter(
+			(row) =>
+				!fullscreenRegions.some(
+					(region) => region.startMs <= row.startMs && region.endMs >= row.endMs,
+				),
+		)
+		.map(({ template: _template, slots: _slots, ...region }): CameraFullscreenRegion => region);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
-		[
-			...legacyFullscreenRegions,
-			...layoutRegions.filter(isPlainFullCamera).map(
-				({ id, startMs, endMs, rotation, mirror, deskLabel }): CameraFullscreenRegion => ({
-					id,
-					startMs,
-					endMs,
-					rotation,
-					mirror,
-					deskLabel,
-				}),
-			),
-		].map((region) => ({ ...region, sectionId: region.id })),
+		[...fullscreenRegions, ...handWrittenFullCamera].map((region) => ({
+			...region,
+			sectionId: region.id,
+		})),
 		visibleClips,
 		document.timeline.clips,
 		() => createId("camfull"),
 	);
 	const projectedLayoutRegions = projectRegionsToSource(
-		layoutRegions.filter((region) => !isPlainFullCamera(region)),
+		layoutRegions,
 		visibleClips,
 		document.timeline.clips,
 		() => createId("camlay"),
@@ -1336,17 +1441,18 @@ export function buildSceneDescription(
 		const shortSide = box ? Math.min(box.width, box.height) : 0;
 		return box && shortSide > 0 && radius != null ? radius / shortSide : null;
 	};
-	const resolvedLayoutOf = (layout: ReturnType<typeof layoutForClip>) =>
-		layout
-			? {
-					screenRect: toFrameFractions(layout.screenRect),
-					webcamRect: layout.webcamRect ? toFrameFractions(layout.webcamRect) : null,
-					screenRadiusFrac: radiusFractionOf(layout.screenRect, layout.screenBorderRadius),
-					webcamRadiusFrac: radiusFractionOf(layout.webcamRect, layout.webcamRect?.borderRadius),
-					webcamShape: layout.webcamRect?.maskShape ?? settings.webcamMaskShape,
-					screenCover: formatFill || (layout.screenCover ?? false),
-				}
-			: null;
+	const resolvedLayoutOf = (layout: ReturnType<typeof layoutForClip>) => {
+		if (!layout) return null;
+		const pip = clipPipLayoutOf(layout, outputDims, settings.webcamMaskShape);
+		return {
+			screenRect: toFrameFractions(layout.screenRect),
+			webcamRect: pip.webcamRect,
+			screenRadiusFrac: radiusFractionOf(layout.screenRect, layout.screenBorderRadius),
+			webcamRadiusFrac: pip.webcamRadiusFrac,
+			webcamShape: pip.webcamShape,
+			screenCover: formatFill || (layout.screenCover ?? false),
+		};
+	};
 	// One resolved layout per visible clip, index-aligned with `clips` / `cropByClip`.
 	// `for_clip_window` (Rust) selects the entry for the clip being composed, so the
 	// draw path keeps reading a single `layout` and needs no per-clip branch of its own.
@@ -1385,52 +1491,25 @@ export function buildSceneDescription(
 			const asset = assetById.get(visibleClips[region.clipIndex]?.assetId ?? "");
 			if (!asset) return [];
 			const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
-			// The size of the picture each camera's box shows: after its crop, like the
-			// camera-1 box `webcamSourceSizeOf` lays out (a perspective replaces the crop).
-			const croppedSize = (camera: number) => {
-				if (camera === 0) {
-					return webcamBoxSourceSize(
-						asset.cameraTrack,
-						webcamSourceSize,
-						settings.webcamCropRegion,
-						cameraSettings[0]?.perspective,
-					);
-				}
-				const track = asset.additionalCameraTracks?.[camera - 1];
-				const size =
-					track?.width && track?.height
-						? { width: track.width, height: track.height }
-						: { width: 16, height: 9 };
-				const crop = cameraSettings[camera]?.crop;
-				return crop ? { width: size.width * crop.width, height: size.height * crop.height } : size;
-			};
-			const cameraAspect = (camera: number) => {
-				const perspective = cameraSettings[camera]?.perspective;
-				if (perspective && perspectiveMatrix(perspective)) return perspective.aspect;
-				const size = croppedSize(camera);
-				return size.width / size.height;
-			};
-			const pipShape = layoutByClip[region.clipIndex]?.webcamShape ?? settings.webcamMaskShape;
-			// A clip without a camera-1 box (no-webcam preset, no camera 1) still rounds its
-			// PiPs the way `computeCompositeLayout` would: the radius is a fraction
-			// of the short side (= roundness of half of it).
-			const pipRadiusFrac =
-				layoutByClip[region.clipIndex]?.webcamRadiusFrac ?? clamp01(settings.webcamRoundness) / 2;
-			// The template PiPs start where the project puts camera 1's PiP — only in the
-			// picture-in-picture preset; a block preset's camera box is no PiP to anchor on.
 			const clip = visibleClips[region.clipIndex];
 			const pipPreset =
 				clip !== undefined &&
 				resolveWebcamLayoutPreset(settings.webcamLayoutPreset, clipHasCamera(clip)) ===
 					"picture-in-picture";
-			const defaultPipRect = pipPreset ? layoutByClip[region.clipIndex]?.webcamRect : null;
-			const layers = resolveCameraLayout(region, {
+			const ctx = cameraLayoutContextOf({
 				frame: outputDims,
-				cameraAspect,
-				pipShape,
-				pipRadiusFrac,
-				defaultPipRect,
-			}).filter((layer) => (sources[layer.camera]?.path ?? "") !== "");
+				asset,
+				cameraSettings,
+				webcamCropRegion: settings.webcamCropRegion,
+				probedCamera0Size: webcamSourceSize,
+				clipLayout: layoutByClip[region.clipIndex],
+				webcamMaskShape: settings.webcamMaskShape,
+				webcamRoundness: settings.webcamRoundness,
+				pipPreset,
+			});
+			const layers = resolveCameraLayout(region, ctx).filter(
+				(layer) => (sources[layer.camera]?.path ?? "") !== "",
+			);
 			if (layers.length === 0) return [];
 			return [
 				{
