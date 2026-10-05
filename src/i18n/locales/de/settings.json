@@ -463,6 +463,15 @@
 		"light": "Hell",
 		"custom": "Eigene"
 	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Platz {{n}} · groß",
+		"placeSmall": "Platz {{n}} · klein",
+		"placeLeft": "Platz {{n}} · links",
+		"placeRight": "Platz {{n}} · rechts",
+		"cameraUnavailable": "{{name}} (nicht verfügbar)",
+		"resetWindows": "Fenster zurücksetzen"
+	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}"
 	}

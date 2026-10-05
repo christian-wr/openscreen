@@ -463,6 +463,15 @@
 		"light": "Clara",
 		"custom": "Personalizada"
 	},
+	"cameraLayout": {
+		"template": "Diseño",
+		"placeLarge": "Posición {{n}} · grande",
+		"placeSmall": "Posición {{n}} · pequeña",
+		"placeLeft": "Posición {{n}} · izquierda",
+		"placeRight": "Posición {{n}} · derecha",
+		"cameraUnavailable": "{{name}} (no disponible)",
+		"resetWindows": "Restablecer ventanas"
+	},
 	"cameras": {
 		"cameraN": "Cámara {{n}}"
 	}

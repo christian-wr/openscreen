@@ -463,6 +463,15 @@
 		"light": "淺色",
 		"custom": "自訂"
 	},
+	"cameraLayout": {
+		"template": "版面配置",
+		"placeLarge": "位置 {{n}} · 大",
+		"placeSmall": "位置 {{n}} · 小",
+		"placeLeft": "位置 {{n}} · 左",
+		"placeRight": "位置 {{n}} · 右",
+		"cameraUnavailable": "{{name}}（無法使用）",
+		"resetWindows": "重設視窗"
+	},
 	"cameras": {
 		"cameraN": "攝影機 {{n}}"
 	}

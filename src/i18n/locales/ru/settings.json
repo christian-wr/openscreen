@@ -463,6 +463,15 @@
 		"light": "Светлая",
 		"custom": "Своя"
 	},
+	"cameraLayout": {
+		"template": "Макет",
+		"placeLarge": "Место {{n}} · большое",
+		"placeSmall": "Место {{n}} · малое",
+		"placeLeft": "Место {{n}} · слева",
+		"placeRight": "Место {{n}} · справа",
+		"cameraUnavailable": "{{name}} (недоступна)",
+		"resetWindows": "Сбросить окна"
+	},
 	"cameras": {
 		"cameraN": "Камера {{n}}"
 	}

@@ -536,6 +536,31 @@ describe("FloatingInspector", () => {
 			return { tl, updateCameraFullscreenOrientation, updateCameraFullscreenDeskLabel };
 		};
 
+		it("the full camera pane offers the template choice", async () => {
+			const { tl } = camTl({});
+			const setLayoutTemplate = vi.fn(async () => ({ kind: "cameraLayout" as const, id: "L9" }));
+			const selectRegion = vi.fn();
+			Object.assign(tl, { setLayoutTemplate, selectRegion });
+			render(<FloatingInspector {...defaultProps} tl={tl} />);
+			expect(
+				screen.getByRole("group", { name: "settings.cameraLayout.template" }),
+			).toBeInTheDocument();
+			const current = screen.getByRole("button", { name: /timeline.labels.layoutCameraFull$/ });
+			expect(current).toHaveAttribute("aria-pressed", "true");
+			// Only one camera is known here, so the two-camera templates are off.
+			expect(
+				screen.getByRole("button", { name: /timeline.labels.layoutSideBySide/ }),
+			).toBeDisabled();
+			fireEvent.click(screen.getByRole("button", { name: /timeline.labels.layoutScreenPip/ }));
+			expect(setLayoutTemplate).toHaveBeenCalledWith(
+				{ kind: "cameraFullscreen", id: "cf" },
+				"screen-pip",
+				[],
+			);
+			// The section moved to the layout list: the selection follows it.
+			await waitFor(() => expect(selectRegion).toHaveBeenCalledWith("cameraLayout", "L9"));
+		});
+
 		it("desk view sets both fields in one call", () => {
 			const { tl, updateCameraFullscreenOrientation } = camTl({});
 			render(<FloatingInspector {...defaultProps} tl={tl} />);

@@ -463,6 +463,15 @@
 		"light": "Světlý",
 		"custom": "Vlastní"
 	},
+	"cameraLayout": {
+		"template": "Rozložení",
+		"placeLarge": "Místo {{n}} · velké",
+		"placeSmall": "Místo {{n}} · malé",
+		"placeLeft": "Místo {{n}} · vlevo",
+		"placeRight": "Místo {{n}} · vpravo",
+		"cameraUnavailable": "{{name}} (nedostupná)",
+		"resetWindows": "Obnovit okna"
+	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}"
 	}

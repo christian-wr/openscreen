@@ -463,6 +463,15 @@
 		"light": "Light",
 		"custom": "Custom"
 	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Place {{n}} · large",
+		"placeSmall": "Place {{n}} · small",
+		"placeLeft": "Place {{n}} · left",
+		"placeRight": "Place {{n}} · right",
+		"cameraUnavailable": "{{name}} (unavailable)",
+		"resetWindows": "Reset windows"
+	},
 	"cameras": {
 		"cameraN": "Camera {{n}}"
 	}

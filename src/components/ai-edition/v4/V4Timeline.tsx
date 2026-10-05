@@ -1,10 +1,8 @@
 import {
 	AudioLines,
 	Clock,
-	Columns2,
 	Crosshair,
 	Eraser,
-	Layers,
 	LayoutTemplate,
 	Loader2,
 	Maximize2,
@@ -12,7 +10,6 @@ import {
 	Mic,
 	Music,
 	Pencil,
-	PictureInPicture2,
 	RotateCw,
 	Scissors,
 	Sparkles,
@@ -88,6 +85,7 @@ import { nativeBridgeClient } from "@/native/client";
 import { TransportBar } from "../TransportBar";
 import type { VideoSource } from "../VirtualPreview";
 import styles from "./EditorShellV4.module.css";
+import { layoutTemplateIcon, layoutTemplateLabel } from "./layoutTemplateUi";
 
 // The AI option's prompt — sent straight to the chat agent via the prompt-bus.
 //
@@ -704,14 +702,8 @@ export function V4Timeline({
 		},
 		[availableCamerasAtPlayhead],
 	);
-	const layoutTemplateLabel = (template: CameraLayoutTemplate): string =>
-		template === "screen-pip"
-			? t("labels.layoutScreenPip")
-			: template === "camera-full"
-				? t("labels.layoutCameraFull")
-				: template === "camera-full-pip"
-					? t("labels.layoutCameraFullPip")
-					: t("labels.layoutSideBySide");
+	const templateLabel = (template: CameraLayoutTemplate): string =>
+		layoutTemplateLabel(t, template);
 	const addLayout = async (template: CameraLayoutTemplate) => {
 		setLayoutMenuOpen(false);
 		const cameras = defaultLayoutCameras(
@@ -834,7 +826,7 @@ export function V4Timeline({
 			kind: "cameraLayout",
 			start: p.start,
 			end: p.end,
-			label: `${layoutTemplateLabel(member.template)} · ${names.join(", ")}`,
+			label: `${templateLabel(member.template)} · ${names.join(", ")}`,
 			sourceIds: p.ids,
 			template: member.template,
 		};
@@ -1507,15 +1499,7 @@ export function V4Timeline({
 		) : kind === "trim" ? (
 			<Scissors size={12} />
 		) : kind === "cameraLayout" ? (
-			template === "camera-full" ? (
-				<Maximize2 size={12} />
-			) : template === "camera-full-pip" ? (
-				<Layers size={12} />
-			) : template === "side-by-side" ? (
-				<Columns2 size={12} />
-			) : (
-				<PictureInPicture2 size={12} />
-			)
+			layoutTemplateIcon(template ?? "screen-pip")
 		) : kind === "cameraFullscreen" ? (
 			rotated ? (
 				<RotateCw size={12} />
@@ -2169,9 +2153,7 @@ export function V4Timeline({
 													>
 														{pillIcon("cameraLayout", false, template)}
 														<span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-															<span style={{ fontWeight: 600 }}>
-																{layoutTemplateLabel(template)}
-															</span>
+															<span style={{ fontWeight: 600 }}>{templateLabel(template)}</span>
 															{hint ? (
 																<span style={{ fontSize: 12, color: "var(--muted)" }}>{hint}</span>
 															) : null}

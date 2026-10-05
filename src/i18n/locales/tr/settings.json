@@ -463,6 +463,15 @@
 		"light": "Açık",
 		"custom": "Özel"
 	},
+	"cameraLayout": {
+		"template": "Düzen",
+		"placeLarge": "Yer {{n}} · büyük",
+		"placeSmall": "Yer {{n}} · küçük",
+		"placeLeft": "Yer {{n}} · sol",
+		"placeRight": "Yer {{n}} · sağ",
+		"cameraUnavailable": "{{name}} (kullanılamıyor)",
+		"resetWindows": "Pencereleri sıfırla"
+	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}"
 	}

@@ -463,6 +463,15 @@
 		"light": "Sáng",
 		"custom": "Tùy chỉnh"
 	},
+	"cameraLayout": {
+		"template": "Bố cục",
+		"placeLarge": "Vị trí {{n}} · lớn",
+		"placeSmall": "Vị trí {{n}} · nhỏ",
+		"placeLeft": "Vị trí {{n}} · trái",
+		"placeRight": "Vị trí {{n}} · phải",
+		"cameraUnavailable": "{{name}} (không khả dụng)",
+		"resetWindows": "Đặt lại cửa sổ"
+	},
 	"cameras": {
 		"cameraN": "Camera {{n}}"
 	}

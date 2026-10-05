@@ -463,6 +463,15 @@
 		"light": "밝게",
 		"custom": "사용자 지정"
 	},
+	"cameraLayout": {
+		"template": "레이아웃",
+		"placeLarge": "자리 {{n}} · 큼",
+		"placeSmall": "자리 {{n}} · 작음",
+		"placeLeft": "자리 {{n}} · 왼쪽",
+		"placeRight": "자리 {{n}} · 오른쪽",
+		"cameraUnavailable": "{{name}} (사용할 수 없음)",
+		"resetWindows": "창 재설정"
+	},
 	"cameras": {
 		"cameraN": "카메라 {{n}}"
 	}

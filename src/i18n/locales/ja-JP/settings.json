@@ -463,6 +463,15 @@
 		"light": "ライト",
 		"custom": "カスタム"
 	},
+	"cameraLayout": {
+		"template": "レイアウト",
+		"placeLarge": "配置 {{n}}・大",
+		"placeSmall": "配置 {{n}}・小",
+		"placeLeft": "配置 {{n}}・左",
+		"placeRight": "配置 {{n}}・右",
+		"cameraUnavailable": "{{name}}（利用不可）",
+		"resetWindows": "ウィンドウをリセット"
+	},
 	"cameras": {
 		"cameraN": "カメラ {{n}}"
 	}
