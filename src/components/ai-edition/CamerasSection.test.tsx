@@ -6,7 +6,9 @@ import type { AxcutDocument } from "@/lib/ai-edition/schema";
 
 vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: (scope: string) => (key: string, vars?: Record<string, string | number>) =>
-		vars?.n !== undefined ? `${scope}.${key}#${vars.n}` : `${scope}.${key}`,
+		vars?.n !== undefined
+			? `${scope}.${key}#${vars.n}${vars.label ? `|${vars.label}` : ""}`
+			: `${scope}.${key}`,
 }));
 vi.mock("@/lib/ai-edition/timeline/grabFrame", () => ({
 	grabFrameDataUrl: vi.fn(() => Promise.resolve("data:image/png;base64,AAAA")),
@@ -69,7 +71,9 @@ describe("CamerasSection", () => {
 	it("lists every camera of the clip", () => {
 		render2(2);
 		expect(screen.getByTestId("camera-row-0")).toHaveTextContent("settings.cameras.cameraN#1");
-		expect(screen.getByTestId("camera-row-1")).toHaveTextContent("Desk");
+		expect(screen.getByTestId("camera-row-1")).toHaveTextContent(
+			"settings.cameras.cameraNamed#2|Desk",
+		);
 		expect(screen.getByTestId("camera-row-2")).toHaveTextContent("settings.cameras.cameraN#3");
 	});
 
@@ -119,10 +123,10 @@ describe("CamerasSection", () => {
 
 	it("finds the calibration still of a camera at the playhead", () => {
 		const t = (key: string, vars?: Record<string, string | number>) =>
-			vars?.n !== undefined ? `${key}#${vars.n}` : key;
+			vars?.n !== undefined ? `${key}#${vars.n}${vars.label ? `|${vars.label}` : ""}` : key;
 		const doc = makeDoc(1);
 		const desk = calibrationCameraAt(doc, 2, 1, t);
-		expect(desk).toMatchObject({ index: 1, label: "Desk", timeSec: 2 });
+		expect(desk).toMatchObject({ index: 1, label: "cameras.cameraNamed#2|Desk", timeSec: 2 });
 		expect(desk?.src).toMatch(/^file:\/\/.*cam2\.mp4$/);
 		expect(calibrationCameraAt(doc, 2, 0, t)?.label).toBe("cameras.cameraN#1");
 		// No such camera, or no document: nothing to calibrate.

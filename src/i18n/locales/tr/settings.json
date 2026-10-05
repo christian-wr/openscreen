@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}",
+		"cameraNamed": "Kamera {{n}} · {{label}}",
 		"title": "Kameralar",
 		"unavailable": "Kullanılamıyor",
 		"camera1Hint": "Kamera 1'in döndürme, yansıtma ve kırpma ayarları yukarıdaki denetimlerdedir.",

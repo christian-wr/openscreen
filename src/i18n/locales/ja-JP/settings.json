@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "カメラ {{n}}",
+		"cameraNamed": "カメラ {{n}} · {{label}}",
 		"title": "カメラ",
 		"unavailable": "利用できません",
 		"camera1Hint": "カメラ1の回転・反転・切り抜きは上のコントロールで設定します。",

@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Camera {{n}}",
+		"cameraNamed": "Camera {{n}} · {{label}}",
 		"title": "Cameras",
 		"unavailable": "Unavailable",
 		"camera1Hint": "Rotation, mirror and crop of camera 1 are the controls above.",

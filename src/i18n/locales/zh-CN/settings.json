@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "摄像头 {{n}}",
+		"cameraNamed": "摄像头 {{n}} · {{label}}",
 		"title": "摄像头",
 		"unavailable": "不可用",
 		"camera1Hint": "摄像头 1 的旋转、镜像和裁剪在上方的控件中设置。",

@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Cámara {{n}}",
+		"cameraNamed": "Cámara {{n}} · {{label}}",
 		"title": "Cámaras",
 		"unavailable": "No disponible",
 		"camera1Hint": "El giro, el espejo y el recorte de la cámara 1 están en los controles de arriba.",

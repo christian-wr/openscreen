@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "카메라 {{n}}",
+		"cameraNamed": "카메라 {{n}} · {{label}}",
 		"title": "카메라",
 		"unavailable": "사용할 수 없음",
 		"camera1Hint": "카메라 1의 회전, 좌우 반전, 자르기는 위의 컨트롤에서 설정합니다.",

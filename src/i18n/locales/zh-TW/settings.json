@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "攝影機 {{n}}",
+		"cameraNamed": "攝影機 {{n}} · {{label}}",
 		"title": "攝影機",
 		"unavailable": "無法使用",
 		"camera1Hint": "攝影機 1 的旋轉、鏡像與裁切在上方的控制項中設定。",

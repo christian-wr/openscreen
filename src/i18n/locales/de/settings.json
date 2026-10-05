@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}",
+		"cameraNamed": "Kamera {{n}} · {{label}}",
 		"title": "Kameras",
 		"unavailable": "Nicht verfügbar",
 		"camera1Hint": "Drehung, Spiegelung und Zuschnitt von Kamera 1 stehen in den Reglern oben.",

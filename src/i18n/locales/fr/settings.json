@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Caméra {{n}}",
+		"cameraNamed": "Caméra {{n}} · {{label}}",
 		"title": "Caméras",
 		"unavailable": "Indisponible",
 		"camera1Hint": "La rotation, le miroir et le recadrage de la caméra 1 sont dans les réglages ci-dessus.",

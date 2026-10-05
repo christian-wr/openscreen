@@ -157,7 +157,9 @@ describe("V4Timeline layout lane", () => {
 
 	it("names the pill after its template and the cameras of its places", () => {
 		renderTimeline([TWO_CAMERAS], [LAYOUT]);
-		const pill = screen.getByText("labels.layoutCameraFullPip · Desk, cameras.cameraN:1");
+		const pill = screen.getByText(
+			"labels.layoutCameraFullPip · cameras.cameraNamed:2,Desk, cameras.cameraN:1",
+		);
 		expect(pill).toBeInTheDocument();
 	});
 

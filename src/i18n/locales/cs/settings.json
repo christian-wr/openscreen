@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}",
+		"cameraNamed": "Kamera {{n}} · {{label}}",
 		"title": "Kamery",
 		"unavailable": "Nedostupné",
 		"camera1Hint": "Otočení, zrcadlení a ořez kamery 1 jsou v ovládacích prvcích výše.",

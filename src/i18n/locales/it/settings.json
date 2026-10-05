@@ -474,6 +474,7 @@
 	},
 	"cameras": {
 		"cameraN": "Fotocamera {{n}}",
+		"cameraNamed": "Fotocamera {{n}} · {{label}}",
 		"title": "Fotocamere",
 		"unavailable": "Non disponibile",
 		"camera1Hint": "Rotazione, specchio e ritaglio della fotocamera 1 sono nei controlli qui sopra.",

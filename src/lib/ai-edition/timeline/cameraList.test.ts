@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { AxcutAsset, AxcutClip, AxcutDocument } from "../schema";
 import { camerasForClipAt, camerasOfSection, projectCameras } from "./cameraList";
 
-const t = (key: string, vars?: Record<string, unknown>) => `${key}:${String(vars?.n ?? "")}`;
+const t = (key: string, vars?: Record<string, unknown>) =>
+	`${key}:${String(vars?.n ?? "")}${vars?.label ? `:${String(vars.label)}` : ""}`;
 
 const asset = (over: Partial<AxcutAsset> = {}): AxcutAsset =>
 	({
@@ -34,9 +35,27 @@ const clip = (id: string, assetId: string, start: number, end: number): AxcutCli
 describe("projectCameras", () => {
 	it("labels camera 1 and falls back for empty labels", () => {
 		const cams = projectCameras(asset(), t);
-		expect(cams.map((c) => c.label)).toEqual(["cameras.cameraN:1", "Desk", "cameras.cameraN:3"]);
+		expect(cams.map((c) => c.label)).toEqual([
+			"cameras.cameraN:1",
+			"cameras.cameraNamed:2:Desk",
+			"cameras.cameraN:3",
+		]);
 		expect(cams.map((c) => c.index)).toEqual([0, 1, 2]);
 		expect(cams[0].width).toBe(1920);
+	});
+
+	it("keeps two cameras of the same model apart by their ordinal", () => {
+		const twins = asset({
+			additionalCameraTracks: [
+				{ sourcePath: "/c2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "C920" },
+				{ sourcePath: "/c3.mp4", startMs: 0, offsetMs: 0, visible: true, label: " C920 " },
+			],
+		});
+		expect(projectCameras(twins, t).map((c) => c.label)).toEqual([
+			"cameras.cameraN:1",
+			"cameras.cameraNamed:2:C920",
+			"cameras.cameraNamed:3:C920",
+		]);
 	});
 
 	it("a hidden track is unavailable", () => {
