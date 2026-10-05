@@ -3270,6 +3270,9 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         let zoom_regions = scene.map(|s| &s.zoom_regions).unwrap_or(&empty_zoom);
         let cam_regions =
             scene.map(|s| &s.camera_fullscreen_regions).unwrap_or(&empty_cam);
+        // The layout regions, for the seams a Full Camera region shares with them.
+        let empty_layouts: Vec<crate::scene::SceneCameraLayoutRegion> = Vec::new();
+        let layouts = scene.map(|s| &s.camera_layout_regions).unwrap_or(&empty_layouts);
         let webcam_reactive = scene.map(|s| s.layout.webcam_reactive_zoom).unwrap_or(false);
         let source_t = input.timeline_t_override.unwrap_or(frame / FPS);
         // Les transitions se mesurent à l'écran (`ScreenClock`), la frame précédente aussi : une
@@ -3341,16 +3344,22 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         // Full Camera ignore le rétrécissement réactif de la webcam (design web : mélanger
         // "rétrécit pour le zoom" et "grandit en plein cadre" dans la même frame n'a pas de sens).
         let cam_progress =
-            crate::regions::camera_fullscreen_progress_at(cam_regions, source_t, &clock);
+            crate::regions::camera_fullscreen_progress_at(cam_regions, source_t, &clock, layouts);
         let cam_progress_prev =
-            crate::regions::camera_fullscreen_progress_at(cam_regions, source_t_prev, &clock);
+            crate::regions::camera_fullscreen_progress_at(
+                cam_regions,
+                source_t_prev,
+                &clock,
+                layouts,
+            );
         let shape_fade =
-            crate::regions::camera_fullscreen_shape_at(cam_regions, source_t, &clock);
+            crate::regions::camera_fullscreen_shape_at(cam_regions, source_t, &clock, layouts);
         let webcam = webcam_orientation(
-            crate::regions::camera_fullscreen_region_at(cam_regions, source_t, &clock),
+            crate::regions::camera_fullscreen_region_at(cam_regions, source_t, &clock, layouts),
             lp.webcam_mirror,
         );
-        let webcam_cover = crate::regions::camera_fullscreen_cover_at(cam_regions, source_t, &clock);
+        let webcam_cover =
+            crate::regions::camera_fullscreen_cover_at(cam_regions, source_t, &clock, layouts);
         // rétrécissement réactif : la webcam garde 70 % de sa taille pendant un zoom actif, quel
         // que soit son niveau (elle suivait 1/zoom, et rétrécissait donc d'autant plus que le zoom
         // était profond : ×0,6 au zoom maximal). L'enveloppe est celle de la région : elle descend
@@ -3779,6 +3788,7 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
                 });
                 crate::camera_layers::camera_layers_at(
                     &s.camera_layout_regions,
+                    &s.camera_fullscreen_regions,
                     source_t,
                     &clock,
                     default_cam0,

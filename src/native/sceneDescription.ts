@@ -864,12 +864,24 @@ function deskLabelTextRegions(
 		clipIndex?: number;
 		underTrim?: boolean;
 	})[],
+	layoutRegions: SceneCameraLayoutRegion[],
 ) {
 	const label = deskLabelText();
 	if (!label) return [];
+	// Same seam rule as the compositor (`REGION_SEAM_S`, 1 ms of source time, same clip).
+	const meets = (piece: { clipIndex?: number }, ms: number, side: "startSec" | "endSec") =>
+		layoutRegions.some(
+			(l) =>
+				l.endSec > l.startSec &&
+				l.clipIndex === piece.clipIndex &&
+				Math.abs(l[side] * 1000 - ms) <= 1,
+		);
 	return pieces.flatMap((region) => {
 		if (normalizeCameraRotation(region.rotation) !== 180 || !showsDeskLabel(region)) return [];
-		const windows = deskCoverLabelWindows(region);
+		const windows = deskCoverLabelWindows(region, {
+			start: meets(region, region.startMs, "endSec"),
+			end: meets(region, region.endMs, "startSec"),
+		});
 		return (["start", "end"] as const).map((side) => ({
 			space: "frame" as const,
 			verticalAlign: "center" as const,
@@ -1205,15 +1217,6 @@ export function buildSceneDescription(
 		document.timeline.clips,
 		() => createId("ann"),
 	);
-	// The desk-view label: caption-styled text over both covered ends of every PROJECTED piece of
-	// a turned section, fading with the camera cover (`deskCoverStart` / `deskCoverEnd` in
-	// text_anim.rs). Per piece because the compositor covers each piece's own ends; the pieces are
-	// already in source time, so they are appended after the annotation projection, not through it.
-	projectedAnnotations.push(
-		...(deskLabelTextRegions(
-			projectedCameraFullscreenRegions,
-		) as unknown as typeof projectedAnnotations),
-	);
 	// Speed regions carry an extra `speed` field the standard `rangeSchema` does not, so we
 	// can't read from `document.timeline.speedRanges` today (see SceneDescription.speedRegions
 	// comment). The legacy web exporter reads from `legacyEditor.speedRegions`; we mirror it.
@@ -1430,6 +1433,17 @@ export function buildSceneDescription(
 				},
 			];
 		},
+	);
+	// The desk-view label: caption-styled text over both covered ends of every PROJECTED piece of
+	// a turned section, fading with the camera cover (`deskCoverStart` / `deskCoverEnd` in
+	// text_anim.rs). Per piece because the compositor covers each piece's own ends; the pieces are
+	// already in source time, so they are appended after the annotation projection, not through it.
+	// After the layout regions: an end that meets one is covered for its fade only.
+	projectedAnnotations.push(
+		...(deskLabelTextRegions(
+			projectedCameraFullscreenRegions,
+			sceneCameraLayoutRegions,
+		) as unknown as typeof projectedAnnotations),
 	);
 	const sceneCameras = cameraSettings.flatMap((camera, index): SceneCamera[] => {
 		if (!camera) return [];

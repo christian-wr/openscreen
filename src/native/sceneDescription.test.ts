@@ -21,7 +21,7 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { axcutSchemaVersion } from "@/lib/ai-edition/schema";
 import { CURSOR_KIND_IDS, DEFAULT_CURSOR_THEME_ID } from "@/lib/cursor/cursorThemes";
-import { deskCoverLabelWindows } from "@/lib/deskCover";
+import { DESK_COVER_FADE_MS, deskCoverLabelWindows } from "@/lib/deskCover";
 import { DEVICE_FRAMES } from "@/lib/projectDefaults";
 import { getFocusBoundsForScale } from "@/lib/zoomMath/focusUtils";
 import {
@@ -956,6 +956,56 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 			legacyEditor: { cameraFullscreenRegions: [section], cameraLayoutRegions: [] },
 		});
 		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toEqual([]);
+	});
+
+	it("a label end that meets a layout region covers only the fade", () => {
+		// A turned section right before a camera-full-pip region: the compositor holds no cover
+		// over a shrink there (`full_camera_seams`), so the end label is the fade alone.
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/a.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [
+				{ sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "Desk" },
+			],
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 30,
+			timelineStartSec: 0,
+			timelineEndSec: 30,
+		});
+		const section = {
+			id: "cf1",
+			startMs: 0,
+			endMs: 10_000,
+			rotation: 180,
+			template: "camera-full",
+			slots: [{ camera: 0 }],
+		};
+		const pip = {
+			id: "l1",
+			startMs: 10_000,
+			endMs: 20_000,
+			template: "camera-full-pip",
+			slots: [{ camera: 1 }, { camera: 0 }],
+		};
+		const doc = makeDoc({
+			assets: [asset],
+			clips: [clip],
+			legacyEditor: { cameraLayoutRegions: [section, pip] },
+		});
+		const labels = buildSceneDescription(doc).annotations.filter((a) =>
+			a.text?.animation?.startsWith("deskCover"),
+		);
+		const w = deskCoverLabelWindows({ startMs: 0, endMs: 10_000 }, { end: true });
+		expect(w.end).toEqual([10_000 - DESK_COVER_FADE_MS, 10_000]);
+		expect(labels.map((a) => [a.text?.animation, a.startSec * 1000, a.endSec * 1000])).toEqual([
+			["deskCoverStart", ...w.start],
+			["deskCoverEnd", ...w.end],
+		]);
 	});
 
 	it("no label for a plain section or with the label off", () => {
