@@ -3206,8 +3206,8 @@ describe("buildSceneDescription cameras", () => {
 				{ cameraSettings: [null, { perspective: { corners: collinear, aspect: 1.5 } }] },
 			),
 		);
-		expect(scene.cameras ?? []).toEqual(scene.cameras ? [{ index: 1 }] : []);
-		for (const camera of scene.cameras ?? []) expect(camera).not.toHaveProperty("homography");
+		// The camera draws uncorrected: its entry carries no matrix (and no settings at all).
+		expect(scene.cameras).toEqual([{ index: 1 }]);
 	});
 
 	it("a valid perspective sends the matrix and replaces rotation, mirror and crop", () => {

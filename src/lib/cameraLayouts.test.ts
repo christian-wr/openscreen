@@ -115,6 +115,19 @@ describe("normalizeCameraLayoutRegions", () => {
 		]);
 		expect(out[0]).toEqual({ ...base, template: "screen-pip", slots: [{ camera: 1 }] });
 	});
+	it("strips desk fields from a camera-full region of another camera", () => {
+		const out = normalizeCameraLayoutRegions([
+			{
+				...base,
+				template: "camera-full",
+				slots: [{ camera: 2 }],
+				rotation: 180,
+				mirror: "on",
+				deskLabel: false,
+			},
+		]);
+		expect(out[0]).toEqual({ ...base, template: "camera-full", slots: [{ camera: 2 }] });
+	});
 	it("keeps normalized desk fields on camera-full", () => {
 		const out = normalizeCameraLayoutRegions([
 			{

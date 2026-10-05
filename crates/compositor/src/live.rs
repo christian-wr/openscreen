@@ -222,6 +222,27 @@ fn same_extra_keys(a: &[Option<SceneClipCamera>], b: &[Option<SceneClipCamera>])
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_extra_key(a, b))
 }
 
+/// Same spans and same cameras in each: what decides when an extra camera is active
+/// (`extra_camera_active`). Rects and shapes do not matter to the decoders.
+fn same_region_timing(a: &[SceneCameraLayoutRegion], b: &[SceneCameraLayoutRegion]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a, b)| {
+            a.clip_index == b.clip_index
+                && a.start_sec == b.start_sec
+                && a.end_sec == b.end_sec
+                && a.layers.len() == b.layers.len()
+                && a.layers.iter().zip(&b.layers).all(|(x, y)| x.camera == y.camera)
+        })
+}
+
+/// Whether `set_extra_cameras` seeks the extra cameras right away. Playing on (`steady`:
+/// playing, and the screen position did not jump) with the same files and the same region
+/// timing, the next playback step (`advance_extras(.., false)`) moves them on: seeking every
+/// camera on each scene push would stall the preview while it plays.
+fn extras_need_seek(keys_changed: bool, timing_changed: bool, steady: bool) -> bool {
+    keys_changed || timing_changed || !steady
+}
+
 /// Opens the extra cameras `keys` asks for, without seeking them: they are positioned when
 /// they become active (`Player::advance_extras`).
 unsafe fn open_extra_cameras(keys: &[Option<SceneClipCamera>], gpu: &Gpu) -> Vec<Option<ExtraCamera>> {
@@ -563,16 +584,21 @@ impl Player {
     /// (`keys`): slots whose key is unchanged keep their decoder, the others are closed and
     /// (re)opened — a file that will not open leaves its slot empty, once. Then positions every
     /// camera that is near one of its regions at the current screen time, so a paused
-    /// recompose shows it at once. `true` when a decoder was closed: the caller must then
-    /// clear the compositor's SRV cache (which also forgets the extra frame pointers).
+    /// recompose shows it at once — unless nothing that matters to the decoders changed while
+    /// playback goes on (`steady`, see `extras_need_seek`). `true` when a decoder was closed:
+    /// the caller must then clear the compositor's SRV cache (which also forgets the extra
+    /// frame pointers).
     pub(crate) unsafe fn set_extra_cameras(
         &mut self,
         regions: Vec<SceneCameraLayoutRegion>,
         keys: ExtraCameraKeys,
+        steady: bool,
     ) -> bool {
+        let timing_changed = !same_region_timing(&self.camera_regions, &regions);
+        let keys_changed = !same_extra_keys(&self.extra_keys, &keys);
         self.camera_regions = regions;
         let mut closed = false;
-        if !same_extra_keys(&self.extra_keys, &keys) {
+        if keys_changed {
             let mut old = std::mem::take(&mut self.extra);
             let mut extra = Vec::with_capacity(keys.len());
             for (k, key) in keys.iter().enumerate() {
@@ -589,6 +615,9 @@ impl Player {
             closed |= old.iter().any(Option::is_some);
             self.extra = extra;
             self.extra_keys = keys;
+        }
+        if !extras_need_seek(keys_changed, timing_changed, steady) {
+            return closed;
         }
         let t = self.sdec.cur_time_sec();
         closed | self.advance_extras(t, true).1
@@ -1628,7 +1657,8 @@ unsafe fn advance_to_next_scene_clip(
             let windowed = scene_for_clip(scene, next_index);
             // The prefetch opened exactly these keys, so this only installs the regions and
             // positions the cameras; the cache is cleared right below in any case.
-            player.set_extra_cameras(windowed.camera_layout_regions.clone(), extra_keys);
+            // The screen position jumped to the next clip: always position the cameras.
+            player.set_extra_cameras(windowed.camera_layout_regions.clone(), extra_keys, false);
             comp.clear_srv_cache();
             *active_screen_path = next_clip.screen_path.clone();
             *active_webcam_path = next_clip.webcam_path.clone();
@@ -1870,7 +1900,8 @@ unsafe fn render_thread(
                         (Some(s), Some(index)) => clip_layout_regions(s, index),
                         _ => Vec::new(),
                     };
-                    if player.set_extra_cameras(regions, request_extras) {
+                    // A clip request moves the screen position: position the cameras.
+                    if player.set_extra_cameras(regions, request_extras, false) {
                         comp.clear_srv_cache();
                     }
                     if let Some(base_scene) = scene {
@@ -2012,7 +2043,10 @@ unsafe fn render_thread(
                 ),
                 _ => (Vec::new(), Vec::new()),
             };
-            if player.set_extra_cameras(regions, keys) {
+            // A scene push leaves the screen position where it is: while playing, unchanged
+            // cameras are stepped by playback instead of sought again.
+            let steady = shared.playing.load(Ordering::Relaxed);
+            if player.set_extra_cameras(regions, keys, steady) {
                 comp.clear_srv_cache();
             }
             comp.set_scene(scene);
@@ -2702,6 +2736,30 @@ mod tests {
         // A camera the region does not show, and one only an empty region names.
         assert!(!extra_camera_active(&regions, 3, 7.0));
         assert!(!extra_camera_active(&[], 1, 3.0));
+    }
+
+    /// Playing on with the same files and region timing, a scene push does not seek the extra
+    /// cameras again; any change that matters, a jump, or a pause does.
+    #[test]
+    fn extra_cameras_are_sought_again_only_when_it_matters() {
+        assert!(!extras_need_seek(false, false, true));
+        assert!(extras_need_seek(true, false, true), "new files");
+        assert!(extras_need_seek(false, true, true), "regions moved");
+        assert!(extras_need_seek(false, false, false), "paused, or the position jumped");
+
+        let regions = scene_for_clip(&layout_scene(), 0).camera_layout_regions;
+        assert!(same_region_timing(&regions, &regions.clone()));
+        // A moved rect is the same timing; a moved bound or another camera is not.
+        let mut moved_rect = regions.clone();
+        moved_rect[0].layers[0].rect.x += 0.1;
+        assert!(same_region_timing(&regions, &moved_rect));
+        let mut moved_end = regions.clone();
+        moved_end[0].end_sec += 0.5;
+        assert!(!same_region_timing(&regions, &moved_end));
+        let mut other_camera = regions.clone();
+        other_camera[0].layers[0].camera = 3;
+        assert!(!same_region_timing(&regions, &other_camera));
+        assert!(!same_region_timing(&regions, &regions[..1]));
     }
 
     #[test]
