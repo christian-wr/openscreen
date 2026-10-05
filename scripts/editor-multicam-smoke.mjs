@@ -8,6 +8,14 @@
 // reads the saved project file and asserts the document state, and it captures the live
 // preview inside each section.
 //
+// Preview captures are taken at the middle of a section's VISIBLE span: its span on the ruler
+// minus the trims of its clip. A section eases in and out over its first and last moments, so
+// a capture near either end of what is visible shows the transition, not the layout (a trim
+// that cuts into a section moves its visible start, and the glide with it). The test section
+// is placed clear of the project's trims for the same reason. With camera 1 in the large
+// place, the run also measures the composed frame's outer pixel columns and rows against the
+// wallpaper colour, so a frame that does not fill edge to edge fails.
+//
 // Usage (Windows, from the repo root):
 //   npm run build-vite
 //   npm run build:native:compositor   # then copy compositor_view.node into the bin dir below
@@ -84,6 +92,53 @@ async function waitState(predicate, timeoutMs = 8000) {
 	}
 	return { ok: false, state };
 }
+/**
+ * The part of a camera section the viewer sees, in ruler seconds: its span minus the trims of
+ * its clip (trims are in source seconds; a clip maps source to ruler time by a fixed offset).
+ * The longest remaining piece, or null when a trim hides the whole section.
+ */
+function visibleSpan(row, doc) {
+	const clips = doc.timeline.clips;
+	const clip =
+		clips.find((c) => c.id === row.clipId) ??
+		clips.find(
+			(c) => c.timelineStartSec * 1000 <= row.startMs && row.startMs < c.timelineEndSec * 1000,
+		);
+	let pieces = [[row.startMs / 1000, row.endMs / 1000]];
+	for (const trim of doc.timeline.trimRanges ?? []) {
+		if (!clip || trim.assetId !== clip.assetId) continue;
+		if (trim.clipId && trim.clipId !== clip.id) continue;
+		const offset = clip.timelineStartSec - clip.sourceStartSec;
+		const [cutStart, cutEnd] = [trim.startSec + offset, trim.endSec + offset];
+		pieces = pieces
+			.flatMap(([start, end]) => [
+				[start, Math.min(end, cutStart)],
+				[Math.max(start, cutEnd), end],
+			])
+			.filter(([start, end]) => end - start > 1e-3);
+	}
+	pieces.sort((a, b) => b[1] - b[0] - (a[1] - a[0]));
+	return pieces[0] ?? null;
+}
+/** Where a steady-state capture of a section goes: the middle of its visible span. */
+function steadyMid(row, doc = readDoc()) {
+	const span = visibleSpan(row, doc);
+	return span ? (span[0] + span[1]) / 2 : (row.startMs + row.endMs) / 2000;
+}
+/** The first time from `fromSec` on with `lengthSec` free of the first clip's trims. */
+function clearOfTrims(fromSec, lengthSec, doc = readDoc()) {
+	const clip = doc.timeline.clips[0];
+	const offset = clip.timelineStartSec - clip.sourceStartSec;
+	const trims = [...(doc.timeline.trimRanges ?? [])].sort((a, b) => a.startSec - b.startSec);
+	let at = fromSec;
+	for (const trim of trims) {
+		if (trim.assetId !== clip.assetId || (trim.clipId && trim.clipId !== clip.id)) continue;
+		const [cutStart, cutEnd] = [trim.startSec + offset, trim.endSec + offset];
+		if (at < cutEnd && at + lengthSec > cutStart) at = Math.ceil(cutEnd) + 1;
+	}
+	return at;
+}
+
 const brief = (rows) =>
 	rows
 		.map(
@@ -194,7 +249,71 @@ function driver(editor, preview) {
 	};
 	const cameraPillCount = () =>
 		editor.locator('[class*="_lanePill_"][class*="_laneCameraFullscreen_"]').count();
-	return { time, seekTo, selectPillAt, shot, cameraPillCount };
+	// The composed frame alone (the preview element also holds the pane around it), decoded in
+	// the page: the four outermost columns and rows on the left and top, each as RGB pixels.
+	const frameEdges = async (name) => {
+		const file = path.join(OUT, `${name}-frame.png`);
+		const png = await preview.locator("canvas").first().screenshot({ path: file });
+		const measured = await editor.evaluate(async (b64) => {
+			const img = new Image();
+			img.src = `data:image/png;base64,${b64}`;
+			await img.decode();
+			const c = document.createElement("canvas");
+			c.width = img.width;
+			c.height = img.height;
+			const g = c.getContext("2d");
+			g.drawImage(img, 0, 0);
+			const px = g.getImageData(0, 0, c.width, c.height).data;
+			const at = (x, y) => {
+				const i = (y * c.width + x) * 4;
+				return [px[i], px[i + 1], px[i + 2]];
+			};
+			const column = (x) => Array.from({ length: c.height }, (_, y) => at(x, y));
+			const row = (y) => Array.from({ length: c.width }, (_, x) => at(x, y));
+			return {
+				size: [c.width, c.height],
+				left: [0, 1, 2, 3].map(column),
+				top: [0, 1, 2, 3].map(row),
+			};
+		}, png.toString("base64"));
+		return { file, ...measured };
+	};
+	return { time, seekTo, selectPillAt, shot, cameraPillCount, frameEdges };
+}
+
+const colourDistance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const meanColour = (pixels) =>
+	[0, 1, 2].map((k) => Math.round(pixels.reduce((sum, p) => sum + p[k], 0) / pixels.length));
+
+/**
+ * How much wallpaper a frame shows along its left and top edges, measured against a plain
+ * frame (no camera section) where the wallpaper lies at exactly those pixels. Per line (edge
+ * columns 0-3, rows 0-3): the share of its pixels within a small colour distance of the
+ * plain frame's pixel at the same place; the 5 % nearest each corner are left out (rounded
+ * corners). A line that is not part of the picture in the plain frame either (a resampling
+ * seam: it jumps away from its inner neighbour there, while a wallpaper gradient does not) is
+ * reported and skipped.
+ */
+function wallpaperAtEdges(frame, plain) {
+	const report = {};
+	for (const side of ["left", "top"]) {
+		report[side] = frame[side].map((line, i) => {
+			const ref = plain[side][i];
+			const inner = plain[side][i + 1] ?? plain[side][i - 1];
+			const cut = Math.round(line.length * 0.05);
+			const at = Array.from({ length: line.length - 2 * cut }, (_, k) => k + cut);
+			const jump = at.reduce((sum, k) => sum + colourDistance(ref[k], inner[k]), 0) / at.length;
+			const wallpaper = at.filter((k) => colourDistance(line[k], ref[k]) < 24).length;
+			return {
+				line: i,
+				seam: jump > 40,
+				wallpaperShare: Number((wallpaper / at.length).toFixed(3)),
+				mean: meanColour(at.map((k) => line[k])),
+				plainMean: meanColour(at.map((k) => ref[k])),
+			};
+		});
+	}
+	return report;
 }
 
 const shots = [];
@@ -212,8 +331,17 @@ try {
 	);
 	note("one camera-lane pill on open", (await d.cameraPillCount()) === 1);
 
-	// A. Camera + inset from the layout menu, at 3 s.
-	await d.seekTo(3);
+	// The wallpaper along the frame's edges, read where no section is (the plain screen layout,
+	// whose padding shows the wallpaper). The project's own Full Camera sits at ~17-19 s.
+	const plainAt = clearOfTrims(12, 1);
+	await d.seekTo(plainAt);
+	const plain = await d.frameEdges("0-plain");
+	note("a plain frame is captured as the wallpaper reference", true, `t=${plainAt}`);
+
+	// A. Camera + inset from the layout menu, clear of the project's trims (a trim inside the
+	// section would move its visible start, see the header).
+	const startA = clearOfTrims(3, 2);
+	await d.seekTo(startA);
 	await editor.getByRole("button", { name: /^Add layout/ }).click();
 	await editor.getByRole("button", { name: /Camera \+ inset/ }).click();
 	let r = await waitState(
@@ -221,7 +349,15 @@ try {
 	);
 	note("A: the layout menu adds a camera-full-pip section", r.ok, brief(r.state.layouts));
 	const sectionA = r.state.layouts[0];
-	const midA = sectionA ? (sectionA.startMs + sectionA.endMs) / 2000 : 4;
+	const midA = sectionA ? steadyMid(sectionA) : startA + 1;
+	const visibleA = sectionA ? visibleSpan(sectionA, readDoc()) : null;
+	note(
+		"A: the section lies clear of the project's trims",
+		Boolean(visibleA) &&
+			Math.abs(visibleA[0] - sectionA.startMs / 1000) < 1e-3 &&
+			Math.abs(visibleA[1] - sectionA.endMs / 1000) < 1e-3,
+		`visible ${JSON.stringify(visibleA)}, captures at ${midA.toFixed(3)}`,
+	);
 	note(
 		"A: its two places show the clip's two cameras",
 		Boolean(sectionA) &&
@@ -265,17 +401,36 @@ try {
 			r.ok,
 			JSON.stringify(r.state.layouts[0]?.slots),
 		);
-		await sleep(1000);
+		// Steady state at the middle of the visible span, captured with nothing selected (the
+		// ruler click clears the selection, so the section is picked again afterwards).
+		await d.seekTo(midA);
 		shots.push(await d.shot(`B-camera${camera + 1}-large`));
+		const edges = wallpaperAtEdges(await d.frameEdges(`B-camera${camera + 1}-large`), plain);
+		fs.writeFileSync(
+			path.join(OUT, `B-camera${camera + 1}-large-edges.json`),
+			JSON.stringify(edges, null, 2),
+		);
+		const lines = [...edges.left, ...edges.top].filter((l) => !l.seam);
+		const describe = (side) =>
+			edges[side]
+				.map((l) => (l.seam ? `${l.line}:seam` : `${l.line}:${l.wallpaperShare}`))
+				.join(" ");
+		note(
+			`B: camera ${camera + 1} large fills the frame edge to edge`,
+			lines.length >= 6 && lines.every((l) => l.wallpaperShare < 0.1),
+			`wallpaper share per line, left ${describe("left")} | top ${describe("top")}`,
+		);
+		await d.selectPillAt(midA);
+		await place1.waitFor({ state: "visible", timeout: 5000 });
 	}
 
 	// C. A Full Camera section (key C) at 9 s, converted to screen + camera and back.
-	await d.seekTo(9);
+	await d.seekTo(clearOfTrims(9, 2));
 	await editor.keyboard.press("c");
 	r = await waitState((s) => s.fulls.length === 2);
 	note("C: key C adds a Full Camera section", r.ok, brief(r.state.fulls));
 	const fullC = r.state.fulls.find((f) => f.startMs > 8000 && f.startMs < 10_000);
-	const midC = fullC ? (fullC.startMs + fullC.endMs) / 2000 : 10;
+	const midC = fullC ? steadyMid(fullC) : 10;
 	await d.seekTo(midC);
 	shots.push(await d.shot("C1-full-camera"));
 	note("C: the Full Camera section is selectable", await d.selectPillAt(midC));
