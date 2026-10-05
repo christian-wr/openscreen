@@ -2793,7 +2793,6 @@ export function LayoutPane({
 		(dataUrl) => set({ webcamWallpaper: dataUrl }),
 	);
 	const document = useProjectStore((s) => s.document);
-	const playheadSec = useProjectStore((s) => s.currentTimeSec);
 	// A project can hold clips with no camera attached at all (plain imports or a
 	// recording made without a webcam). Keep the saved camera preference for later, but
 	// make the disabled control describe whether this project has any camera at all.
@@ -3121,9 +3120,7 @@ export function LayoutPane({
 				onFrameLive={setCropFrame}
 				onCommit={() => void commit()}
 			/>
-			{cameras ? (
-				<CamerasSection document={document} playheadSec={playheadSec} {...cameras} />
-			) : null}
+			{cameras ? <CamerasSection document={document} {...cameras} /> : null}
 		</Pane>
 	);
 }

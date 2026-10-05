@@ -7,6 +7,7 @@ import { toFileUrl } from "@/components/video-editor/projectPersistence";
 import type { CameraSettings } from "@/components/video-editor/types";
 import { useScopedT } from "@/contexts/I18nContext";
 import type { AxcutDocument } from "@/lib/ai-edition/schema";
+import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { camerasForClipAt, type ProjectCamera } from "@/lib/ai-edition/timeline/cameraList";
 import { grabFrameDataUrl } from "@/lib/ai-edition/timeline/grabFrame";
@@ -24,8 +25,9 @@ const THUMBNAIL_DEBOUNCE_MS = 250;
 
 export interface CamerasSectionProps {
 	document: AxcutDocument | null;
-	/** The playhead on the ruler (`currentTimeSec`). */
-	playheadSec: number;
+	/** Overrides the playhead on the ruler; by default it is read from the project store here, so
+	 *  only this section re-renders while the playhead moves. */
+	playheadSec?: number;
 	/** `legacyEditor.cameraSettings`, normalized: index 0 = camera 1. */
 	cameraSettings: (CameraSettings | null)[];
 	setCameraSettings: (index: number, patch: Partial<CameraSettings> | null) => void | Promise<void>;
@@ -101,12 +103,14 @@ const BUTTON = `${styles.btn} ${styles.btnSecondary}`;
 
 export function CamerasSection({
 	document,
-	playheadSec,
+	playheadSec: playheadOverride,
 	cameraSettings,
 	setCameraSettings,
 	onOpenCalibration,
 }: CamerasSectionProps) {
 	const ts = useScopedT("settings");
+	const storePlayheadSec = useProjectStore((s) => s.currentTimeSec);
+	const playheadSec = playheadOverride ?? storePlayheadSec;
 	const cameras: ProjectCamera[] = useMemo(
 		() => (document ? camerasForClipAt(document, playheadSec, ts) : []),
 		[document, playheadSec, ts],
@@ -131,7 +135,10 @@ export function CamerasSection({
 						}}
 					>
 						<div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-							<CameraThumbnail still={stills.get(camera.index)} label={camera.label} />
+							<CameraThumbnail
+								still={camera.available ? stills.get(camera.index) : undefined}
+								label={camera.label}
+							/>
 							<div style={{ minWidth: 0 }}>
 								<div className={styles.label}>{camera.label}</div>
 								{camera.available ? null : (

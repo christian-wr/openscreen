@@ -12,6 +12,10 @@ vi.mock("@/lib/ai-edition/timeline/grabFrame", () => ({
 	grabFrameDataUrl: vi.fn(() => Promise.resolve("data:image/png;base64,AAAA")),
 }));
 
+import { readFileSync } from "node:fs";
+import { act } from "@testing-library/react";
+import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
+import { grabFrameDataUrl } from "@/lib/ai-edition/timeline/grabFrame";
 import { CamerasSection } from "./CamerasSection";
 
 const track = (sourcePath: string, extra: Record<string, unknown> = {}) => ({
@@ -88,5 +92,28 @@ describe("CamerasSection", () => {
 		const buttons = Array.from(row.querySelectorAll("button"));
 		fireEvent.click(buttons.find((b) => b.textContent === "settings.cameras.crop") as Element);
 		expect(onOpenCalibration).toHaveBeenCalledWith(1, "crop");
+	});
+
+	it("follows the playhead from the store without a prop", async () => {
+		vi.useFakeTimers();
+		useProjectStore.setState({ currentTimeSec: 1 });
+		render(
+			<CamerasSection document={makeDoc(0)} cameraSettings={[]} setCameraSettings={vi.fn()} />,
+		);
+		act(() => {
+			useProjectStore.setState({ currentTimeSec: 4 });
+		});
+		act(() => {
+			vi.advanceTimersByTime(300);
+		});
+		expect(vi.mocked(grabFrameDataUrl).mock.calls.at(-1)?.[1]).toBe(4);
+		vi.useRealTimers();
+	});
+
+	it("keeps the playhead subscription out of LayoutPane", () => {
+		const source = readFileSync("src/components/ai-edition/RightPanes.tsx", "utf8");
+		const start = source.indexOf("export function LayoutPane(");
+		const end = source.indexOf("/** The tightest the frame gets");
+		expect(source.slice(start, end)).not.toContain("currentTimeSec");
 	});
 });
