@@ -17,7 +17,6 @@
 
 import type {
 	CameraFullscreenRegion,
-	CameraLayoutRegion,
 	CameraPerspective,
 	Rotation3DPreset,
 	SpeedRegion,
@@ -56,7 +55,11 @@ import {
 	MAX_ZOOM_SCALE,
 	maxZoomScaleFor,
 } from "@/lib/ai-edition/timeline/zoom-scale";
-import { normalizeCameraLayoutRegions, normalizeCameraSettings } from "@/lib/cameraLayouts";
+import {
+	fullCameraRowsOfLayoutList,
+	normalizeCameraLayoutRegions,
+	normalizeCameraSettings,
+} from "@/lib/cameraLayouts";
 import { resolveCameraLayout } from "@/lib/cameraLayoutTemplates";
 import {
 	normalizeCameraRotation,
@@ -1175,35 +1178,33 @@ export function buildSceneDescription(
 	const legacyRaw = document.legacyEditor as Record<string, unknown> | null;
 	const layoutRegions = normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions);
 	const cameraSettings = normalizeCameraSettings(legacyRaw?.cameraSettings);
-	// A Full Camera of camera 1 stays a Full Camera region: that keeps the desk view and its label.
-	const isPlainFullCamera = (region: CameraLayoutRegion) =>
-		region.template === "camera-full" && region.slots.length === 1 && region.slots[0].camera === 0;
-	// Once a project stores `cameraLayoutRegions` (even empty), its Full Camera sections live
-	// there and the legacy list is only a copy kept for older builds: reading both would emit
-	// every section twice (two covers, two desk labels).
-	const legacyFullscreenRegions = Array.isArray(legacyRaw?.cameraLayoutRegions)
-		? []
-		: ((legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? []);
+	// Two disjoint lists: camera 1's Full Camera sections live in `cameraFullscreenRegions`
+	// (they keep the desk view and its label), every other layout in `cameraLayoutRegions`.
+	// Both are clip-anchored, so `projectRegionsToSource` takes its anchored branch for both.
+	const fullscreenRegions =
+		(legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? [];
+	// A hand-written layout list may still carry a camera-1 camera-full row. It becomes a Full
+	// Camera region unless one already covers its span, so the same section is never emitted
+	// twice (two covers, two desk labels).
+	const handWrittenFullCamera = fullCameraRowsOfLayoutList(legacyRaw?.cameraLayoutRegions)
+		.filter(
+			(row) =>
+				!fullscreenRegions.some(
+					(region) => region.startMs <= row.startMs && region.endMs >= row.endMs,
+				),
+		)
+		.map(({ template: _template, slots: _slots, ...region }): CameraFullscreenRegion => region);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
-		[
-			...legacyFullscreenRegions,
-			...layoutRegions.filter(isPlainFullCamera).map(
-				({ id, startMs, endMs, rotation, mirror, deskLabel }): CameraFullscreenRegion => ({
-					id,
-					startMs,
-					endMs,
-					rotation,
-					mirror,
-					deskLabel,
-				}),
-			),
-		].map((region) => ({ ...region, sectionId: region.id })),
+		[...fullscreenRegions, ...handWrittenFullCamera].map((region) => ({
+			...region,
+			sectionId: region.id,
+		})),
 		visibleClips,
 		document.timeline.clips,
 		() => createId("camfull"),
 	);
 	const projectedLayoutRegions = projectRegionsToSource(
-		layoutRegions.filter((region) => !isPlainFullCamera(region)),
+		layoutRegions,
 		visibleClips,
 		document.timeline.clips,
 		() => createId("camlay"),

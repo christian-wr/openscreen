@@ -34,9 +34,16 @@ import { createId } from "./ids";
 
 /** The region families a delete can target by id. Shared with the store so "which kinds
  *  exist" has exactly one definition. `trim` is a source-time cut; the rest are pill-merged
- *  effects (zoom / speed / annotation / camera-fullscreen). Clips are removed via
- *  {@link removeClip}, not here — deleting a clip reflows the whole timeline. */
-export type RegionKind = "zoom" | "trim" | "annotation" | "speed" | "cameraFullscreen" | "audio";
+ *  effects (zoom / speed / annotation / camera-fullscreen / camera-layout). Clips are removed
+ *  via {@link removeClip}, not here — deleting a clip reflows the whole timeline. */
+export type RegionKind =
+	| "zoom"
+	| "trim"
+	| "annotation"
+	| "speed"
+	| "cameraFullscreen"
+	| "cameraLayout"
+	| "audio";
 
 /** Length a clip is given before its media has been probed. Lives here, in the pure
  *  document layer, because that layer decides which clips are still waiting for a real
@@ -351,7 +358,7 @@ type StoredRegion = {
 	sourceEndSec?: number;
 };
 
-/** Apply `fn` to all four modifier collections (document-level + legacyEditor envelopes). */
+/** Apply `fn` to every modifier collection (document-level + legacyEditor envelopes). */
 function mapAllRegionCollections(
 	document: AxcutDocument,
 	fn: (regions: StoredRegion[], prefix: string) => StoredRegion[],
@@ -369,6 +376,9 @@ function mapAllRegionCollections(
 		: undefined;
 	const cameraFullscreenRegions = Array.isArray(legacy?.cameraFullscreenRegions)
 		? (legacy?.cameraFullscreenRegions as StoredRegion[])
+		: undefined;
+	const cameraLayoutRegions = Array.isArray(legacy?.cameraLayoutRegions)
+		? (legacy?.cameraLayoutRegions as StoredRegion[])
 		: undefined;
 
 	return {
@@ -404,12 +414,15 @@ function mapAllRegionCollections(
 			),
 		),
 		legacyEditor:
-			legacy && (speedRegions || cameraFullscreenRegions)
+			legacy && (speedRegions || cameraFullscreenRegions || cameraLayoutRegions)
 				? {
 						...legacy,
 						...(speedRegions ? { speedRegions: fn(speedRegions, "speed") } : {}),
 						...(cameraFullscreenRegions
 							? { cameraFullscreenRegions: fn(cameraFullscreenRegions, "camfull") }
+							: {}),
+						...(cameraLayoutRegions
+							? { cameraLayoutRegions: fn(cameraLayoutRegions, "camlayout") }
 							: {}),
 					}
 				: document.legacyEditor,
@@ -719,7 +732,7 @@ function sameInterval(a: Interval, b: Interval): boolean {
 	);
 }
 
-/** Every anchored modifier of the document, all four families, as `{id, clipId}`. */
+/** Every anchored modifier of the document, every family, as `{id, clipId}`. */
 function anchoredRegionsOf(document: AxcutDocument): Array<{ id: string; clipId: string }> {
 	const legacy = document.legacyEditor as Record<string, unknown> | null;
 	const collections: StoredRegion[][] = [
@@ -727,6 +740,7 @@ function anchoredRegionsOf(document: AxcutDocument): Array<{ id: string; clipId:
 		document.annotations as unknown as StoredRegion[],
 		(legacy?.speedRegions as StoredRegion[] | undefined) ?? [],
 		(legacy?.cameraFullscreenRegions as StoredRegion[] | undefined) ?? [],
+		(legacy?.cameraLayoutRegions as StoredRegion[] | undefined) ?? [],
 	];
 	return collections
 		.flat()
@@ -1120,6 +1134,14 @@ export function removeRegion(document: AxcutDocument, kind: RegionKind, id: stri
 			);
 			return { ...document, legacyEditor: { ...legacy, cameraFullscreenRegions: prev } };
 		}
+		case "cameraLayout": {
+			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
+			const prev = dropPillById(
+				(legacy.cameraLayoutRegions as Array<{ id: string; startMs: number; endMs: number }>) ?? [],
+				id,
+			);
+			return { ...document, legacyEditor: { ...legacy, cameraLayoutRegions: prev } };
+		}
 		default: {
 			// ponytail: exhaustive — TS errors here if a new RegionKind is added.
 			const exhaustive: never = kind;
@@ -1163,6 +1185,10 @@ const EDIT_REGIONS: Record<
 	cameraFullscreen: {
 		count: (d) => legacyRegionCount(d, "cameraFullscreenRegions"),
 		clear: (d) => withLegacyRegionsCleared(d, "cameraFullscreenRegions"),
+	},
+	cameraLayout: {
+		count: (d) => legacyRegionCount(d, "cameraLayoutRegions"),
+		clear: (d) => withLegacyRegionsCleared(d, "cameraLayoutRegions"),
 	},
 };
 

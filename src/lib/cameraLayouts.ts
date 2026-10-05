@@ -70,7 +70,34 @@ function normalizeSlots(raw: unknown, template: CameraLayoutTemplate): CameraLay
 	return slots.slice(0, TEMPLATE_SLOTS[template].max);
 }
 
-function normalizeRegion(raw: unknown): CameraLayoutRegion | null {
+/** A stored layout section: like a Full Camera region it is clip-anchored, so the anchor
+ *  fields are the source of truth and `startMs`/`endMs` a derived cache. */
+export type AnchoredCameraLayoutRegion = CameraLayoutRegion & {
+	clipId?: string;
+	assetId?: string;
+	sourceStartSec?: number;
+	sourceEndSec?: number;
+};
+
+/** A `camera-full` section of camera 1: that is a Full Camera region, never a layout row. */
+export function isFullCameraLayout(
+	region: Pick<CameraLayoutRegion, "template" | "slots">,
+): boolean {
+	return region.template === "camera-full" && region.slots[0]?.camera === 0;
+}
+
+function copyAnchor(raw: Record<string, unknown>, region: AnchoredCameraLayoutRegion): void {
+	if (typeof raw.clipId === "string") region.clipId = raw.clipId;
+	if (typeof raw.assetId === "string") region.assetId = raw.assetId;
+	if (typeof raw.sourceStartSec === "number" && Number.isFinite(raw.sourceStartSec)) {
+		region.sourceStartSec = raw.sourceStartSec;
+	}
+	if (typeof raw.sourceEndSec === "number" && Number.isFinite(raw.sourceEndSec)) {
+		region.sourceEndSec = raw.sourceEndSec;
+	}
+}
+
+function normalizeRegion(raw: unknown): AnchoredCameraLayoutRegion | null {
 	if (!isRecord(raw) || !isTemplate(raw.template)) return null;
 	const { id, startMs, endMs } = raw;
 	if (typeof id !== "string") return null;
@@ -79,10 +106,11 @@ function normalizeRegion(raw: unknown): CameraLayoutRegion | null {
 	const template = raw.template;
 	const slots = normalizeSlots(raw.slots, template);
 	if (slots.length < TEMPLATE_SLOTS[template].min) return null;
-	const region: CameraLayoutRegion = { id, startMs, endMs, template, slots };
-	// The desk-view fields belong to camera 1's Full Camera alone (it stays a Full Camera
-	// region); another camera's camera-full draws through the layout path, which ignores them.
-	if (template === "camera-full" && slots[0].camera === 0) {
+	const region: AnchoredCameraLayoutRegion = { id, startMs, endMs, template, slots };
+	copyAnchor(raw, region);
+	// The desk-view fields belong to camera 1's Full Camera alone; another camera's
+	// camera-full draws through the layout path, which ignores them.
+	if (isFullCameraLayout(region)) {
 		const rotation = normalizeCameraRotation(raw.rotation);
 		const mirror = normalizeCameraMirror(raw.mirror);
 		if (rotation !== 0) region.rotation = rotation;
@@ -92,20 +120,37 @@ function normalizeRegion(raw: unknown): CameraLayoutRegion | null {
 	return region;
 }
 
-/** Reads stored layout regions defensively: invalid ones are dropped, overlaps resolved. */
-export function normalizeCameraLayoutRegions(raw: unknown): CameraLayoutRegion[] {
+function normalizeAll(raw: unknown): AnchoredCameraLayoutRegion[] {
 	if (!Array.isArray(raw)) return [];
-	const regions = raw
+	return raw
 		.map(normalizeRegion)
-		.filter((r): r is CameraLayoutRegion => r !== null)
+		.filter((r): r is AnchoredCameraLayoutRegion => r !== null)
 		.sort((a, b) => a.startMs - b.startMs);
-	const kept: CameraLayoutRegion[] = [];
-	for (const region of regions) {
+}
+
+/**
+ * Reads stored layout regions defensively: invalid ones are dropped, and a later row that
+ * overlaps an earlier one in this list is dropped too. A `camera-full` row of camera 1 is
+ * dropped as well: that section is stored in `cameraFullscreenRegions`, never here. Overlaps
+ * with that other list are prevented by the editor, not repaired here.
+ */
+export function normalizeCameraLayoutRegions(raw: unknown): AnchoredCameraLayoutRegion[] {
+	const kept: AnchoredCameraLayoutRegion[] = [];
+	for (const region of normalizeAll(raw)) {
+		if (isFullCameraLayout(region)) continue;
 		const last = kept[kept.length - 1];
 		if (last && region.startMs < last.endMs) continue;
 		kept.push(region);
 	}
 	return kept;
+}
+
+/**
+ * The `camera-full` rows of camera 1 that a hand-written `cameraLayoutRegions` list may
+ * still carry. The editor never writes them; the scene turns them into Full Camera regions.
+ */
+export function fullCameraRowsOfLayoutList(raw: unknown): AnchoredCameraLayoutRegion[] {
+	return normalizeAll(raw).filter(isFullCameraLayout);
 }
 
 function normalizeCrop(raw: unknown): CropRegion | undefined {

@@ -7,6 +7,8 @@ import {
 } from "../schema";
 import {
 	buildTimelineFromIntervals,
+	clearEditRegions,
+	countEditRegions,
 	duplicateClip,
 	invertIntervals,
 	moveClip,
@@ -1759,5 +1761,70 @@ describe("readSpeedRegions", () => {
 		expect(read([{ id: "a", startMs: 0, endMs: 1000, speed: "fast" }])).toEqual([]);
 		expect(read(undefined)).toEqual([]);
 		expect(readSpeedRegions({ legacyEditor: null })).toEqual([]);
+	});
+});
+
+describe("camera layout regions", () => {
+	const layoutRow = {
+		id: "camlayout_1",
+		clipId: "clip_b",
+		assetId: "asset_1",
+		sourceStartSec: 22,
+		sourceEndSec: 24,
+		startMs: 12000,
+		endMs: 14000,
+		template: "screen-pip",
+		slots: [{ camera: 1 }],
+	};
+	const twoClips = () => ({
+		...makeDoc().timeline,
+		clips: [
+			makeClip({ id: "clip_a", sourceStartSec: 0, sourceEndSec: 10, timelineEndSec: 10 }),
+			makeClip({
+				id: "clip_b",
+				sourceStartSec: 20,
+				sourceEndSec: 30,
+				timelineStartSec: 10,
+				timelineEndSec: 20,
+			}),
+		],
+	});
+	type Layouts = { cameraLayoutRegions: Array<typeof layoutRow> };
+
+	it("mapAllRegionCollections re-anchors layout regions", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { cameraLayoutRegions: [layoutRow] },
+		});
+		// clip_b moves to the front (delta -10 s); the layout row follows its clip.
+		const next = moveClip(doc, "clip_b", 0);
+		expect((next.legacyEditor as Layouts).cameraLayoutRegions).toEqual([
+			{ ...layoutRow, startMs: 2000, endMs: 4000 },
+		]);
+	});
+
+	it("removeRegion removes a layout pill", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 0, endMs: 1000 }],
+				cameraLayoutRegions: [layoutRow],
+			},
+		});
+		const next = removeRegion(doc, "cameraLayout", "camlayout_1");
+		const legacy = next.legacyEditor as Layouts & { cameraFullscreenRegions: unknown[] };
+		expect(legacy.cameraLayoutRegions).toEqual([]);
+		expect(legacy.cameraFullscreenRegions).toHaveLength(1);
+	});
+
+	it("clearEditRegions clears layout regions", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { cameraLayoutRegions: [layoutRow] },
+		});
+		expect(countEditRegions(doc)).toBe(1);
+		const next = clearEditRegions(doc);
+		expect((next.legacyEditor as Layouts).cameraLayoutRegions).toEqual([]);
+		expect(countEditRegions(next)).toBe(0);
 	});
 });

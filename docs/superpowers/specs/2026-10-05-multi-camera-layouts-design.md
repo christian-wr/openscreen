@@ -116,12 +116,19 @@ Abschnitte überlappen sich nicht (Regel wie bei Full Camera).
 
 ### Bestehende Projekte
 
-- **Beim Laden:** jede `cameraFullscreenRegion` wird zu einem Layout-Abschnitt `camera-full` mit
-  Kamera 1 und übernimmt `rotation`/`mirror`/`deskLabel`. Gibt es bereits `cameraLayoutRegions`,
-  gelten diese, und alte Full-Camera-Regionen werden nicht doppelt übernommen.
-- **Beim Speichern:** zusätzlich zu `cameraLayoutRegions` werden alle Abschnitte `camera-full` mit
-  Kamera 1 auch als `cameraFullscreenRegions` geschrieben, damit ältere OpenScreen-Versionen sie weiter
-  zeigen. Andere Vorlagen sehen ältere Versionen nicht (additiv, kein Schema-Versionssprung).
+- **Zwei getrennte Listen, nie beide:** Ein Abschnitt `camera-full` mit Kamera 1 ist immer eine
+  Full-Camera-Region und steht in `cameraFullscreenRegions` (mit `rotation`/`mirror`/`deskLabel`);
+  jeder andere Abschnitt steht in `cameraLayoutRegions`. Beide Listen sind gleich pro Clip verankert
+  (`clipId`, `assetId`, `sourceStartSec`, `sourceEndSec`, abgeleitet `startMs`/`endMs`) und folgen
+  Clip-Änderungen gemeinsam.
+- **Beim Laden:** nichts umzuwandeln. Alte Full-Camera-Regionen bleiben, wo sie sind, und ältere
+  OpenScreen-Versionen zeigen sie weiter; die neuen Vorlagen sehen ältere Versionen nicht (additiv,
+  kein Schema-Versionssprung). Der Normalizer verwirft eine Zeile `camera-full` mit Kamera 1 in
+  `cameraLayoutRegions`; der Szenenbau übernimmt eine solche handgeschriebene Zeile nur, wenn keine
+  Full-Camera-Region dieselbe Spanne abdeckt (nie doppelt).
+- **Eine gemeinsame Spur:** Abschnitte beider Listen überlappen sich nicht. Der Editor verhindert das
+  (Hinzufügen lehnt ab, Verschieben/Skalieren klemmt an Nachbarn beider Listen); der Normalizer
+  verwirft nur Überlappungen innerhalb von `cameraLayoutRegions`.
 - Projekte ohne weitere Kameras und ohne neue Abschnitte bleiben byte-gleich, solange niemand sie
   anfasst.
 
@@ -259,9 +266,10 @@ berichtet und nicht stillschweigend hingenommen.
 
 ## 6. Verbindliche Vorgaben für Teilprojekt 3 (aus den Reviews von Teilprojekt 2)
 
-- **Speichern:** Liegt `legacyEditor.cameraLayoutRegions` als Liste vor, ignoriert der Szenenbau die
-  alte Liste `cameraFullscreenRegions`. Der Editor muss beide Listen gemeinsam schreiben (Abschnitte
-  `camera-full` mit Kamera 1 in beide), sonst gehen Full-Camera-Abschnitte verloren.
+- **Speichern:** Zwei getrennte Listen. Full Camera von Kamera 1 (`camera-full` mit Kamera 1) steht
+  nur in `cameraFullscreenRegions`, jeder andere Abschnitt nur in `cameraLayoutRegions`; der Szenenbau
+  liest immer beide. Die frühere Regel „liegt `cameraLayoutRegions` vor, wird die alte Liste
+  ignoriert“ gilt nicht mehr.
 - **Kamera-1-Einstellungen:** Drehung, Spiegeln und Zuschnitt von Kamera 1 stehen weiter in den
   bestehenden Projektfeldern (`webcamMirrored`, Schreibtisch-Abschnitte, `webcamCropRegion`), nicht in
   `cameraSettings[0]`; für Kamera 1 wertet der Compositor aus `cameraSettings[0]` nur die Perspektive.

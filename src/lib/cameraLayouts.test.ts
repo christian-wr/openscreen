@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	fullCameraRowsOfLayoutList,
+	isFullCameraLayout,
 	MAX_CAMERAS,
 	normalizeCameraLayoutRegions,
 	normalizeCameraSettings,
@@ -128,8 +130,61 @@ describe("normalizeCameraLayoutRegions", () => {
 		]);
 		expect(out[0]).toEqual({ ...base, template: "camera-full", slots: [{ camera: 2 }] });
 	});
-	it("keeps normalized desk fields on camera-full", () => {
+	it("keeps the clip anchor fields", () => {
+		const anchor = { clipId: "clip-a", assetId: "asset-a", sourceStartSec: 4, sourceEndSec: 5 };
 		const out = normalizeCameraLayoutRegions([
+			{ ...base, ...anchor, template: "screen-pip", slots: [{ camera: 1 }] },
+			{
+				...base,
+				id: "b",
+				startMs: 2000,
+				endMs: 3000,
+				clipId: 7,
+				sourceStartSec: Number.NaN,
+				template: "screen-pip",
+				slots: [{ camera: 1 }],
+			},
+		]);
+		expect(out[0]).toEqual({ ...base, ...anchor, template: "screen-pip", slots: [{ camera: 1 }] });
+		expect(out[1]).toEqual({
+			id: "b",
+			startMs: 2000,
+			endMs: 3000,
+			template: "screen-pip",
+			slots: [{ camera: 1 }],
+		});
+	});
+	it("drops a camera-full row for camera 1 (it belongs to full camera)", () => {
+		const out = normalizeCameraLayoutRegions([
+			{ ...base, template: "camera-full", slots: [{ camera: 0 }] },
+			{ ...base, id: "b", template: "camera-full", slots: [{ camera: 1 }] },
+		]);
+		expect(out.map((r) => r.id)).toEqual(["b"]);
+	});
+});
+
+describe("isFullCameraLayout", () => {
+	it("is true only for camera-full with camera 1", () => {
+		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 0 }] })).toBe(true);
+		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 1 }] })).toBe(false);
+		expect(isFullCameraLayout({ template: "screen-pip", slots: [{ camera: 0 }] })).toBe(false);
+	});
+});
+
+describe("fullCameraRowsOfLayoutList", () => {
+	it("keeps normalized desk fields on a camera-1 camera-full row", () => {
+		const out = fullCameraRowsOfLayoutList([
+			{
+				...base,
+				template: "camera-full",
+				slots: [{ camera: 0 }],
+				rotation: 180,
+				mirror: "on",
+				deskLabel: false,
+			},
+			{ ...base, id: "b", template: "screen-pip", slots: [{ camera: 0 }] },
+		]);
+		expect(out).toEqual([
 			{
 				...base,
 				template: "camera-full",
@@ -139,14 +194,6 @@ describe("normalizeCameraLayoutRegions", () => {
 				deskLabel: false,
 			},
 		]);
-		expect(out[0]).toEqual({
-			...base,
-			template: "camera-full",
-			slots: [{ camera: 0 }],
-			rotation: 180,
-			mirror: "on",
-			deskLabel: false,
-		});
 	});
 });
 

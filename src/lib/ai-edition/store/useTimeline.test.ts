@@ -749,17 +749,48 @@ describe("useTimeline.clearTimeline", () => {
 		annotation: (tl) => tl.addAnnotation(),
 		speed: (tl) => tl.addSpeed(),
 		cameraFullscreen: (tl) => tl.addCameraFullscreen(),
+		// No hook adder for layout sections yet: seed one stored row straight into the store.
+		cameraLayout: async () => {
+			const doc = useProjectStore.getState().document;
+			if (!doc) return;
+			const legacy = (doc.legacyEditor ?? {}) as { cameraLayoutRegions?: unknown[] };
+			const clip = doc.timeline.clips[0];
+			const row = {
+				id: `camlayout_${legacy.cameraLayoutRegions?.length ?? 0}`,
+				clipId: clip.id,
+				assetId: clip.assetId,
+				sourceStartSec: clip.sourceStartSec,
+				sourceEndSec: clip.sourceStartSec + 1,
+				startMs: 0,
+				endMs: 1000,
+				template: "screen-pip",
+				slots: [{ camera: 1 }],
+			};
+			useProjectStore.setState({
+				document: {
+					...doc,
+					legacyEditor: {
+						...legacy,
+						cameraLayoutRegions: [...(legacy.cameraLayoutRegions ?? []), row],
+					},
+				},
+			});
+		},
 	};
 	const editKinds = Object.keys(addOf) as EditKind[];
 
 	const regionCounts = (doc: AxcutDocument | null | undefined): Record<EditKind, number> => {
-		const legacy = (doc?.legacyEditor ?? {}) as { cameraFullscreenRegions?: unknown[] };
+		const legacy = (doc?.legacyEditor ?? {}) as {
+			cameraFullscreenRegions?: unknown[];
+			cameraLayoutRegions?: unknown[];
+		};
 		return {
 			zoom: doc?.zoomRanges.length ?? 0,
 			trim: doc?.timeline.trimRanges.length ?? 0,
 			annotation: doc?.annotations.length ?? 0,
 			speed: doc ? readSpeedRegions(doc).length : 0,
 			cameraFullscreen: legacy.cameraFullscreenRegions?.length ?? 0,
+			cameraLayout: legacy.cameraLayoutRegions?.length ?? 0,
 		};
 	};
 	const noRegions: Record<EditKind, number> = {
@@ -768,6 +799,7 @@ describe("useTimeline.clearTimeline", () => {
 		annotation: 0,
 		speed: 0,
 		cameraFullscreen: 0,
+		cameraLayout: 0,
 	};
 
 	// A project holding everything that is NOT an edit: two clips, a webcam, an imported
@@ -927,6 +959,7 @@ describe("useTimeline.clearTimeline", () => {
 			annotation: 1,
 			speed: 1,
 			cameraFullscreen: 1,
+			cameraLayout: 1,
 		});
 
 		await act(async () => {
@@ -966,6 +999,7 @@ describe("useTimeline.clearTimeline", () => {
 			annotation: 1,
 			speed: 1,
 			cameraFullscreen: 1,
+			cameraLayout: 1,
 		});
 
 		act(() => {

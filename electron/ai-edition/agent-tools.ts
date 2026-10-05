@@ -97,6 +97,10 @@ function modifierIds(document: AxcutDocument, kind: ModifierKind): string[] {
 			return ((legacy.cameraFullscreenRegions as Array<{ id: string }> | undefined) ?? []).map(
 				(region) => region.id,
 			);
+		case "cameraLayout":
+			return ((legacy.cameraLayoutRegions as Array<{ id: string }> | undefined) ?? []).map(
+				(region) => region.id,
+			);
 		case "audio":
 			// Fragments of one user-visible track share `trackId` and render as a single pill,
 			// so the id that disappears is the group key once, not one per fragment.
@@ -335,18 +339,21 @@ function landingSuffix(
 	return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
-/** Ids of every modifier in the document, all four families at once — the basis
+/** Ids of every modifier in the document, every family at once — the basis
  * for naming what a destructive edit took with it. */
 function modifierIdsOf(document: AxcutDocument): string[] {
 	const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 	const speedRegions = (legacy.speedRegions as Array<{ id: string }> | undefined) ?? [];
 	const cameraFullscreenRegions =
 		(legacy.cameraFullscreenRegions as Array<{ id: string }> | undefined) ?? [];
+	const cameraLayoutRegions =
+		(legacy.cameraLayoutRegions as Array<{ id: string }> | undefined) ?? [];
 	return [
 		...document.zoomRanges.map((r) => r.id),
 		...document.annotations.map((r) => r.id),
 		...speedRegions.map((r) => r.id),
 		...cameraFullscreenRegions.map((r) => r.id),
+		...cameraLayoutRegions.map((r) => r.id),
 	];
 }
 
