@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CameraFullscreenRegion, ZoomFocus } from "@/components/video-editor/types";
+import type {
+	CameraFullscreenRegion,
+	NormalizedRect,
+	ZoomFocus,
+} from "@/components/video-editor/types";
 import { useScopedT } from "@/contexts/I18nContext";
 import type {
 	AxcutAnnotationRegion,
@@ -11,6 +15,7 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import type { SpeedRegion } from "@/lib/ai-edition/timeline/speed";
+import type { AnchoredCameraLayoutRegion } from "@/lib/cameraLayouts";
 import { EditorEmptyState } from "./EditorEmptyState";
 import styles from "./NewEditorShell.module.css";
 import { PreviewCanvas } from "./PreviewCanvas";
@@ -43,6 +48,10 @@ interface PreviewProps {
 	selectedZoomRegionId?: string | null;
 	onZoomFocusChange?: (id: string, focus: ZoomFocus) => void;
 	onZoomFocusCommit?: () => void;
+	cameraLayoutRegions?: AnchoredCameraLayoutRegion[];
+	selectedLayoutRegionId?: string | null;
+	onLayoutSlotRectLive?: (id: string, slotIndex: number, rect: NormalizedRect) => void;
+	onLayoutSlotRectCommit?: () => void;
 	annotationRegions?: AxcutAnnotationRegion[];
 	selectedAnnotationId?: string | null;
 	onSelectAnnotation?: (id: string) => void;
@@ -78,6 +87,10 @@ export function Preview({
 	selectedZoomRegionId,
 	onZoomFocusChange,
 	onZoomFocusCommit,
+	cameraLayoutRegions,
+	selectedLayoutRegionId,
+	onLayoutSlotRectLive,
+	onLayoutSlotRectCommit,
 	annotationRegions,
 	selectedAnnotationId,
 	onSelectAnnotation,
@@ -221,6 +234,10 @@ export function Preview({
 						selectedZoomRegionId={selectedZoomRegionId}
 						onZoomFocusChange={onZoomFocusChange}
 						onZoomFocusCommit={onZoomFocusCommit}
+						cameraLayoutRegions={cameraLayoutRegions}
+						selectedLayoutRegionId={selectedLayoutRegionId}
+						onLayoutSlotRectLive={onLayoutSlotRectLive}
+						onLayoutSlotRectCommit={onLayoutSlotRectCommit}
 						annotationRegions={annotationRegions}
 						selectedAnnotationId={selectedAnnotationId}
 						onSelectAnnotation={onSelectAnnotation}

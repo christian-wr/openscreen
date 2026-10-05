@@ -1622,6 +1622,12 @@ export function NewEditorShell() {
 									selectedZoomRegionId={tl.selection?.kind === "zoom" ? tl.selection.id : null}
 									onZoomFocusChange={tl.updateZoomFocusLive}
 									onZoomFocusCommit={() => void tl.commitZoomFocus()}
+									cameraLayoutRegions={tl.cameraLayoutRegions}
+									selectedLayoutRegionId={
+										tl.selection?.kind === "cameraLayout" ? tl.selection.id : null
+									}
+									onLayoutSlotRectLive={tl.updateLayoutSlotRectLive}
+									onLayoutSlotRectCommit={() => void tl.commitLayoutSlotRect()}
 									annotationRegions={tl.annotationRegions}
 									selectedAnnotationId={
 										tl.selection?.kind === "annotation" ? tl.selection.id : null
