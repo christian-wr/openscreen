@@ -7,7 +7,8 @@
 		"addTrim": "إضافة قص: يزيل جزءًا من الفيديو عند الوقت الحالي",
 		"addAnnotation": "إضافة نص أو سهم أو صورة أو تمويه عند الوقت الحالي",
 		"addSpeed": "إضافة تغيير في السرعة عند الوقت الحالي",
-		"addCameraFullscreen": "إضافة كاميرا كاملة الشاشة: تعرض الكاميرا بملء الشاشة عند الوقت الحالي"
+		"addCameraFullscreen": "إضافة كاميرا كاملة الشاشة: تعرض الكاميرا بملء الشاشة عند الوقت الحالي",
+		"addLayout": "إضافة تخطيط: ترتيب الشاشة والكاميرات لمقطع"
 	},
 	"hints": {
 		"pressZoom": "اضغط {{key}} لإضافة تكبير",
@@ -31,7 +32,11 @@
 		"imageItem": "صورة",
 		"emptyText": "نص فارغ",
 		"cameraFullscreen": "كاميرا كاملة الشاشة",
-		"cameraFullscreenItem": "كاميرا كاملة الشاشة {{index}}"
+		"cameraFullscreenItem": "كاميرا كاملة الشاشة {{index}}",
+		"layoutScreenPip": "الشاشة + الكاميرا",
+		"layoutCameraFull": "كاميرا بملء الشاشة",
+		"layoutCameraFullPip": "كاميرا + نافذة صغيرة",
+		"layoutSideBySide": "جنبًا إلى جنب"
 	},
 	"emptyState": {
 		"noVideo": "لم يتم تحميل أي فيديو",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "لا يمكن وضع السرعة هنا",
 		"speedExistsAtLocation": "توجد منطقة سرعة بالفعل في هذا الموقع أو لا توجد مساحة كافية متاحة.",
 		"cannotPlaceCameraFullscreen": "لا يمكن وضع الكاميرا الكاملة هنا",
-		"cameraFullscreenExistsAtLocation": "يوجد بالفعل مقطع كاميرا كاملة الشاشة في هذا الموقع أو لا توجد مساحة كافية متاحة."
+		"cameraFullscreenExistsAtLocation": "يوجد بالفعل مقطع كاميرا كاملة الشاشة في هذا الموقع أو لا توجد مساحة كافية متاحة.",
+		"tooFewCameras": "يتطلب هذا التخطيط كاميرات أكثر من المتاحة هنا",
+		"noCamera": "لا توجد كاميرا في هذا المشروع"
 	},
 	"success": {
 		"addedZoomSuggestions": "تمت إضافة {{count}} اقتراح تكبير بناءً على المؤشر",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "التسجيل غير متاح هنا",
 		"saveFailed": "تعذر حفظ التسجيل",
 		"importFailed": "تعذر استيراد الملف الصوتي"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "غير متاح مع إعداد التخطيط هذا",
+		"needsCamerasHint": "يتطلب كاميرات أكثر"
 	}
 }

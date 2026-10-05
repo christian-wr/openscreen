@@ -14,7 +14,7 @@ export interface ProjectCamera {
 	height?: number;
 }
 
-type Translate = (key: string, vars?: Record<string, unknown>) => string;
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
 /** Camera 1 carries no label; extras use their track label, else their ordinal. */
 export function projectCameras(asset: AxcutAsset | undefined, t: Translate): ProjectCamera[] {

@@ -7,7 +7,8 @@
 		"addTrim": "Přidat oříznutí: odstraní část videa v aktuálním čase",
 		"addAnnotation": "Přidat text, šipku, obrázek nebo rozmazání v aktuálním čase",
 		"addSpeed": "Přidat změnu rychlosti v aktuálním čase",
-		"addCameraFullscreen": "Přidat Celou kameru: zobrazí kameru na celou obrazovku v aktuálním čase"
+		"addCameraFullscreen": "Přidat Celou kameru: zobrazí kameru na celou obrazovku v aktuálním čase",
+		"addLayout": "Přidat rozvržení: uspořádání obrazovky a kamer pro úsek"
 	},
 	"hints": {
 		"pressZoom": "Stiskněte {{key}} pro přidání přiblížení",
@@ -31,7 +32,11 @@
 		"imageItem": "Obrázek",
 		"emptyText": "Prázdný text",
 		"cameraFullscreen": "Celá kamera",
-		"cameraFullscreenItem": "Celá kamera {{index}}"
+		"cameraFullscreenItem": "Celá kamera {{index}}",
+		"layoutScreenPip": "Obrazovka + kamera",
+		"layoutCameraFull": "Kamera na celou obrazovku",
+		"layoutCameraFullPip": "Kamera + vložené okno",
+		"layoutSideBySide": "Vedle sebe"
 	},
 	"emptyState": {
 		"noVideo": "Žádné video nenačteno",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "Rychlost zde nelze umístit",
 		"speedExistsAtLocation": "Oblast rychlosti na tomto místě již existuje nebo není dostatek místa.",
 		"cannotPlaceCameraFullscreen": "Celou kameru zde nelze umístit",
-		"cameraFullscreenExistsAtLocation": "Segment celé kamery na tomto místě již existuje nebo není dostatek místa."
+		"cameraFullscreenExistsAtLocation": "Segment celé kamery na tomto místě již existuje nebo není dostatek místa.",
+		"tooFewCameras": "Toto rozvržení vyžaduje více kamer, než je zde k dispozici",
+		"noCamera": "Tento projekt nemá kameru"
 	},
 	"success": {
 		"addedZoomSuggestions": "Přidán {{count}} návrh přiblížení na základě kurzoru",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "Nahrávání zde není dostupné",
 		"saveFailed": "Nepodařilo se uložit nahrávku",
 		"importFailed": "Nepodařilo se importovat zvukový soubor"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Není k dispozici s touto předvolbou rozvržení",
+		"needsCamerasHint": "Vyžaduje více kamer"
 	}
 }

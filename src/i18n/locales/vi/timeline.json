@@ -7,7 +7,8 @@
 		"addTrim": "Thêm cắt: xóa một đoạn video tại thời điểm hiện tại",
 		"addAnnotation": "Thêm văn bản, mũi tên, hình ảnh hoặc làm mờ tại thời điểm hiện tại",
 		"addSpeed": "Thêm thay đổi tốc độ tại thời điểm hiện tại",
-		"addCameraFullscreen": "Thêm Camera Toàn màn hình: hiển thị camera toàn màn hình tại thời điểm hiện tại"
+		"addCameraFullscreen": "Thêm Camera Toàn màn hình: hiển thị camera toàn màn hình tại thời điểm hiện tại",
+		"addLayout": "Thêm bố cục: cách sắp xếp màn hình và camera cho một đoạn"
 	},
 	"hints": {
 		"pressZoom": "Nhấn {{key}} để thêm thu phóng",
@@ -31,7 +32,11 @@
 		"imageItem": "Hình ảnh",
 		"emptyText": "Văn bản trống",
 		"cameraFullscreen": "Camera Toàn màn hình",
-		"cameraFullscreenItem": "Camera Toàn màn hình {{index}}"
+		"cameraFullscreenItem": "Camera Toàn màn hình {{index}}",
+		"layoutScreenPip": "Màn hình + camera",
+		"layoutCameraFull": "Camera toàn màn hình",
+		"layoutCameraFullPip": "Camera + khung nhỏ",
+		"layoutSideBySide": "Cạnh nhau"
 	},
 	"emptyState": {
 		"noVideo": "Chưa tải video",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "Không thể đặt tốc độ ở đây",
 		"speedExistsAtLocation": "Vùng tốc độ đã tồn tại ở vị trí này hoặc không có đủ không gian.",
 		"cannotPlaceCameraFullscreen": "Không thể đặt Camera Toàn màn hình ở đây",
-		"cameraFullscreenExistsAtLocation": "Đoạn Camera Toàn màn hình đã tồn tại ở vị trí này hoặc không có đủ không gian."
+		"cameraFullscreenExistsAtLocation": "Đoạn Camera Toàn màn hình đã tồn tại ở vị trí này hoặc không có đủ không gian.",
+		"tooFewCameras": "Bố cục này cần nhiều camera hơn số hiện có",
+		"noCamera": "Dự án này không có camera"
 	},
 	"success": {
 		"addedZoomSuggestions": "Đã thêm {{count}} đề xuất thu phóng dựa trên con trỏ",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "Không thể ghi âm ở đây",
 		"saveFailed": "Không thể lưu bản ghi",
 		"importFailed": "Không thể nhập tệp âm thanh"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Không khả dụng với bố cục cài sẵn này",
+		"needsCamerasHint": "Cần thêm camera"
 	}
 }

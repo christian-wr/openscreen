@@ -7,7 +7,8 @@
 		"addTrim": "Add a trim: removes a section of the video at the current time",
 		"addAnnotation": "Add text, an arrow, an image or a blur at the current time",
 		"addSpeed": "Add a speed change at the current time",
-		"addCameraFullscreen": "Add Full Camera: shows the camera full screen at the current time"
+		"addCameraFullscreen": "Add Full Camera: shows the camera full screen at the current time",
+		"addLayout": "Add layout: screen and camera arrangements for a section"
 	},
 	"hints": {
 		"pressZoom": "Press {{key}} to add zoom",
@@ -31,7 +32,11 @@
 		"imageItem": "Image",
 		"emptyText": "Empty text",
 		"cameraFullscreen": "Full Camera",
-		"cameraFullscreenItem": "Full Camera {{index}}"
+		"cameraFullscreenItem": "Full Camera {{index}}",
+		"layoutScreenPip": "Screen + camera",
+		"layoutCameraFull": "Full camera",
+		"layoutCameraFullPip": "Camera + inset",
+		"layoutSideBySide": "Side by side"
 	},
 	"emptyState": {
 		"noVideo": "No video loaded",
@@ -54,7 +59,9 @@
 		"cannotPlaceSpeed": "Cannot place speed here",
 		"speedExistsAtLocation": "Speed region already exists at this location or not enough space available.",
 		"cannotPlaceCameraFullscreen": "Cannot place Full Camera here",
-		"cameraFullscreenExistsAtLocation": "A Full Camera segment already exists at this location or not enough space available."
+		"cameraFullscreenExistsAtLocation": "A Full Camera segment already exists at this location or not enough space available.",
+		"tooFewCameras": "This layout needs more cameras than are available here",
+		"noCamera": "This project has no camera"
 	},
 	"success": {
 		"addedZoomSuggestions": "Added {{count}} cursor-based zoom suggestion",
@@ -103,5 +110,9 @@
 		"recordingUnavailable": "Recording is not available here",
 		"saveFailed": "Could not save the recording",
 		"importFailed": "Could not import the audio file"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Not available with this layout preset",
+		"needsCamerasHint": "Needs more cameras"
 	}
 }
