@@ -63,6 +63,9 @@ export interface CameraCalibrationModalProps {
 	mode: CalibrationMode;
 	/** The camera's stored settings; the dialog starts from them. */
 	initial: CameraSettings | null;
+	/** The camera has a crop, which a perspective replaces. Camera 1 keeps its crop outside
+	 *  `initial`, so the caller says; defaults to `initial.crop`. */
+	hasCrop?: boolean;
 	/** The change to store (a key set to `undefined` removes it); called at most once. */
 	onApply: (patch: Partial<CameraSettings>) => void;
 	onClose: () => void;
@@ -133,6 +136,7 @@ export function CameraCalibrationModal({
 	camera,
 	mode,
 	initial,
+	hasCrop = initial?.crop != null,
 	onApply,
 	onClose,
 }: CameraCalibrationModalProps) {
@@ -392,6 +396,11 @@ export function CameraCalibrationModal({
 			<p className={styles.hint} style={{ margin: "0 0 10px" }}>
 				{isPerspective ? t("cameraCalibration.perspectiveHelp") : t("cameraCalibration.cropHelp")}
 			</p>
+			{isPerspective && hasCrop ? (
+				<p className={styles.hint} style={{ margin: "0 0 10px" }}>
+					{t("cameraCalibration.cropIgnored")}
+				</p>
+			) : null}
 			<div
 				ref={frameRef}
 				data-testid="calibration-frame"

@@ -481,6 +481,7 @@
 		"mirror": "Zrcadlit",
 		"crop": "Ořez…",
 		"perspective": "Opravit perspektivu…",
-		"reset": "Obnovit"
+		"reset": "Obnovit",
+		"cropOffWithPerspective": "Dokud je nastavena perspektiva, ořez nemá žádný účinek."
 	}
 }

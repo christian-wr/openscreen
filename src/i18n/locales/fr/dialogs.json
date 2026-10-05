@@ -95,6 +95,7 @@
 		"loading": "Chargement de l'image de la caméra…",
 		"loadFailed": "Impossible de charger l'image de la caméra.",
 		"perspectiveHelp": "Faites glisser les quatre coins sur ceux de la feuille ou du bureau. Les flèches déplacent le coin choisi d'un pixel, de dix avec Maj.",
+		"cropIgnored": "Cette caméra a un recadrage ; il est ignoré tant qu'une perspective est définie.",
 		"cropHelp": "Faites glisser le cadre ou ses poignées sur la partie de l'image à garder. Les flèches le déplacent, Maj + flèches le redimensionnent.",
 		"corners": {
 			"topLeft": "Coin supérieur gauche",

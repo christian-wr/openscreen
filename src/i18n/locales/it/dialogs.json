@@ -95,6 +95,7 @@
 		"loading": "Caricamento dell'immagine della videocamera…",
 		"loadFailed": "Impossibile caricare l'immagine della videocamera.",
 		"perspectiveHelp": "Trascina i quattro angoli sugli angoli del foglio o della scrivania. I tasti freccia spostano l'angolo selezionato di un pixel, con Maiusc di dieci.",
+		"cropIgnored": "Questa videocamera ha un ritaglio; viene ignorato finché è impostata una prospettiva.",
 		"cropHelp": "Trascina il riquadro o le sue maniglie sulla parte dell'immagine da tenere. Le frecce lo spostano, Maiusc + frecce lo ridimensionano.",
 		"corners": {
 			"topLeft": "Angolo in alto a sinistra",

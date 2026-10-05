@@ -95,6 +95,7 @@
 		"loading": "Kamerabild wird geladen…",
 		"loadFailed": "Das Kamerabild konnte nicht geladen werden.",
 		"perspectiveHelp": "Ziehe die vier Ecken auf die Ecken des Blatts oder Tischs. Die Pfeiltasten verschieben die gewählte Ecke um ein Pixel, mit Umschalt um zehn.",
+		"cropIgnored": "Diese Kamera hat einen Zuschnitt; er wird ignoriert, solange eine Perspektive gesetzt ist.",
 		"cropHelp": "Ziehe den Rahmen oder seine Griffe auf den Bildteil, der bleiben soll. Die Pfeiltasten verschieben ihn, Umschalt + Pfeiltasten ändern die Größe.",
 		"corners": {
 			"topLeft": "Ecke oben links",

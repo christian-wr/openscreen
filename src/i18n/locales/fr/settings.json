@@ -481,6 +481,7 @@
 		"mirror": "Miroir",
 		"crop": "Recadrage…",
 		"perspective": "Corriger la perspective…",
-		"reset": "Réinitialiser"
+		"reset": "Réinitialiser",
+		"cropOffWithPerspective": "Le recadrage est sans effet tant qu'une perspective est définie."
 	}
 }

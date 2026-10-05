@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { act } from "@testing-library/react";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { grabFrameDataUrl } from "@/lib/ai-edition/timeline/grabFrame";
-import { CamerasSection, calibrationCameraAt } from "./CamerasSection";
+import { CamerasSection, calibrationCameraAt, cameraHasCrop } from "./CamerasSection";
 
 const track = (sourcePath: string, extra: Record<string, unknown> = {}) => ({
 	sourcePath,
@@ -128,5 +128,54 @@ describe("CamerasSection", () => {
 		// No such camera, or no document: nothing to calibrate.
 		expect(calibrationCameraAt(doc, 2, 3, t)).toBeNull();
 		expect(calibrationCameraAt(null, 2, 0, t)).toBeNull();
+	});
+
+	it("a perspective disables the crop with a hint", () => {
+		const onOpenCalibration = vi.fn();
+		render(
+			<CamerasSection
+				document={makeDoc(1)}
+				playheadSec={2}
+				cameraSettings={[
+					null,
+					{
+						perspective: {
+							corners: [
+								{ x: 0.1, y: 0.1 },
+								{ x: 0.9, y: 0.1 },
+								{ x: 0.9, y: 0.9 },
+								{ x: 0.1, y: 0.9 },
+							],
+							aspect: 1.5,
+						},
+					},
+				]}
+				setCameraSettings={vi.fn()}
+				onOpenCalibration={onOpenCalibration}
+			/>,
+		);
+		const row = screen.getByTestId("camera-row-1");
+		const crop = screen.getByRole("button", { name: "settings.cameras.crop" });
+		expect(crop).toBeDisabled();
+		expect(row).toHaveTextContent("settings.cameras.cropOffWithPerspective");
+		fireEvent.click(crop);
+		expect(onOpenCalibration).not.toHaveBeenCalled();
+	});
+
+	it("without a perspective the crop stays available and no hint shows", () => {
+		render2(1);
+		expect(screen.getByRole("button", { name: "settings.cameras.crop" })).toBeEnabled();
+		expect(screen.queryByText("settings.cameras.cropOffWithPerspective")).toBeNull();
+	});
+
+	it("knows whether a camera has a crop", () => {
+		const crop = { x: 0.1, y: 0.1, width: 0.5, height: 0.5 };
+		expect(cameraHasCrop(null, [null, { crop }], 1)).toBe(true);
+		expect(cameraHasCrop(null, [null, { mirror: true }], 1)).toBe(false);
+		const withCamera1Crop = (webcamCropRegion: unknown) =>
+			({ legacyEditor: { webcamCropRegion } }) as unknown as AxcutDocument;
+		expect(cameraHasCrop(withCamera1Crop(crop), [], 0)).toBe(true);
+		expect(cameraHasCrop(withCamera1Crop({ x: 0, y: 0, width: 1, height: 1 }), [], 0)).toBe(false);
+		expect(cameraHasCrop(makeDoc(0), [], 0)).toBe(false);
 	});
 });

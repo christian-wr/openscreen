@@ -481,6 +481,7 @@
 		"mirror": "Espejo",
 		"crop": "Recorte…",
 		"perspective": "Corregir perspectiva…",
-		"reset": "Restablecer"
+		"reset": "Restablecer",
+		"cropOffWithPerspective": "El recorte no tiene efecto mientras haya una perspectiva definida."
 	}
 }

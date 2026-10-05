@@ -481,6 +481,7 @@
 		"mirror": "反転",
 		"crop": "切り抜き…",
 		"perspective": "パースを補正…",
-		"reset": "リセット"
+		"reset": "リセット",
+		"cropOffWithPerspective": "遠近補正が設定されている間、切り抜きは効果がありません。"
 	}
 }

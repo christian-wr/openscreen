@@ -481,6 +481,7 @@
 		"mirror": "좌우 반전",
 		"crop": "자르기…",
 		"perspective": "원근 보정…",
-		"reset": "초기화"
+		"reset": "초기화",
+		"cropOffWithPerspective": "원근 보정이 설정되어 있는 동안에는 자르기가 적용되지 않습니다."
 	}
 }

@@ -481,6 +481,7 @@
 		"mirror": "Yansıt",
 		"crop": "Kırp…",
 		"perspective": "Perspektifi düzelt…",
-		"reset": "Sıfırla"
+		"reset": "Sıfırla",
+		"cropOffWithPerspective": "Perspektif ayarlıyken kırpmanın etkisi yoktur."
 	}
 }

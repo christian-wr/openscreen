@@ -481,6 +481,7 @@
 		"mirror": "Specchio",
 		"crop": "Ritaglio…",
 		"perspective": "Correggi prospettiva…",
-		"reset": "Ripristina"
+		"reset": "Ripristina",
+		"cropOffWithPerspective": "Il ritaglio non ha effetto finché è impostata una prospettiva."
 	}
 }

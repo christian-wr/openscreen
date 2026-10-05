@@ -95,6 +95,7 @@
 		"loading": "Cargando la imagen de la cámara…",
 		"loadFailed": "No se pudo cargar la imagen de la cámara.",
 		"perspectiveHelp": "Arrastra las cuatro esquinas a las esquinas de la hoja o del escritorio. Las flechas mueven la esquina seleccionada un píxel; con Mayús, diez.",
+		"cropIgnored": "Esta cámara tiene un recorte; se ignora mientras haya una perspectiva definida.",
 		"cropHelp": "Arrastra el marco o sus controles sobre la parte de la imagen que quieres conservar. Las flechas lo mueven; Mayús + flechas cambian su tamaño.",
 		"corners": {
 			"topLeft": "Esquina superior izquierda",

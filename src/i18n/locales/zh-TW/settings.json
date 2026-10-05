@@ -481,6 +481,7 @@
 		"mirror": "鏡像",
 		"crop": "裁切…",
 		"perspective": "校正透視…",
-		"reset": "重設"
+		"reset": "重設",
+		"cropOffWithPerspective": "設定了透視校正時，裁切不會生效。"
 	}
 }

@@ -481,6 +481,7 @@
 		"mirror": "Mirror",
 		"crop": "Crop…",
 		"perspective": "Correct perspective…",
-		"reset": "Reset"
+		"reset": "Reset",
+		"cropOffWithPerspective": "Crop has no effect while a perspective is set."
 	}
 }

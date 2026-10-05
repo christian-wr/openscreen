@@ -66,7 +66,7 @@ import type { AiEditionProjectSummary } from "@/native/contracts";
 import { resolveVisibleClips } from "@/native/sceneDescription";
 import { useNativePlaybackSync } from "@/native/useNativePlaybackSync";
 import { type CalibrationCamera, CameraCalibrationModal } from "./CameraCalibrationModal";
-import { type CalibrationMode, calibrationCameraAt } from "./CamerasSection";
+import { type CalibrationMode, calibrationCameraAt, cameraHasCrop } from "./CamerasSection";
 import { ExportDialog } from "./ExportDialog";
 import { insertionsEnabled } from "./insertionsEnabled";
 import { ChatStripPanel } from "./LeftPanel";
@@ -1777,6 +1777,7 @@ export function NewEditorShell() {
 					camera={calibration.camera}
 					mode={calibration.mode}
 					initial={tl.cameraSettings[calibration.camera.index] ?? null}
+					hasCrop={cameraHasCrop(document, tl.cameraSettings, calibration.camera.index)}
 					onApply={(patch) => {
 						const index = calibration.camera.index;
 						void enqueueTimelineWrite(() => tl.setCameraSettings(index, patch));

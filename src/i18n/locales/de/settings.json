@@ -481,6 +481,7 @@
 		"mirror": "Spiegeln",
 		"crop": "Zuschnitt…",
 		"perspective": "Perspektive korrigieren…",
-		"reset": "Zurücksetzen"
+		"reset": "Zurücksetzen",
+		"cropOffWithPerspective": "Mit gesetzter Perspektive hat der Zuschnitt keine Wirkung."
 	}
 }
