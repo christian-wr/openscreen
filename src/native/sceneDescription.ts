@@ -77,6 +77,7 @@ import { parseCssGradient, resolveLinearGradientAngle } from "@/lib/exporter/gra
 import type { FrameTheme, RecordingFrame, WebcamAnchor } from "@/lib/projectDefaults";
 import { resolveTextFontFamily } from "@/lib/textFonts";
 import { classifyWallpaper } from "@/lib/wallpaper";
+import { clamp01 } from "@/utils/math";
 import type { CompositorClipInput } from "./contracts";
 import { ROUNDNESS_REFERENCE_PX } from "./paramUnits";
 
@@ -1355,26 +1356,40 @@ export function buildSceneDescription(
 			const asset = assetById.get(visibleClips[region.clipIndex]?.assetId ?? "");
 			if (!asset) return [];
 			const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
-			const trackSize = (camera: number) => {
+			// The size of the picture each camera's box shows: after its crop, like the
+			// camera-1 box `webcamSourceSizeOf` lays out (a perspective replaces the crop).
+			const croppedSize = (camera: number) => {
 				if (camera === 0) {
-					return webcamBoxSourceSize(asset.cameraTrack, webcamSourceSize, { width: 1, height: 1 });
+					return webcamBoxSourceSize(
+						asset.cameraTrack,
+						webcamSourceSize,
+						settings.webcamCropRegion,
+					);
 				}
 				const track = asset.additionalCameraTracks?.[camera - 1];
-				return track?.width && track?.height
-					? { width: track.width, height: track.height }
-					: { width: 16, height: 9 };
+				const size =
+					track?.width && track?.height
+						? { width: track.width, height: track.height }
+						: { width: 16, height: 9 };
+				const crop = cameraSettings[camera]?.crop;
+				return crop ? { width: size.width * crop.width, height: size.height * crop.height } : size;
 			};
 			const cameraAspect = (camera: number) => {
 				const perspective = cameraSettings[camera]?.perspective;
 				if (perspective && perspectiveMatrix(perspective)) return perspective.aspect;
-				const size = trackSize(camera);
+				const size = croppedSize(camera);
 				return size.width / size.height;
 			};
+			const pipShape = layoutByClip[region.clipIndex]?.webcamShape ?? settings.webcamMaskShape;
+			// A clip without a camera-1 box (no-webcam preset, no camera 1) still rounds its
+			// PiPs the way `computeCompositeLayout` would: a fraction of half the short side.
+			const pipRadiusFrac =
+				layoutByClip[region.clipIndex]?.webcamRadiusFrac ?? clamp01(settings.webcamRoundness) / 2;
 			const layers = resolveCameraLayout(region, {
 				frame: outputDims,
 				cameraAspect,
-				pipShape: layoutByClip[region.clipIndex]?.webcamShape ?? settings.webcamMaskShape,
-				pipRadiusFrac: layoutByClip[region.clipIndex]?.webcamRadiusFrac ?? 0,
+				pipShape,
+				pipRadiusFrac,
 			}).filter((layer) => (sources[layer.camera]?.path ?? "") !== "");
 			if (layers.length === 0) return [];
 			return [

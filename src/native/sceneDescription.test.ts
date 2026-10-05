@@ -3197,4 +3197,40 @@ describe("buildSceneDescription cameras", () => {
 		expect(scene.cameraLayoutRegions).toHaveLength(1);
 		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([0]);
 	});
+
+	it("a PiP in a clip without a camera-1 box keeps the project roundness", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					webcamLayoutPreset: "no-webcam",
+					webcamRoundness: 0.6,
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 0);
+		// Same unit as `computeCompositeLayout`: a fraction of HALF the short side.
+		expect(pip?.radiusFrac).toBeCloseTo(0.3, 6);
+	});
+
+	it("an extra camera's PiP is sized from its cropped picture", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [{ ...extra, width: 1600, height: 900 }] },
+				{
+					webcamMaskShape: "rectangle",
+					cameraSettings: [null, { crop: { x: 0, y: 0, width: 0.5, height: 1 } }],
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 0 }, { camera: 1 }])],
+				},
+			),
+		);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 1);
+		const { width, height } = scene.output;
+		// 1600 × 0.5 by 900: the box is 800:900, not the uncropped 16:9.
+		expect(((pip?.rect.width ?? 0) * width) / ((pip?.rect.height ?? 1) * height)).toBeCloseTo(
+			800 / 900,
+			4,
+		);
+	});
 });
