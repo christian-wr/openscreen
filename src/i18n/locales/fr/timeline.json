@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "Impossible de placer la caméra plein écran ici",
 		"cameraFullscreenExistsAtLocation": "Un segment Caméra plein écran existe déjà à cet emplacement ou l'espace disponible est insuffisant.",
 		"tooFewCameras": "Cette disposition nécessite plus de caméras que celles disponibles ici",
+		"cannotPlaceCameraSection": "Impossible de placer une section caméra ici",
+		"cameraSectionExistsAtLocation": "Une section caméra se trouve déjà ici.",
 		"noCamera": "Ce projet n'a pas de caméra"
 	},
 	"success": {

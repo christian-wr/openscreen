@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "Não é possível colocar Câmera em Tela Cheia aqui",
 		"cameraFullscreenExistsAtLocation": "Já existe um segmento de Câmera em Tela Cheia neste local ou não há espaço suficiente disponível.",
 		"tooFewCameras": "Este layout precisa de mais câmeras do que as disponíveis aqui",
+		"cannotPlaceCameraSection": "Não é possível colocar uma seção de câmera aqui",
+		"cameraSectionExistsAtLocation": "Já existe uma seção de câmera aqui.",
 		"noCamera": "Este projeto não tem câmera"
 	},
 	"success": {

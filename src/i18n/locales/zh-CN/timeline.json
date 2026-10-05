@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "无法在此处放置全屏摄像头",
 		"cameraFullscreenExistsAtLocation": "此位置已存在全屏摄像头片段或没有足够的空间。",
 		"tooFewCameras": "此布局所需的摄像头多于当前可用的数量",
+		"cannotPlaceCameraSection": "无法在此处放置摄像头片段",
+		"cameraSectionExistsAtLocation": "此处已有摄像头片段。",
 		"noCamera": "此项目没有摄像头"
 	},
 	"success": {

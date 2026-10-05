@@ -8,10 +8,10 @@ describe("cameraSectionNotice", () => {
 		expect(cameraSectionNotice("added", t)).toBeNull();
 	});
 
-	it("reuses the cannot-place notice for an occupied spot", () => {
+	it("names no section kind for an occupied spot", () => {
 		expect(cameraSectionNotice("occupied", t)).toEqual({
-			title: "errors.cannotPlaceCameraFullscreen",
-			description: "errors.cameraFullscreenExistsAtLocation",
+			title: "errors.cannotPlaceCameraSection",
+			description: "errors.cameraSectionExistsAtLocation",
 		});
 	});
 

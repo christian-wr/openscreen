@@ -204,8 +204,8 @@ describe("V4Timeline layout lane", () => {
 		expect(tl.addCameraLayout).toHaveBeenCalledWith("camera-full-pip", [1, 0], expect.any(Number));
 		await waitFor(() =>
 			expect(toastError).toHaveBeenCalledWith(
-				"errors.cannotPlaceCameraFullscreen",
-				expect.objectContaining({ description: "errors.cameraFullscreenExistsAtLocation" }),
+				"errors.cannotPlaceCameraSection",
+				expect.objectContaining({ description: "errors.cameraSectionExistsAtLocation" }),
 			),
 		);
 	});

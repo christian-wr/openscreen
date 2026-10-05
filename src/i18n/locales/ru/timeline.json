@@ -61,6 +61,8 @@
 		"cannotPlaceCameraFullscreen": "Невозможно разместить камеру на весь экран здесь",
 		"cameraFullscreenExistsAtLocation": "Сегмент камеры на весь экран уже существует в этом месте или недостаточно свободного места.",
 		"tooFewCameras": "Для этой раскладки нужно больше камер, чем доступно здесь",
+		"cannotPlaceCameraSection": "Здесь нельзя разместить участок камеры",
+		"cameraSectionExistsAtLocation": "Здесь уже есть участок камеры.",
 		"noCamera": "В этом проекте нет камеры"
 	},
 	"success": {

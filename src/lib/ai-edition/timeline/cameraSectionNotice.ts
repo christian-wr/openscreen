@@ -14,10 +14,12 @@ export function cameraSectionNotice(
 	switch (outcome) {
 		case "added":
 			return null;
+		// Neutral on purpose: what is in the way may be a Full Camera or a layout section, and
+		// the refused add or paste may be either kind too.
 		case "occupied":
 			return {
-				title: t("errors.cannotPlaceCameraFullscreen"),
-				description: t("errors.cameraFullscreenExistsAtLocation"),
+				title: t("errors.cannotPlaceCameraSection"),
+				description: t("errors.cameraSectionExistsAtLocation"),
 			};
 		case "too-few-cameras":
 			return { title: t("errors.tooFewCameras") };
