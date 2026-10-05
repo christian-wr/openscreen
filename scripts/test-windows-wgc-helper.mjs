@@ -39,6 +39,15 @@ const WITH_WINDOW_POPUP =
 	process.argv.includes("--window-popup");
 const WITH_WEBCAM =
 	process.env.OPENSCREEN_WGC_TEST_WEBCAM === "true" || process.argv.includes("--webcam");
+/**
+ * Adds a second camera that does not exist to a `--webcam` run, listed through
+ * the `webcams` config next to the real one: the helper must drop only that
+ * camera, say so with its index, and still record the first.
+ */
+const WITH_MISSING_SECOND_WEBCAM =
+	process.env.OPENSCREEN_WGC_TEST_MISSING_SECOND_WEBCAM === "true" ||
+	process.argv.includes("--missing-second-webcam");
+const MISSING_WEBCAM_NAME = "OpenScreen Nonexistent Camera";
 const CAPTURE_CURSOR =
 	process.env.OPENSCREEN_WGC_TEST_CAPTURE_CURSOR === "true" ||
 	process.argv.includes("--capture-cursor");
@@ -106,6 +115,9 @@ const STOP_LATENCY_BUDGET_MS = 15_000;
 
 if (WITH_SOFTWARE_ENCODER && WITH_SOFTWARE_FALLBACK) {
 	throw new Error("--software-encoder and --software-fallback are mutually exclusive");
+}
+if (WITH_MISSING_SECOND_WEBCAM && !WITH_WEBCAM) {
+	throw new Error("--missing-second-webcam needs --webcam");
 }
 
 function runHelper(
@@ -860,6 +872,9 @@ const outputPath = path.join(
 	`openscreen-wgc-helper-${WITH_WEBCAM ? "webcam" : WITH_WINDOW ? "window" : WITH_SYSTEM_AUDIO || WITH_MICROPHONE ? "audio" : "video"}-${process.pid}-${Date.now()}-${randomUUID()}.mp4`,
 );
 const webcamOutputPath = WITH_WEBCAM ? outputPath.replace(/\.mp4$/i, "-webcam.mp4") : null;
+const missingWebcamOutputPath = WITH_MISSING_SECOND_WEBCAM
+	? outputPath.replace(/\.mp4$/i, "-webcam-2.mp4")
+	: null;
 
 const fixtureWindow = WITH_WINDOW ? await startFixtureWindow() : null;
 
@@ -903,6 +918,29 @@ const config = {
 		...(webcamOutputPath ? { webcamPath: webcamOutputPath } : {}),
 	},
 };
+
+if (WITH_MISSING_SECOND_WEBCAM) {
+	config.webcams = [
+		{
+			camDeviceId: config.webcamDeviceId,
+			camDeviceName: config.webcamDeviceName,
+			camClsid: config.webcamDirectShowClsid,
+			camWidth: config.webcamWidth,
+			camHeight: config.webcamHeight,
+			camFps: config.webcamFps,
+			camPath: webcamOutputPath,
+		},
+		{
+			camDeviceId: "",
+			camDeviceName: MISSING_WEBCAM_NAME,
+			camClsid: "",
+			camWidth: 1280,
+			camHeight: 720,
+			camFps: 30,
+			camPath: missingWebcamOutputPath,
+		},
+	];
+}
 
 if (WITH_WINDOW_POPUP) {
 	const scriptPath = path.join(os.tmpdir(), `openscreen-popup-fixture-${process.pid}.ps1`);
@@ -1110,6 +1148,35 @@ if (
 }
 if (WITH_WEBCAM && !webcamStreams.some((stream) => stream.codec_type === "video")) {
 	throw new Error(`WGC helper webcam output has no video stream: ${webcamOutputPath}`);
+}
+if (WITH_MISSING_SECOND_WEBCAM) {
+	const unavailable = result.stdout
+		.split(/\r?\n/)
+		.filter((line) => line.includes('"code":"webcam-unavailable"'))
+		.map((line) => JSON.parse(line.slice(line.indexOf('{"event"'))));
+	if (!unavailable.some((event) => event.index === 1 && event.deviceName === MISSING_WEBCAM_NAME)) {
+		throw new Error(
+			`WGC helper did not report camera 1 (${MISSING_WEBCAM_NAME}) as unavailable: ${result.stdout}`,
+		);
+	}
+	const stoppedLine = result.stdout
+		.split(/\r?\n/)
+		.find((line) => line.includes('"event":"recording-stopped"'));
+	const stopped = stoppedLine
+		? JSON.parse(stoppedLine.slice(stoppedLine.indexOf('{"event"')))
+		: null;
+	if (JSON.stringify(stopped?.webcamPaths) !== JSON.stringify([webcamOutputPath])) {
+		throw new Error(
+			`recording-stopped.webcamPaths should list only the real camera: ${stoppedLine ?? "missing"}`,
+		);
+	}
+	if (fs.existsSync(missingWebcamOutputPath) && fs.statSync(missingWebcamOutputPath).size > 0) {
+		throw new Error(`WGC helper wrote a file for the missing camera: ${missingWebcamOutputPath}`);
+	}
+	console.log("WGC helper missing-second-webcam check passed", {
+		unavailable,
+		webcamPaths: stopped.webcamPaths,
+	});
 }
 if (
 	(CAPTURE_CURSOR && !cursorCapture) ||

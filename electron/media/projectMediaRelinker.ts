@@ -41,11 +41,23 @@ async function resolveAssetMedia(
 		isRecord(cameraTrack) && typeof cameraTrack.sourcePath === "string" && cameraTrack.sourcePath
 			? cameraTrack.sourcePath
 			: null;
+	const additionalTracks = Array.isArray(asset.additionalCameraTracks)
+		? asset.additionalCameraTracks
+		: [];
+	const additionalMissing = await Promise.all(
+		additionalTracks.map(
+			async (track) =>
+				isRecord(track) &&
+				typeof track.sourcePath === "string" &&
+				track.sourcePath !== "" &&
+				!(await fileExists(track.sourcePath)),
+		),
+	);
 	const screenExists = await fileExists(originalPath);
 	const cameraMissing = cameraPath !== null && !(await fileExists(cameraPath));
 	// Nothing to repair, and this runs on every project open — don't fingerprint
 	// (i.e. open and read) every asset just to confirm what the stats already say.
-	if (screenExists && !cameraMissing) return asset;
+	if (screenExists && !cameraMissing && !additionalMissing.some(Boolean)) return asset;
 
 	let links: RelocatedMediaLookup | null = null;
 	if (screenExists) {
@@ -81,10 +93,25 @@ async function resolveAssetMedia(
 		nextCameraTrack = { ...cameraTrack, sourcePath: links.webcamVideoPath };
 	}
 
+	// Extras are matched by index, the same order the recording registered them in.
+	let additionalChanged = false;
+	const nextAdditionalTracks = await Promise.all(
+		additionalTracks.map(async (track, index) => {
+			const replacement = links.additionalWebcams?.[index]?.path;
+			if (!additionalMissing[index] || !replacement || !(await fileExists(replacement))) {
+				return track;
+			}
+			console.log(`[media-relink] additional webcam ${index + 2} -> ${replacement}`);
+			additionalChanged = true;
+			return { ...track, sourcePath: replacement };
+		}),
+	);
+
 	return {
 		...asset,
 		originalPath: links.screenVideoPath,
 		...(nextCameraTrack === cameraTrack ? {} : { cameraTrack: nextCameraTrack }),
+		...(additionalChanged ? { additionalCameraTracks: nextAdditionalTracks } : {}),
 	};
 }
 

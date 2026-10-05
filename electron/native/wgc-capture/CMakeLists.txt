@@ -39,11 +39,15 @@ add_executable(wgc-capture
   src/audio_sample_utils.cpp
   src/audio_sample_utils.h
   src/desktop_icon_cover.cpp
+  src/device_selection.cpp
+  src/device_selection.h
   src/desktop_icon_cover.h
   src/dpi_awareness.h
   src/realtime_scheduling.h
   src/frame_visibility.cpp
   src/frame_visibility.h
+  src/json_fields.cpp
+  src/json_fields.h
   src/dshow_webcam_capture.cpp
   src/dshow_webcam_capture.h
   src/main.cpp
@@ -58,8 +62,12 @@ add_executable(wgc-capture
   src/wasapi_render_keepalive.cpp
   src/wasapi_render_keepalive.h
   src/webcam_capture.cpp
+  src/webcam_loss.cpp
+  src/webcam_loss.h
   src/webcam_format.cpp
   src/webcam_format.h
+  src/webcam_config.cpp
+  src/webcam_config.h
   src/webcam_capture.h
   src/wgc_session.cpp
   src/wgc_session.h
@@ -198,3 +206,47 @@ target_link_libraries(mf_encoder_color_test PRIVATE
   ole32
   propsys
 )
+
+add_executable(webcam_config_test
+  src/json_fields.cpp
+  src/json_fields.h
+  src/webcam_config.cpp
+  src/webcam_config.h
+  src/webcam_config_test.cpp
+)
+
+target_compile_definitions(webcam_config_test PRIVATE
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN
+  _WIN32_WINNT=0x0A00
+)
+
+target_compile_options(webcam_config_test PRIVATE /EHsc /W4 /utf-8)
+
+add_executable(device_selection_test
+  src/device_selection.cpp
+  src/device_selection.h
+  src/device_selection_test.cpp
+)
+
+target_compile_definitions(device_selection_test PRIVATE
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN
+  _WIN32_WINNT=0x0A00
+)
+
+target_compile_options(device_selection_test PRIVATE /EHsc /W4 /utf-8)
+
+add_executable(webcam_loss_test
+  src/webcam_loss.cpp
+  src/webcam_loss.h
+  src/webcam_loss_test.cpp
+)
+
+target_compile_definitions(webcam_loss_test PRIVATE
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN
+  _WIN32_WINNT=0x0A00
+)
+
+target_compile_options(webcam_loss_test PRIVATE /EHsc /W4 /utf-8)

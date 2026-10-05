@@ -1,5 +1,7 @@
 #pragma once
 
+#include "device_selection.h"
+
 #include <Windows.h>
 
 #include <atomic>
@@ -57,7 +59,8 @@ public:
         const std::wstring& directShowClsid,
         int requestedWidth,
         int requestedHeight,
-        int requestedFps);
+        int requestedFps,
+        const DeviceClaims& claims);
     bool start();
     void stop();
     bool copyLatestFrame(WebcamFrameSnapshot& destination, uint64_t lastSeenSequence);
@@ -66,6 +69,16 @@ public:
     int height() const;
     int fps() const;
     const std::wstring& selectedDeviceName() const;
+    /**
+     * The opened device's DevicePath (the moniker's display name when it has
+     * none, the filter CLSID when no moniker names it), for the take's claims.
+     */
+    const std::wstring& deviceIdentity() const;
+    /**
+     * Did the graph report the device gone (EC_DEVICE_LOST removal, a stream
+     * error, or an abort)? Latched; safe to ask from any thread.
+     */
+    bool isLost() const;
     void storeFrame(const BYTE* buffer, long length);
 
 private:
@@ -77,6 +90,8 @@ private:
 
     struct Impl;
     void captureLoop();
+    /** Drains the graph's queued events; true once one of them says the device left. */
+    bool deviceLeftGraph();
     /**
      * Builds source -> sample grabber -> null renderer and connects it.
      *
@@ -113,6 +128,7 @@ private:
     Impl* impl_ = nullptr;
     std::thread thread_;
     std::atomic<bool> stopRequested_ = false;
+    std::atomic<bool> lost_ = false;
     std::mutex frameMutex_;
     std::vector<BYTE> latestFrame_;
     uint64_t latestFrameSequence_ = 0;
@@ -123,4 +139,5 @@ private:
     bool sourceTopDown_ = false;
     PixelFormat pixelFormat_ = PixelFormat::Bgra;
     std::wstring selectedDeviceName_;
+    std::wstring deviceIdentity_;
 };

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AxcutAsset, AxcutClip } from "../schema";
-import { assetCameraSource, hasAnyClipWithCamera, resolveActiveCameraTrack } from "./camera";
+import {
+	assetAdditionalCameraSources,
+	assetCameraSource,
+	hasAnyClipWithCamera,
+	resolveActiveCameraTrack,
+} from "./camera";
 
 const assetWithCamera: AxcutAsset = {
 	id: "asset_with_camera",
@@ -152,5 +157,33 @@ describe("assetCameraSource", () => {
 
 	it("tolerates a missing asset", () => {
 		expect(assetCameraSource(undefined)).toEqual({ path: "", offsetSec: 0 });
+	});
+});
+
+describe("assetAdditionalCameraSources", () => {
+	const track = (over: Partial<NonNullable<AxcutAsset["additionalCameraTracks"]>[number]>) => ({
+		sourcePath: "/w-2.mp4",
+		startMs: 0,
+		offsetMs: 0,
+		visible: true,
+		label: "",
+		...over,
+	});
+	it("is empty without extra tracks", () => {
+		expect(assetAdditionalCameraSources(assetWithCamera)).toEqual([]);
+	});
+	it("keeps one entry per track, with the offset in seconds", () => {
+		const asset = {
+			...assetWithCamera,
+			additionalCameraTracks: [track({ startMs: 500, offsetMs: -200 })],
+		};
+		expect(assetAdditionalCameraSources(asset)).toEqual([{ path: "/w-2.mp4", offsetSec: 0.3 }]);
+	});
+	it("a hidden track keeps its slot with an empty path", () => {
+		const asset = {
+			...assetWithCamera,
+			additionalCameraTracks: [track({ visible: false }), track({ sourcePath: "/w-3.mp4" })],
+		};
+		expect(assetAdditionalCameraSources(asset).map((c) => c.path)).toEqual(["", "/w-3.mp4"]);
 	});
 });

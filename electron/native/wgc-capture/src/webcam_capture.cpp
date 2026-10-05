@@ -2,6 +2,7 @@
 
 #include "realtime_scheduling.h"
 #include "webcam_format.h"
+#include "webcam_loss.h"
 
 #include <mfapi.h>
 #include <mferror.h>
@@ -9,8 +10,8 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cwctype>
 #include <iostream>
+#include <optional>
 
 namespace {
 
@@ -36,114 +37,6 @@ std::wstring readAllocatedString(IMFActivate* activate, REFGUID key) {
     return result;
 }
 
-/**
- * Does one of these appear inside the other as WHOLE WORDS?
- *
- * Plain containment answered for devices that merely share a spelling: a
- * requested "Logi" is inside "Logitech", and "Micro" inside "Microphone",
- * neither of them as a word. Matching on that resolved a camera nobody asked
- * for -- and resolving one is exactly what stops the request reaching the
- * DirectShow fallback, where the cameras Media Foundation cannot enumerate live.
- *
- * Both sides arrive normalized, so a boundary is the start of the string, its
- * end, or a space.
- */
-bool containsAsWords(const std::wstring& haystack, const std::wstring& needle) {
-    if (haystack.empty() || needle.empty()) {
-        return false;
-    }
-    size_t pos = haystack.find(needle);
-    while (pos != std::wstring::npos) {
-        const bool startsOnBoundary = pos == 0 || haystack[pos - 1] == L' ';
-        const size_t after = pos + needle.size();
-        const bool endsOnBoundary = after == haystack.size() || haystack[after] == L' ';
-        if (startsOnBoundary && endsOnBoundary) {
-            return true;
-        }
-        pos = haystack.find(needle, pos + 1);
-    }
-    return false;
-}
-
-bool containsInsensitive(const std::wstring& haystack, const std::wstring& needle) {
-    return containsAsWords(haystack, needle) || containsAsWords(needle, haystack);
-}
-
-std::wstring normalizeDeviceName(const std::wstring& value) {
-    std::wstring normalized;
-    normalized.reserve(value.size());
-    bool lastWasSpace = true;
-    for (const wchar_t ch : value) {
-        if (std::iswalnum(ch)) {
-            normalized.push_back(static_cast<wchar_t>(std::towlower(ch)));
-            lastWasSpace = false;
-            continue;
-        }
-        if (!lastWasSpace) {
-            normalized.push_back(L' ');
-            lastWasSpace = true;
-        }
-    }
-    while (!normalized.empty() && normalized.back() == L' ') {
-        normalized.pop_back();
-    }
-    return normalized;
-}
-
-/**
- * How well a candidate answers a requested name, or 0 for "not this one".
- *
- * Only decisive matches count: the names being equal once normalized, or one
- * containing the other -- which is the ordinary case, since Chromium appends USB
- * ids to what the driver reports.
- *
- * A further tier used to score shared WORDS, to bridge names differing more than
- * that. It bridged names that were not the same device. "Logi Capture" and
- * "Logitech StreamCam" share no word, yet "logi" sits inside "logitech" and that
- * scored high enough to win -- so asking for a camera Media Foundation cannot
- * enumerate opened a DIFFERENT camera, instead of returning nothing and letting
- * the DirectShow fallback find the real one (getopenscreen/openscreen#405).
- *
- * Returning 0 is what makes that fallback reachable, so it is a real answer
- * rather than a weak match. Keep this in step with
- * `electron/recording/deviceNameMatching.ts`, which states the same rules for
- * the Electron side and carries their unit tests.
- */
-int deviceMatchScore(
-    const std::wstring& candidateName,
-    const std::wstring& candidateLink,
-    const std::wstring& requestedName,
-    const std::wstring& requestedId) {
-    int score = 0;
-    const auto normalizedName = normalizeDeviceName(candidateName);
-    const auto normalizedLink = normalizeDeviceName(candidateLink);
-    const auto normalizedRequestedName = normalizeDeviceName(requestedName);
-    const auto normalizedRequestedId = normalizeDeviceName(requestedId);
-
-    if (!normalizedRequestedName.empty()) {
-        if (normalizedName == normalizedRequestedName) {
-            score = std::max(score, 1000);
-        }
-        if (containsInsensitive(normalizedName, normalizedRequestedName)) {
-            score = std::max(score, 900);
-        }
-        if (containsInsensitive(normalizedLink, normalizedRequestedName)) {
-            score = std::max(score, 800);
-        }
-    }
-
-    if (!normalizedRequestedId.empty()) {
-        if (containsInsensitive(normalizedLink, normalizedRequestedId)) {
-            score = std::max(score, 700);
-        }
-        if (containsInsensitive(normalizedName, normalizedRequestedId)) {
-            score = std::max(score, 600);
-        }
-    }
-
-    return score;
-}
-
 } // namespace
 
 WebcamCapture::~WebcamCapture() {
@@ -157,53 +50,48 @@ bool WebcamCapture::initialize(
     int requestedWidth,
     int requestedHeight,
     int requestedFps,
-    bool preferNv12) {
+    bool preferNv12,
+    DeviceClaims& claims) {
     fps_ = std::clamp(requestedFps > 0 ? requestedFps : 30, 1, 60);
     usingDirectShow_ = false;
-    selectedMatchScore_ = 0;
-    if (!succeeded(MFStartup(MF_VERSION), "MFStartup(webcam)")) {
-        if (directShowCapture_.initialize(deviceId, deviceName, directShowClsid, requestedWidth, requestedHeight, fps_)) {
-            usingDirectShow_ = true;
-            return true;
+    selectedIdentity_.clear();
+    const auto initializeDirectShow = [&]() {
+        if (!directShowCapture_.initialize(
+                deviceId, deviceName, directShowClsid, requestedWidth, requestedHeight, fps_, claims)) {
+            if (!deviceId.empty() || !deviceName.empty()) {
+                std::cerr << "ERROR: Requested webcam device was not found by native Windows webcam providers"
+                          << std::endl;
+            }
+            return false;
         }
-        return false;
+        usingDirectShow_ = true;
+        claims.add(directShowCapture_.deviceIdentity());
+        return true;
+    };
+
+    if (!succeeded(MFStartup(MF_VERSION), "MFStartup(webcam)")) {
+        return initializeDirectShow();
     }
     mfStarted_ = true;
-    if (!selectDevice(deviceId, deviceName)) {
+    if (!selectDevice(deviceId, deviceName, claims)) {
         if (mfStarted_) {
             MFShutdown();
             mfStarted_ = false;
         }
-        if (directShowCapture_.initialize(deviceId, deviceName, directShowClsid, requestedWidth, requestedHeight, fps_)) {
-            usingDirectShow_ = true;
-            return true;
-        }
-        return false;
+        return initializeDirectShow();
     }
 
-    if ((!deviceId.empty() || !deviceName.empty()) && selectedMatchScore_ <= 0) {
-        if (mediaSource_) {
-            mediaSource_->Shutdown();
-        }
-        sourceReader_.Reset();
-        mediaSource_.Reset();
-        if (mfStarted_) {
-            MFShutdown();
-            mfStarted_ = false;
-        }
-        if (directShowCapture_.initialize(deviceId, deviceName, directShowClsid, requestedWidth, requestedHeight, fps_)) {
-            usingDirectShow_ = true;
-            return true;
-        }
-        std::cerr << "ERROR: Requested webcam device was not found by native Windows webcam providers"
-                  << std::endl;
+    if (!configureReader(requestedWidth, requestedHeight, fps_, preferNv12)) {
         return false;
     }
-
-    return configureReader(requestedWidth, requestedHeight, fps_, preferNv12);
+    claims.add(selectedIdentity_);
+    return true;
 }
 
-bool WebcamCapture::selectDevice(const std::wstring& deviceId, const std::wstring& deviceName) {
+bool WebcamCapture::selectDevice(
+    const std::wstring& deviceId,
+    const std::wstring& deviceName,
+    const DeviceClaims& claims) {
     Microsoft::WRL::ComPtr<IMFAttributes> attributes;
     if (!succeeded(MFCreateAttributes(&attributes, 1), "MFCreateAttributes(webcam enumeration)")) {
         return false;
@@ -226,34 +114,40 @@ bool WebcamCapture::selectDevice(const std::wstring& deviceId, const std::wstrin
         return false;
     }
 
-    UINT32 selectedIndex = 0;
-    int bestScore = 0;
+    std::vector<DeviceCandidate> candidates;
+    candidates.reserve(deviceCount);
+    bool anyClaimed = false;
     for (UINT32 index = 0; index < deviceCount; index += 1) {
-        const std::wstring name = readAllocatedString(devices[index], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
-        const std::wstring symbolicLink = readAllocatedString(devices[index], MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK);
-        const int score = deviceMatchScore(name, symbolicLink, deviceName, deviceId);
-        std::wcerr << L"INFO: Native webcam candidate [" << index << L"] name=\"" << name << L"\" score=" << score << std::endl;
-        if (score > bestScore) {
-            selectedIndex = index;
-            bestScore = score;
-        }
+        DeviceCandidate candidate{
+            readAllocatedString(devices[index], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME),
+            readAllocatedString(devices[index], MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK)};
+        const bool claimed = claims.contains(candidate.identity);
+        anyClaimed = anyClaimed || claimed;
+        std::wcerr << L"INFO: Native webcam candidate [" << index << L"] name=\"" << candidate.name
+                   << L"\" score=" << deviceMatchScore(candidate.name, candidate.identity, deviceName, deviceId)
+                   << (claimed ? L" (already recording in this take)" : L"") << std::endl;
+        candidates.push_back(std::move(candidate));
     }
 
-    if ((!deviceId.empty() || !deviceName.empty()) && bestScore <= 0) {
+    const int selectedIndex = selectUnclaimedDevice(candidates, deviceName, deviceId, claims);
+    if (selectedIndex >= 0) {
+        selectedDeviceName_ = candidates[selectedIndex].name;
+        selectedIdentity_ = candidates[selectedIndex].identity;
+        hr = devices[selectedIndex]->ActivateObject(IID_PPV_ARGS(&mediaSource_));
+    } else if (anyClaimed) {
+        std::cerr << "WARNING: Every matching webcam is already recording in this take; trying DirectShow"
+                  << std::endl;
+    } else {
         std::cerr << "WARNING: Requested webcam device was not found by Media Foundation; trying DirectShow"
                   << std::endl;
     }
-
-    selectedMatchScore_ = bestScore;
-    selectedDeviceName_ = readAllocatedString(devices[selectedIndex], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
-    hr = devices[selectedIndex]->ActivateObject(IID_PPV_ARGS(&mediaSource_));
 
     for (UINT32 index = 0; index < deviceCount; index += 1) {
         devices[index]->Release();
     }
     CoTaskMemFree(devices);
 
-    return succeeded(hr, "ActivateObject(webcam)");
+    return selectedIndex >= 0 && succeeded(hr, "ActivateObject(webcam)");
 }
 
 namespace {
@@ -511,6 +405,9 @@ void WebcamCapture::captureLoop() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     const auto loopStartedAt = std::chrono::steady_clock::now();
 
+    // Start of the current run of failed reads; empty while reads succeed.
+    std::optional<std::chrono::steady_clock::time_point> failureRunStartedAt;
+
     while (!stopRequested_) {
         DWORD streamIndex = 0;
         DWORD flags = 0;
@@ -536,11 +433,27 @@ void WebcamCapture::captureLoop() {
             // wise write thousands of identical lines over a long take.
             readFailures_ += 1;
             lastReadFailure_ = hr;
+            const auto now = std::chrono::steady_clock::now();
+            if (!failureRunStartedAt) {
+                failureRunStartedAt = now;
+            }
+            const int64_t failingForMs =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - *failureRunStartedAt).count();
+            if (isWebcamLossResult(hr, false, failingForMs)) {
+                markLost(hr);
+                break;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
+        failureRunStartedAt.reset();
         if ((flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) {
             sawEndOfStream_ = true;
+            // Stop has its own way out of this loop; end of stream before it
+            // is the camera leaving.
+            if (!stopRequested_ && isWebcamLossResult(hr, true, 0)) {
+                markLost(hr);
+            }
             break;
         }
         if (!sample) {
@@ -619,6 +532,20 @@ void WebcamCapture::captureLoop() {
               << std::endl;
 
     CoUninitialize();
+}
+
+void WebcamCapture::markLost(HRESULT hr) {
+    if (lost_.exchange(true)) {
+        return;
+    }
+    reportWebcamLost(selectedDeviceName_, hr);
+}
+
+bool WebcamCapture::isLost() const {
+    if (usingDirectShow_) {
+        return directShowCapture_.isLost();
+    }
+    return lost_;
 }
 
 bool WebcamCapture::copyLatestFrame(WebcamFrameSnapshot& destination, uint64_t lastSeenSequence) {

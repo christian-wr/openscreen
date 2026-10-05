@@ -7,9 +7,13 @@ import {
 	NATIVE_WINDOWS_SALVAGEABLE_OUTPUT_BYTES,
 	readMicrophoneDefaulted,
 	readMicrophoneUnavailable,
+	readReportedWebcamPaths,
 	readSecondaryWindowsApplied,
 	readStoppedPath,
+	readStoppedWebcamPaths,
+	readUnavailableWebcamIndices,
 	readWebcamFormat,
+	readWebcamFormatAt,
 	readWebcamUnavailable,
 	terminateNativeWindowsCapture,
 	waitForNativeWindowsCaptureStop,
@@ -537,5 +541,77 @@ describe("terminateNativeWindowsCapture", () => {
 
 		await expect(pending).resolves.toBe(true);
 		expect(helper.killCalls).toBe(1);
+	});
+});
+
+describe("per-camera helper events", () => {
+	const unavailable = (i?: number) =>
+		`{"event":"warning","code":"webcam-unavailable"${i === undefined ? "" : `,"index":${i}`},"message":"x"}`;
+
+	it("collects unavailable cameras by index, an old event counting as camera 0", () => {
+		expect(readUnavailableWebcamIndices(`${unavailable(1)}\n${unavailable(3)}`)).toEqual([1, 3]);
+		expect(readUnavailableWebcamIndices(unavailable())).toEqual([0]);
+		expect(readUnavailableWebcamIndices("nothing")).toEqual([]);
+	});
+
+	it("ignores other warnings and reads a prefixed unavailable event", () => {
+		const other = '{"event":"warning","code":"microphone-defaulted","index":2}';
+		const prefixed = `INFO: camera lost ${unavailable(2)}`;
+		expect(readUnavailableWebcamIndices(`${other}\n${prefixed}`)).toEqual([2]);
+	});
+
+	it("reads the format of a given camera", () => {
+		const out = [
+			'{"event":"webcam-format","schemaVersion":2,"index":0,"width":1920,"height":1080,"fps":30,"deviceName":"A"}',
+			'{"event":"webcam-format","schemaVersion":2,"index":1,"width":1280,"height":720,"fps":30,"deviceName":"B"}',
+		].join("\n");
+		expect(readWebcamFormatAt(out, 1)?.width).toBe(1280);
+		expect(readWebcamFormatAt(out, 0)?.width).toBe(1920);
+		expect(readWebcamFormatAt(out, 2)).toBeNull();
+	});
+
+	it("reads a format event glued to a diagnostic prefix, the last one winning", () => {
+		const out = [
+			'INFO: DirectShow webcam connected subtype NV12 {"event":"webcam-format","index":1,"width":640,"height":480}',
+			'INFO: again {"event":"webcam-format","index":1,"width":1280,"height":720}',
+		].join("\n");
+		expect(readWebcamFormatAt(out, 1)?.width).toBe(1280);
+	});
+
+	it("treats a format without index as camera 0", () => {
+		expect(readWebcamFormatAt('{"event":"webcam-format","width":800}', 0)?.width).toBe(800);
+	});
+
+	it("reads every stopped camera path, falling back to the single legacy path", () => {
+		expect(
+			readStoppedWebcamPaths(
+				'{"event":"recording-stopped","webcamPath":"a.mp4","webcamPaths":["a.mp4","b.mp4"]}',
+			),
+		).toEqual(["a.mp4", "b.mp4"]);
+		expect(readStoppedWebcamPaths('{"event":"recording-stopped","webcamPath":"a.mp4"}')).toEqual([
+			"a.mp4",
+		]);
+		expect(readStoppedWebcamPaths('{"event":"recording-stopped"}')).toEqual([]);
+	});
+
+	it("tells a reported webcamPaths list apart from its absence", () => {
+		expect(
+			readReportedWebcamPaths('{"event":"recording-stopped","webcamPaths":["a.mp4","b.mp4"]}'),
+		).toEqual(["a.mp4", "b.mp4"]);
+		expect(readReportedWebcamPaths('{"event":"recording-stopped","webcamPaths":[]}')).toEqual([]);
+		// An old helper sends only the legacy path; that is "unknown", not "none".
+		expect(
+			readReportedWebcamPaths('{"event":"recording-stopped","webcamPath":"a.mp4"}'),
+		).toBeNull();
+		expect(readReportedWebcamPaths("Recording stopped. Output path: s.mp4")).toBeNull();
+	});
+
+	it("reads JSON-escaped Windows paths behind a prefix", () => {
+		const line =
+			'INFO: x {"event":"recording-stopped","schemaVersion":2,"screenPath":"C:\\\\Users\\\\me\\\\s.mp4","webcamPath":"C:\\\\Users\\\\me\\\\s-webcam.mp4","webcamPaths":["C:\\\\Users\\\\me\\\\s-webcam.mp4","C:\\\\Users\\\\me\\\\s-webcam-2.mp4"]}';
+		expect(readStoppedWebcamPaths(line)).toEqual([
+			"C:\\Users\\me\\s-webcam.mp4",
+			"C:\\Users\\me\\s-webcam-2.mp4",
+		]);
 	});
 });

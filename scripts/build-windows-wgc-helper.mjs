@@ -116,6 +116,30 @@ if (!fs.existsSync(webcamFormatTestPath)) {
 await run(webcamFormatTestPath, [], { cwd: BUILD_DIR });
 console.log(`Passed ${webcamFormatTestPath}`);
 
+const webcamConfigTestPath = path.join(BUILD_DIR, "webcam_config_test.exe");
+if (!fs.existsSync(webcamConfigTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamConfigTestPath} was not found.`);
+}
+// Guards how the helper reads the list of cameras (and the legacy single-camera fields).
+await run(webcamConfigTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamConfigTestPath}`);
+
+const deviceSelectionTestPath = path.join(BUILD_DIR, "device_selection_test.exe");
+if (!fs.existsSync(deviceSelectionTestPath)) {
+	throw new Error(`WGC helper build completed but ${deviceSelectionTestPath} was not found.`);
+}
+// Guards that two cameras of the same model in one take open two devices, not one twice.
+await run(deviceSelectionTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${deviceSelectionTestPath}`);
+
+const webcamLossTestPath = path.join(BUILD_DIR, "webcam_loss_test.exe");
+if (!fs.existsSync(webcamLossTestPath)) {
+	throw new Error(`WGC helper build completed but ${webcamLossTestPath} was not found.`);
+}
+// Guards that an unplugged camera ends its file instead of freezing on its last picture.
+await run(webcamLossTestPath, [], { cwd: BUILD_DIR });
+console.log(`Passed ${webcamLossTestPath}`);
+
 const frameVisibilityTestPath = path.join(BUILD_DIR, "frame_visibility_test.exe");
 if (!fs.existsSync(frameVisibilityTestPath)) {
 	throw new Error(`WGC helper build completed but ${frameVisibilityTestPath} was not found.`);

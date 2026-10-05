@@ -30,6 +30,7 @@ function prefs(camEnabled: boolean): RecordingPrefs {
 		camEnabled,
 		camDeviceId: null,
 		camDeviceName: null,
+		camAdditionalDevices: [],
 		camQuality: "2160p",
 		systemAudioEnabled: false,
 		cursorCaptureMode: "editable-overlay",

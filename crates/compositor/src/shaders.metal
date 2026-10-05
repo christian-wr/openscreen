@@ -48,7 +48,7 @@ using namespace metal;
 // =================================================================================
 //
 // Le moteur côté CPU upload ce buffer via `setVertexBytes` (vertex stage) et
-// `setFragmentBytes` (fragment stage) avant chaque draw — la copie est de 176 octets,
+// `setFragmentBytes` (fragment stage) avant chaque draw — la copie est de 256 octets,
 // ce qui est sous le seuil d'alignement 4K de Metal pour le mode « immediate ».
 
 struct Layer
@@ -66,6 +66,9 @@ struct Layer
     float4 trail_a;   // mode 8 : coins TL, TR du plan à la frame précédente (px locaux, comme fx) ; mode 18 incliné : en fractions de sortie
     float4 trail_b;   // mode 8 : coins BR, BL du plan à la frame précédente (comme src_prev) ; mode 18 incliné : en fractions de sortie
     float4 trail_mb;  // mode 8 : x = taps, y = force du flou de mouvement (ceux du mode 0) ; 0 ailleurs
+    float4 cover;     // x = desk-view cover 0..1, y = blur radius (quad px), z = dim, w unused
+    float4 persp[3];  // mode 0: rows of the homography quad point (0..1 in dst) -> camera uv (0..1 of the valid frame), xyz; read when layer_fx.y = 1
+    float4 layer_fx;  // x = transparency 0..1 (0 = opaque), every mode; y = 1 when persp applies; z, w unused
 };
 // Mode 15 (curseur modélisé) : le détail des emplacements est dans `frame_geometry.rs`, en tête
 // de la section « Curseur modélisé » (`cursor_model_cb`). Mode 17 (appareil modelé) : en tête de
@@ -424,12 +427,17 @@ constant float3 VOGEL_TAPS[21] = {
     float3(-0.633036, -0.758588, 0.087119)
 };
 
-inline float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 local_px,
-                             texture2d<float, access::sample> texY,
-                             texture2d<float, access::sample> texUV)
+// Vogel-disc blur of the camera texture at a radius in quad pixels. `valid` is the part of the
+// texture the picture fills (fx.xy): decoders allocate aligned textures (a 1080-line camera in a
+// 1088-line texture), so each tap is clamped half a chroma texel inside it, never into padding.
+inline float3 blur_webcam_radius(float2 uv, float max_r_px, float2 qpx, float2 local_px,
+                                 float2 valid,
+                                 texture2d<float, access::sample> texY,
+                                 texture2d<float, access::sample> texUV)
 {
-    float max_r_px = max(intensity, 0.0) * 22.0 + 1.5;
     float2 step = max_r_px / max(qpx, float2(1.0));
+    float2 chroma = max(float2(float(texUV.get_width()), float(texUV.get_height())), float2(1.0));
+    float2 hi = max(valid - 0.5 / chroma, float2(0.0));
     float noise = fract(52.9829189 * fract(0.06711056 * local_px.x + 0.00583715 * local_px.y));
     float angle = noise * 6.2831853;
     float s = sin(angle);
@@ -441,10 +449,32 @@ inline float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 loca
         float2 p = VOGEL_TAPS[k].xy;
         float w = VOGEL_TAPS[k].z;
         float2 rot_p = float2(p.x * c - p.y * s, p.x * s + p.y * c);
-        sum += sample_yuv(saturate(uv + rot_p * step), texY, texUV) * w;
+        sum += sample_yuv(clamp(uv + rot_p * step, float2(0.0), hi), texY, texUV) * w;
         total += w;
     }
     return sum / max(total, 1e-4);
+}
+
+// Camera homography (`persp`, read when `layer_fx.y` = 1): the camera point (0..1 of its valid
+// frame) seen at `local` (0..1 in the layer's dst quad), and in z whether there is one -- 0 when
+// the point is behind the projection (q.z <= 0) or outside the camera frame, where the layer is
+// transparent. Mirror of the HLSL `persp_camera`.
+inline float3 persp_camera(constant Layer &layer, float2 local)
+{
+    float3 p = float3(local, 1.0);
+    float3 q = float3(dot(layer.persp[0].xyz, p), dot(layer.persp[1].xyz, p), dot(layer.persp[2].xyz, p));
+    float2 cam = q.xy / max(q.z, 1e-6);
+    bool inside = q.z > 0.0 && all(cam >= 0.0) && all(cam <= 1.0);
+    return float3(cam, inside ? 1.0 : 0.0);
+}
+
+inline float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 local_px,
+                             float2 valid,
+                             texture2d<float, access::sample> texY,
+                             texture2d<float, access::sample> texUV)
+{
+    return blur_webcam_radius(uv, max(intensity, 0.0) * 22.0 + 1.5, qpx, local_px, valid, texY,
+                              texUV);
 }
 
 // Hash 2D -> [0,1) sans sin(). Miroir de `hash12` côté HLSL.
@@ -3226,22 +3256,16 @@ static float4 device_frame(float2 local, constant Layer &layer)
     return float4(rgb * a, a); // prémultiplié
 }
 
-fragment float4 ps_main(VSOut i [[stage_in]],
-                        constant Layer &layer [[buffer(0)]],
-                        texture2d<float, access::sample> texY [[texture(0)]],
-                        texture2d<float, access::sample> texUV [[texture(1)]],
-                        texture2d<float, access::sample> texImg [[texture(2)]],
-                        // Masque de segmentation du sujet webcam. Non lie tant qu'aucun
-                        // masque n'existe : Metal rend alors 0, ce qui est sans effet
-                        // puisque la branche n'est prise que si layer.fx.z > 0.5.
-                        texture2d<float, access::sample> texMask [[texture(3)]],
-                        // Champ de distance du sprite de curseur (mode 15 seulement), R16F, cf.
-                        // `cursor_sdf.rs`. Le sprite lui-même est en texture(2), comme aux
-                        // modes 7 et 13.
-                        texture2d<float, access::sample> texSdf [[texture(4)]],
-                        // Pyramide de profondeur de champ (`tilted_sample`), lue par le mode 8 et
-                        // par le repli du mode 18, qui garde texture(2) pour son rendu isolé.
-                        texture2d<float, access::sample> texDof [[texture(5)]])
+// The body of `ps_main`, which only adds the layer's transparency on top of it. Same resources
+// as `ps_main`, without their bindings (MSL only allows those on an entry point).
+inline float4 ps_layer(VSOut i,
+                       constant Layer &layer,
+                       texture2d<float, access::sample> texY,
+                       texture2d<float, access::sample> texUV,
+                       texture2d<float, access::sample> texImg,
+                       texture2d<float, access::sample> texMask,
+                       texture2d<float, access::sample> texSdf,
+                       texture2d<float, access::sample> texDof)
 {
     // mode 18 : l'écran CADRÉ (ombre, cadre, métrage, appareil) flouté comme UN objet rigide
     // (`FrameGeometry::screen_trail`), port 1:1 du HLSL. texImg = son rendu isolé, prémultiplié,
@@ -3732,12 +3756,25 @@ fragment float4 ps_main(VSOut i [[stage_in]],
     float3 rgb;
     // 1 sauf en detourage, ou il porte le masque du sujet. Cf. la branche fx.z plus bas.
     float alpha_mask = 1.0;
+    // 0 where a camera homography finds no camera point (`persp_camera`), 1 everywhere else.
+    float persp_keep = 1.0;
     if (layer.mode < 0.5)
     {
         // flou de mouvement par vélocité (§8)
         float2 uv_now = i.uv;
         float2 localp = (i.pout - layer.dst_prev.xy) / layer.dst_prev.zw;
         float2 uv_prev = layer.src_prev.xy + localp * (layer.src_prev.zw - layer.src_prev.xy);
+        if (layer.layer_fx.y > 0.5)
+        {
+            // Camera homography: the texture uv comes from the fragment's place in the quad
+            // (`src` is not used), scaled to the valid part of the decoder texture. The previous
+            // frame's uv is the same map at the quad's previous place.
+            float3 cam = persp_camera(layer, (i.pout - layer.dst.xy) / layer.dst.zw);
+            persp_keep = cam.z;
+            uv_now = cam.xy * layer.fx.xy;
+            float3 cam_prev = persp_camera(layer, localp);
+            uv_prev = (cam_prev.z > 0.5) ? cam_prev.xy * layer.fx.xy : uv_now;
+        }
         float2 duv = uv_now - uv_prev;
         float mb_scale = saturate(layer.mb.y);
         float2 duv_blur = duv * mb_scale;
@@ -3772,12 +3809,21 @@ fragment float4 ps_main(VSOut i [[stage_in]],
             }
             else if (effect > 1.5)
             {
-                rgb = mix(blur_webcam_bg(uv_now, layer.fx.w, layer.quad_px, i.local, texY, texUV), rgb, person);
+                rgb = mix(blur_webcam_bg(uv_now, layer.fx.w, layer.quad_px, i.local, layer.fx.xy, texY, texUV), rgb, person);
             }
             else
             {
                 alpha_mask = person;
             }
+        }
+
+        // Desk-view cover: the camera is being tilted, so the whole picture is blurred and
+        // dimmed (cover.x = strength, cover.y = radius in quad px, cover.z = dim at full cover).
+        if (layer.cover.x > 0.001)
+        {
+            float3 hidden = blur_webcam_radius(uv_now, layer.cover.y, layer.quad_px, i.local, layer.fx.xy,
+                                               texY, texUV);
+            rgb = mix(rgb, hidden, layer.cover.x) * (1.0 - layer.cover.z * layer.cover.x);
         }
     }
     else
@@ -3785,7 +3831,7 @@ fragment float4 ps_main(VSOut i [[stage_in]],
         rgb = layer.color.rgb;
     }
 
-    float alpha = layer.color.a * alpha_mask;
+    float alpha = layer.color.a * alpha_mask * persp_keep;
     if (layer.radius_px > 0.0)
     {
         // mb.w = 1 : écran sous le chrome de fenêtre, coins HAUTS carrés et rognés par l'arc du
@@ -3802,6 +3848,27 @@ fragment float4 ps_main(VSOut i [[stage_in]],
         alpha *= 1.0 - smoothstep(0.0, 1.5, d);
     }
     return float4(rgb * alpha, alpha);
+}
+
+fragment float4 ps_main(VSOut i [[stage_in]],
+                        constant Layer &layer [[buffer(0)]],
+                        texture2d<float, access::sample> texY [[texture(0)]],
+                        texture2d<float, access::sample> texUV [[texture(1)]],
+                        texture2d<float, access::sample> texImg [[texture(2)]],
+                        // Masque de segmentation du sujet webcam. Non lie tant qu'aucun
+                        // masque n'existe : Metal rend alors 0, ce qui est sans effet
+                        // puisque la branche n'est prise que si layer.fx.z > 0.5.
+                        texture2d<float, access::sample> texMask [[texture(3)]],
+                        // Champ de distance du sprite de curseur (mode 15 seulement), R16F, cf.
+                        // `cursor_sdf.rs`. Le sprite lui-même est en texture(2), comme aux
+                        // modes 7 et 13.
+                        texture2d<float, access::sample> texSdf [[texture(4)]],
+                        // Pyramide de profondeur de champ (`tilted_sample`), lue par le mode 8 et
+                        // par le repli du mode 18, qui garde texture(2) pour son rendu isolé.
+                        texture2d<float, access::sample> texDof [[texture(5)]])
+{
+    // Premultiplied, so the transparency scales all four channels; 0 leaves them as they are.
+    return ps_layer(i, layer, texY, texUV, texImg, texMask, texSdf, texDof) * (1.0 - layer.layer_fx.x);
 }
 
 // =================================================================================

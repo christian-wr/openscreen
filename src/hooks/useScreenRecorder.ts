@@ -2,6 +2,7 @@ import { fixWebmDuration } from "@fix-webm-duration/fix";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useScopedT } from "@/contexts/I18nContext";
+import { type AdditionalCameraPick, resolveAdditionalWebcams } from "@/lib/additionalWebcams";
 import { mixAudioTracks, nativeMicrophoneGain } from "@/lib/audioMix";
 import {
 	type NativeLinuxRecordingRequest,
@@ -31,6 +32,16 @@ import {
 	webcamVideoConstraints,
 } from "./webcamCaptureTarget";
 import { webcamDeviceIdentityFrom } from "./webcamDeviceIdentity";
+
+/** The cameras the system lists right now; empty when it cannot say. */
+async function listPresentCameras(): Promise<Array<{ deviceId: string; label: string }>> {
+	try {
+		const devices = await navigator.mediaDevices.enumerateDevices();
+		return devices.filter((device) => device.kind === "videoinput");
+	} catch {
+		return [];
+	}
+}
 
 const TARGET_FRAME_RATE = 60;
 const MIN_FRAME_RATE = 30;
@@ -110,6 +121,9 @@ type UseScreenRecorderReturn = {
 	setWebcamQuality: (quality: WebcamQualityId) => void;
 	webcamDeviceName: string | undefined;
 	setWebcamDeviceName: (deviceName: string | undefined) => void;
+	/** Cameras 2-4, in pick order. Recorded only by the native Windows path. */
+	webcamAdditionalDevices: AdditionalCameraPick[];
+	setWebcamAdditionalDevices: (devices: AdditionalCameraPick[]) => void;
 	systemAudioEnabled: boolean;
 	setSystemAudioEnabled: (enabled: boolean) => void;
 	webcamEnabled: boolean;
@@ -268,6 +282,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	useEffect(() => {
 		tRef.current = t;
 	}, [t]);
+	// Same reason as `tRef`: read by `finalizeNativeWindowsRecording`.
+	const tLaunchRef = useRef(tLaunch);
+	useEffect(() => {
+		tLaunchRef.current = tLaunch;
+	}, [tLaunch]);
 	useEffect(() => {
 		return window.electronAPI?.onNativeMacSystemAudioUnavailable?.(() => {
 			toast.warning(tRef.current("recording.systemAudioUnavailable"));
@@ -283,6 +302,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const [webcamDeviceId, setWebcamDeviceId] = useState<string | undefined>(undefined);
 	const [webcamQuality, setWebcamQuality] = useState<WebcamQualityId>(DEFAULT_WEBCAM_QUALITY);
 	const [webcamDeviceName, setWebcamDeviceName] = useState<string | undefined>(undefined);
+	const [webcamAdditionalDevices, setWebcamAdditionalDevices] = useState<AdditionalCameraPick[]>(
+		[],
+	);
 	const [systemAudioEnabled, setSystemAudioEnabled] = useState(false);
 	const [webcamEnabled, setWebcamEnabledState] = useState(false);
 	const [cursorCaptureMode, setCursorCaptureMode] = useState<CursorCaptureMode>("editable-overlay");
@@ -307,6 +329,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			camDeviceId?: string | null;
 			camDeviceName?: string | null;
 			camQuality?: WebcamQualityId | null;
+			camAdditionalDevices?: AdditionalCameraPick[] | null;
 			systemAudioEnabled: boolean;
 			cursorCaptureMode: CursorCaptureMode;
 		}) => {
@@ -325,6 +348,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				setWebcamDeviceName(prefs.camDeviceName ?? undefined);
 			}
 			setWebcamQuality(webcamQualityFrom(prefs.camQuality));
+			setWebcamAdditionalDevices(prefs.camAdditionalDevices ?? []);
 			setSystemAudioEnabled(prefs.systemAudioEnabled);
 			setCursorCaptureMode(prefs.cursorCaptureMode);
 			setRecordingPrefsLoaded(true);
@@ -781,6 +805,22 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			// own comment.
 			if (result.webcamDropped) {
 				toast.error(tRef.current("recording.cameraCaptureUnavailable"));
+			}
+			if (result.droppedWebcams?.length) {
+				toast.error(
+					tLaunchRef.current("webcam.camerasNotRecorded", {
+						names: result.droppedWebcams.join(", "),
+					}),
+				);
+			}
+			// Kept in the take, but shorter than it: the helper disabled these
+			// cameras mid-take, so the editor shows them ending early.
+			if (result.webcamsStoppedEarly?.length) {
+				toast.warning(
+					tLaunchRef.current("webcam.camerasStoppedEarly", {
+						names: result.webcamsStoppedEarly.join(", "),
+					}),
+				);
 			}
 			if (result.session) {
 				await window.electronAPI.setCurrentRecordingSession(result.session);
@@ -1258,6 +1298,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				// MediaRecorder against the helper's own process-spawn/WGC-init latency.
 				stopWebcamPreviewStream();
 			}
+			const additionalWebcams = webcamEnabled
+				? resolveAdditionalWebcams(
+						webcamAdditionalDevices,
+						await listPresentCameras(),
+						webcamIdentity.deviceId,
+					)
+				: [];
 			const request: NativeWindowsRecordingRequest = {
 				recordingId: activeRecordingId,
 				preferSoftwareEncoder: loadUserPreferences().preferSoftwareEncoder,
@@ -1292,6 +1339,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					height: webcamPresetFor(webcamQuality).height,
 					fps: WEBCAM_TARGET_FRAME_RATE,
 				},
+				// Cameras 2-4 ride along only with camera 1: with it off the helper gets no extras.
+				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
 				cursor: {
 					mode: cursorCaptureMode,
 				},
@@ -1307,6 +1356,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			// editor, long after the moment was gone.
 			if (result.webcamUnavailable) {
 				toast.error(t("recording.cameraCaptureUnavailable"));
+			}
+			if (result.unavailableWebcams?.length) {
+				toast.error(
+					tLaunch("webcam.camerasNotRecorded", { names: result.unavailableWebcams.join(", ") }),
+				);
 			}
 			if (result.microphoneDefaulted) {
 				toast.error(t("recording.microphoneDefaulted"));
@@ -2454,6 +2508,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		setWebcamQuality,
 		webcamDeviceName,
 		setWebcamDeviceName,
+		webcamAdditionalDevices,
+		setWebcamAdditionalDevices,
 		systemAudioEnabled,
 		setSystemAudioEnabled,
 		webcamEnabled,

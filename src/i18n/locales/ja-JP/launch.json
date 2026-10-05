@@ -48,6 +48,10 @@
 		"camera": "カメラ",
 		"cameraDevice": "カメラデバイス",
 		"quality": "カメラの画質",
+		"additionalCameras": "追加のカメラ",
+		"additionalCamerasHint": "Windows のネイティブ録画でのみ使用できます",
+		"camerasNotRecorded": "録画されませんでした: {{names}}",
+		"camerasStoppedEarly": "途中で停止しました: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

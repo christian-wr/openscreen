@@ -2023,7 +2023,6 @@ impl Compositor {
         });
         self.footage.set(Some(g.footage_quad([self.rw(), self.rh()])));
         let scene_preset = g.scene_preset.clone();
-        let mb_taps = g.mb_taps;
         let mb_amount = g.mb_amount;
         let source_t = g.source_t;
         let _padding_scale = g.padding_scale;
@@ -2034,7 +2033,6 @@ impl Compositor {
         let s_radius = g.s_radius;
         let frame_min_px = g.frame_min_px;
         let w_dst = g.w_dst;
-        let w_dst_prev = g.w_dst_prev;
         let w_px = g.w_px;
         let w_radius = g.w_radius;
         let shape_fade = g.shape_fade;
@@ -2438,13 +2436,16 @@ impl Compositor {
         let [su0, sv0, su1, sv1] = crate::frame_geometry::webcam_source_rect(
             [wcw, wch],
             [wtw as f32, wth as f32],
-            scene_ref
-                .as_ref()
-                .and_then(|scene| scene.layout.webcam_crop),
+            if g.webcam.full_frame {
+                None
+            } else {
+                scene_ref.as_ref().and_then(|scene| scene.layout.webcam_crop)
+            },
             w_px[0] / w_px[1].max(0.0001),
         );
-        // miroir = échanger les bornes u du rect source (flip horizontal).
-        let (u0, u1) = if lp.webcam_mirror { (su1, su0) } else { (su0, su1) };
+        // Mirror and the desk-shot turn are both bound swaps: u for horizontal, v for vertical.
+        let (u0, u1) = if g.webcam.flip_u { (su1, su0) } else { (su0, su1) };
+        let (v0, v1) = if g.webcam.flip_v { (sv1, sv0) } else { (sv0, sv1) };
         if lp.has_webcam {
             // L'ombre portée appartient à la bulle flottante PiP : elle se retire avec elle
             // (`shape_fade`), pour qu'au plein écran plus rien n'encadre la caméra. C'est une
@@ -2506,21 +2507,7 @@ impl Compositor {
                 self.ctx.PSSetShaderResources(3, Some(&[Some(m.srv.clone())]));
             }
             self.draw_video(
-                &LayerCB {
-                    dst: w_dst,
-                    src: [u0, sv0, u1, sv1],
-                    quad_px: w_px,
-                    radius_px: w_radius,
-                    mode: 0.0,
-                    // `color.a` porte l'alpha du découpage (`color.a * personne`) ; le RGB n'est
-                    // plus lu, le fond ayant déjà été peint sous la caméra.
-                    color: [0.0, 0.0, 0.0, 1.0],
-                    fx: [w_valid[0], w_valid[1], effect_code, blur_intensity],
-                    src_prev: [u0, sv0, u1, sv1], // src fixe (pas de zoom webcam)
-                    dst_prev: w_dst_prev,
-                    mb: [mb_taps, mb_amount, 1.0, 0.0],
-                    ..Default::default()
-                },
+                &g.webcam_video_cb([u0, v0, u1, v1], w_valid, effect_code, blur_intensity),
                 &wy,
                 &wuv,
             );

@@ -177,6 +177,17 @@ interface Window {
 			 * saved without it. Still a success — the screen video is intact.
 			 */
 			webcamDropped?: boolean;
+			/**
+			 * Labels (device name, else `Camera <n>`) of additional cameras (2-4) that
+			 * produced nothing usable and were left out of the session. Camera 1 is
+			 * `webcamDropped`.
+			 */
+			droppedWebcams?: string[];
+			/**
+			 * Labels of cameras (camera 1 included) that the helper disabled mid-take.
+			 * Their partial files are kept in the session; the user is told which.
+			 */
+			webcamsStoppedEarly?: string[];
 		}>;
 		pauseNativeWindowsRecording: () => Promise<{
 			success: boolean;
@@ -353,12 +364,9 @@ interface Window {
 			/** Why this recording ended before it was stopped, when it did. */
 			warning?: string;
 		}>;
-		findRecordingCamera: (videoPath: string) => Promise<{
-			success: boolean;
-			webcamVideoPath?: string;
-			offsetMs?: number;
-			error?: string;
-		}>;
+		findRecordingCamera: (
+			videoPath: string,
+		) => Promise<import("../src/lib/recordingSession").FindRecordingCameraResult>;
 		readBinaryFile: (filePath: string) => Promise<{
 			success: boolean;
 			data?: ArrayBuffer;

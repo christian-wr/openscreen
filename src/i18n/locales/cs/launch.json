@@ -48,6 +48,10 @@
 		"camera": "Kamera",
 		"cameraDevice": "Zařízení kamery",
 		"quality": "Kvalita kamery",
+		"additionalCameras": "Další kamery",
+		"additionalCamerasHint": "Pouze s nativním nahráváním ve Windows",
+		"camerasNotRecorded": "Nenahráno: {{names}}",
+		"camerasStoppedEarly": "Zastaveno předčasně: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

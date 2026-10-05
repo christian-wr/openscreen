@@ -786,6 +786,7 @@ bool MFEncoder::initialize(
     if (!succeeded(MFStartup(MF_VERSION), "MFStartup")) {
         return false;
     }
+    mfStarted_ = true;
 
     if (useDxgiInput_ && !initializeDxgiPipeline()) {
         std::cerr << "WARNING: The GPU DXGI encode path is unavailable on this machine; "
@@ -1984,6 +1985,9 @@ bool MFEncoder::finalize() {
     captureDevice_.Reset();
     context_.Reset();
     device_.Reset();
-    MFShutdown();
+    if (mfStarted_) {
+        MFShutdown();
+        mfStarted_ = false;
+    }
     return ok;
 }

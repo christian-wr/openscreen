@@ -48,6 +48,10 @@
 		"camera": "Camera",
 		"cameraDevice": "Camera device",
 		"quality": "Camera quality",
+		"additionalCameras": "Additional cameras",
+		"additionalCamerasHint": "Only with native Windows recording",
+		"camerasNotRecorded": "Not recorded: {{names}}",
+		"camerasStoppedEarly": "Stopped early: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

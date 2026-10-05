@@ -48,6 +48,10 @@
 		"camera": "攝影機",
 		"cameraDevice": "攝影機裝置",
 		"quality": "攝影機畫質",
+		"additionalCameras": "額外攝影機",
+		"additionalCamerasHint": "僅限 Windows 原生錄影",
+		"camerasNotRecorded": "未錄製：{{names}}",
+		"camerasStoppedEarly": "提前停止：{{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

@@ -6,6 +6,11 @@ import { useCameraPreviewStream } from "../../hooks/useCameraPreviewStream";
 import type { MicrophoneDevice } from "../../hooks/useMicrophoneDevices";
 import { WEBCAM_QUALITY_IDS, type WebcamQualityId } from "../../hooks/webcamCaptureTarget";
 import { Tooltip } from "../ui/tooltip";
+import {
+	type AdditionalCameraChoice,
+	type AdditionalCamerasLabels,
+	AdditionalCamerasList,
+} from "./AdditionalCamerasList";
 import styles from "./LaunchWindow.module.css";
 
 const LEVEL_SEGMENTS = 12;
@@ -29,6 +34,15 @@ export interface HudDeviceSettingsLabels {
 	checkingForUpdates: string;
 	cameraQuality: string;
 	cameraQualityOptions: Record<WebcamQualityId, string>;
+}
+
+/** Cameras 2-4. Left out while camera 1 is off, since they are only recorded beside it. */
+export interface HudAdditionalCameras {
+	selected: AdditionalCameraChoice[];
+	onChange: (next: AdditionalCameraChoice[]) => void;
+	/** No native Windows recording: the list stays visible, with its hint, but cannot be used. */
+	disabled: boolean;
+	labels: AdditionalCamerasLabels;
 }
 
 /** Segmented input-level bar, driven by the live analyser. */
@@ -101,6 +115,7 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 	canCheckForUpdates,
 	checkingForUpdates,
 	cameraQuality,
+	additionalCameras,
 	onSelectCameraQuality,
 	onSelectMic,
 	onSelectCamera,
@@ -123,6 +138,7 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 	canCheckForUpdates: boolean;
 	checkingForUpdates: boolean;
 	cameraQuality: WebcamQualityId;
+	additionalCameras?: HudAdditionalCameras;
 	onSelectCameraQuality: (quality: WebcamQualityId) => void;
 	onSelectMic: (device: MicrophoneDevice) => void;
 	onSelectCamera: (device: CameraDevice) => void;
@@ -223,6 +239,16 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 					);
 				})
 			)}
+			{hasCamera && additionalCameras && cameraDevices.length > 1 ? (
+				<AdditionalCamerasList
+					devices={cameraDevices}
+					primaryDeviceId={activeCameraId}
+					selected={additionalCameras.selected}
+					onChange={additionalCameras.onChange}
+					disabled={additionalCameras.disabled}
+					labels={additionalCameras.labels}
+				/>
+			) : null}
 			{hasCamera ? (
 				<>
 					{/* Below the device list, because it qualifies the camera picked

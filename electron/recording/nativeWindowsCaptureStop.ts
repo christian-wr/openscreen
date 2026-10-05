@@ -218,6 +218,93 @@ export function readWebcamFormat(output: string) {
 	}
 }
 
+type HelperEvent = Record<string, unknown>;
+
+/**
+ * Every `{"event":"<name>"…}` object in the output, in order.
+ *
+ * Locates each object start and slices it with `findObjectEnd` instead of
+ * parsing whole lines, because diagnostics can be glued in front of an event
+ * (see `readWebcamFormat`). Slices that do not parse are skipped.
+ */
+function readHelperEvents(output: string, name: string): HelperEvent[] {
+	const needle = `{"event":"${name}"`;
+	const events: HelperEvent[] = [];
+	let from = 0;
+	for (;;) {
+		const start = output.indexOf(needle, from);
+		if (start === -1) {
+			return events;
+		}
+		const end = findObjectEnd(output, start);
+		if (end === -1) {
+			return events;
+		}
+		from = end + 1;
+		try {
+			const parsed: unknown = JSON.parse(output.slice(start, end + 1));
+			if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+				events.push(parsed as HelperEvent);
+			}
+		} catch {
+			// Not a complete JSON object; keep looking.
+		}
+	}
+}
+
+/** A helper event's camera index; an event without one comes from an old helper (camera 0). */
+function eventCameraIndex(event: HelperEvent) {
+	return typeof event.index === "number" ? event.index : 0;
+}
+
+/** Indices of every camera the helper reported as unavailable (no index = camera 0). */
+export function readUnavailableWebcamIndices(output: string): number[] {
+	return readHelperEvents(output, "warning")
+		.filter((event) => event.code === "webcam-unavailable")
+		.map(eventCameraIndex);
+}
+
+/** The last `webcam-format` event of the given camera (no index = camera 0), or null. */
+export function readWebcamFormatAt(
+	output: string,
+	index: number,
+): ReturnType<typeof readWebcamFormat> {
+	const match = readHelperEvents(output, "webcam-format")
+		.filter((event) => eventCameraIndex(event) === index)
+		.at(-1);
+	return (match as ReturnType<typeof readWebcamFormat>) ?? null;
+}
+
+/**
+ * The `webcamPaths` list of the last `recording-stopped` event, or null when
+ * there is no such event or it carried no `webcamPaths` key.
+ *
+ * Null is the signal that matters: only a helper that sends the key says which
+ * cameras were still recording at stop, so only then may a camera missing from
+ * it be called one that stopped early. An old helper, or a stop without the
+ * event, must read as "unknown", never as "every camera stopped".
+ */
+export function readReportedWebcamPaths(output: string): string[] | null {
+	const event = readHelperEvents(output, "recording-stopped").at(-1);
+	if (!event || !Array.isArray(event.webcamPaths)) {
+		return null;
+	}
+	return event.webcamPaths.filter((entry): entry is string => typeof entry === "string");
+}
+
+/**
+ * Camera files the helper reported at stop: `webcamPaths`, else the single
+ * legacy `webcamPath`, else none.
+ */
+export function readStoppedWebcamPaths(output: string): string[] {
+	const reported = readReportedWebcamPaths(output);
+	if (reported) {
+		return reported;
+	}
+	const event = readHelperEvents(output, "recording-stopped").at(-1);
+	return typeof event?.webcamPath === "string" && event.webcamPath ? [event.webcamPath] : [];
+}
+
 /**
  * The most useful line of a failed helper run, for a toast.
  *

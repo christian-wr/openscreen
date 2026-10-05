@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { migrateRawDocumentToCurrent } from "../document/migrate";
 import {
+	additionalCameraTrackSchema,
 	annotationRegionSchema,
 	assetSchema,
 	audioTrackSchema,
@@ -273,6 +274,33 @@ describe("axcut-schema v8", () => {
 				}),
 			),
 		).not.toThrow();
+	});
+
+	describe("additionalCameraTracks", () => {
+		const base = { id: "asset_1", kind: "video", label: "x", originalPath: "/x.mp4" };
+
+		it("leaves an asset without the key untouched", () => {
+			expect(assetSchema.parse(base)).not.toHaveProperty("additionalCameraTracks");
+		});
+
+		it("fills defaults on each entry", () => {
+			const asset = assetSchema.parse({
+				...base,
+				additionalCameraTracks: [{ sourcePath: "/a.mp4" }, { sourcePath: "/b.mp4", label: "Desk" }],
+			});
+			expect(asset.additionalCameraTracks).toEqual([
+				{ sourcePath: "/a.mp4", startMs: 0, offsetMs: 0, visible: true, label: "" },
+				{ sourcePath: "/b.mp4", startMs: 0, offsetMs: 0, visible: true, label: "Desk" },
+			]);
+			expect(additionalCameraTrackSchema.safeParse({ sourcePath: "" }).success).toBe(false);
+		});
+
+		it("accepts more than three additional cameras: the list has no fixed limit", () => {
+			const entries = Array.from({ length: 5 }, (_, i) => ({ sourcePath: `/c${i}.mp4` }));
+			const parsed = assetSchema.safeParse({ ...base, additionalCameraTracks: entries });
+			expect(parsed.success).toBe(true);
+			expect(parsed.data?.additionalCameraTracks).toHaveLength(5);
+		});
 	});
 
 	it("assetSchema defaults cameraTrack to null", () => {

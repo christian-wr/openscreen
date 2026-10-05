@@ -3,6 +3,7 @@ import {
 	type ZoomDepth,
 	type ZoomScaleInput,
 } from "@/lib/ai-edition/timeline/zoom-scale";
+import type { CameraMirrorMode, CameraRotation } from "@/lib/cameraOrientation";
 import type { WebcamLayoutPreset } from "@/lib/compositeLayout";
 import type { CursorKind } from "@/lib/cursor/cursorThemes";
 import { DEFAULT_PROJECT_APPEARANCE, SETTING_BOUNDS } from "@/lib/projectDefaults";
@@ -320,12 +321,73 @@ export interface TrimRegion {
  * animates its size/position until it covers the entire canvas, visually hiding the
  * desktop behind it (the desktop keeps recording underneath, it's just covered).
  * No focus/depth/rotation needed: unlike ZoomRegion, the destination is always "fill the
- * canvas", so the shape stays intentionally simpler.
+ * canvas", so the shape stays intentionally simpler. Can be rotated 180° for desk shots.
  */
 export interface CameraFullscreenRegion {
 	id: string;
 	startMs: number;
 	endMs: number;
+	/** 180 turns the camera for a desk shot. Absent = 0. Read through `normalizeCameraRotation`. */
+	rotation?: CameraRotation;
+	/** Absent = "auto": the project's mirror, off while turned. Read through `normalizeCameraMirror`. */
+	mirror?: CameraMirrorMode;
+	/** Stored only as `false`: hides the "Desk mode" label of a turned section. Read through `showsDeskLabel`. */
+	deskLabel?: false;
+}
+
+export type CameraLayoutTemplate =
+	| "screen-pip"
+	| "camera-full"
+	| "camera-full-pip"
+	| "side-by-side";
+
+/** A rectangle in fractions (0..1) of the output frame. */
+export interface NormalizedRect {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/** One camera placed in a layout; `rect` overrides the template's own position. */
+export interface CameraLayoutSlot {
+	/** 0 = camera 1, k >= 1 = additional camera k. */
+	camera: number;
+	rect?: NormalizedRect;
+}
+
+/** A span of the timeline that lays several cameras out with a template. */
+export interface CameraLayoutRegion {
+	id: string;
+	startMs: number;
+	endMs: number;
+	template: CameraLayoutTemplate;
+	slots: CameraLayoutSlot[];
+	/** Desk view: `camera-full` only. */
+	rotation?: CameraRotation;
+	mirror?: CameraMirrorMode;
+	deskLabel?: false;
+}
+
+/** A point in fractions (0..1) of the camera image. */
+export interface CameraPoint {
+	x: number;
+	y: number;
+}
+
+/** Four corners (top-left, top-right, bottom-right, bottom-left) of a flat subject in the image. */
+export interface CameraPerspective {
+	corners: [CameraPoint, CameraPoint, CameraPoint, CameraPoint];
+	/** Width/height of the corrected picture. */
+	aspect: number;
+	margin?: number;
+}
+
+export interface CameraSettings {
+	rotation?: CameraRotation;
+	mirror?: boolean;
+	crop?: CropRegion;
+	perspective?: CameraPerspective;
 }
 
 export type AnnotationType = "text" | "image" | "figure" | "blur";

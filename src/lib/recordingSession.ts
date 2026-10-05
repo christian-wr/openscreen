@@ -1,3 +1,12 @@
+/** A recorded camera beyond camera 1 (which stays `webcamVideoPath`). */
+export interface AdditionalWebcam {
+	path: string;
+	label: string;
+}
+
+/** Camera 1 plus at most this many additional cameras (4 in total). */
+export const MAX_ADDITIONAL_WEBCAMS = 3;
+
 export interface ProjectMedia {
 	screenVideoPath: string;
 	webcamVideoPath?: string;
@@ -10,6 +19,8 @@ export interface ProjectMedia {
 	 * that much extra leading footage instead of showing stale camera frames.
 	 */
 	webcamOffsetMs?: number;
+	/** Cameras 2-4, in recording order. Omitted when there are none. */
+	additionalWebcams?: AdditionalWebcam[];
 	cursorCaptureMode?: CursorCaptureMode;
 }
 
@@ -53,6 +64,29 @@ function normalizePath(value: unknown): string | undefined {
 	return trimmed ? trimmed : undefined;
 }
 
+export function normalizeAdditionalWebcams(value: unknown): AdditionalWebcam[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+
+	const result: AdditionalWebcam[] = [];
+	for (const entry of value) {
+		if (result.length >= MAX_ADDITIONAL_WEBCAMS) {
+			break;
+		}
+		if (!entry || typeof entry !== "object") {
+			continue;
+		}
+		const raw = entry as Partial<AdditionalWebcam>;
+		const entryPath = normalizePath(raw.path);
+		if (!entryPath) {
+			continue;
+		}
+		result.push({ path: entryPath, label: typeof raw.label === "string" ? raw.label : "" });
+	}
+	return result;
+}
+
 export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 	if (!candidate || typeof candidate !== "object") {
 		return null;
@@ -66,6 +100,7 @@ export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 	}
 
 	const webcamVideoPath = normalizePath(raw.webcamVideoPath);
+	const additionalWebcams = normalizeAdditionalWebcams(raw.additionalWebcams);
 	const cursorCaptureMode = normalizeCursorCaptureMode(raw.cursorCaptureMode);
 	const webcamOffsetMs =
 		typeof raw.webcamOffsetMs === "number" && Number.isFinite(raw.webcamOffsetMs)
@@ -76,6 +111,7 @@ export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 		screenVideoPath,
 		...(webcamVideoPath ? { webcamVideoPath } : {}),
 		...(webcamOffsetMs !== undefined ? { webcamOffsetMs } : {}),
+		...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
 		...(cursorCaptureMode ? { cursorCaptureMode } : {}),
 	};
 }
@@ -98,4 +134,14 @@ export function normalizeRecordingSession(candidate: unknown): RecordingSession 
 				? raw.createdAt
 				: Date.now(),
 	};
+}
+
+/** Result of the `find-recording-camera` IPC, shared by the handler and the renderer typing. */
+export interface FindRecordingCameraResult {
+	success: boolean;
+	webcamVideoPath?: string;
+	offsetMs?: number;
+	/** Cameras 2-4 of the same recording, already approved for reading. */
+	additionalWebcams?: AdditionalWebcam[];
+	error?: string;
 }

@@ -2,6 +2,7 @@
 
 #include "realtime_scheduling.h"
 #include "webcam_format.h"
+#include "webcam_loss.h"
 
 #include <initguid.h>
 #include <dshow.h>
@@ -109,6 +110,63 @@ std::array<BYTE, 3> yuvToBgr(int y, int u, int v) {
     return {clampToByte(blue), clampToByte(green), clampToByte(red)};
 }
 
+std::wstring readPropertyString(IPropertyBag* properties, const wchar_t* name) {
+    VARIANT value;
+    VariantInit(&value);
+    std::wstring result;
+    if (SUCCEEDED(properties->Read(name, &value, nullptr)) && value.vt == VT_BSTR && value.bstrVal) {
+        result = value.bstrVal;
+    }
+    VariantClear(&value);
+    return result;
+}
+
+/**
+ * The video input devices DirectShow lists for the filter `clsid`.
+ *
+ * The fallback opens its filter by CLSID, which says nothing about WHICH
+ * device that is. The moniker does: its DevicePath is the same interface path
+ * Media Foundation reports as the symbolic link, so a device already opened
+ * there is recognized here. A moniker without a DevicePath (a plain software
+ * filter) is named by its display name instead.
+ */
+std::vector<DeviceCandidate> enumerateDevicesForClsid(const CLSID& clsid) {
+    std::vector<DeviceCandidate> candidates;
+    Microsoft::WRL::ComPtr<ICreateDevEnum> deviceEnumerator;
+    if (FAILED(CoCreateInstance(CLSID_SystemDeviceEnum, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&deviceEnumerator)))) {
+        return candidates;
+    }
+    Microsoft::WRL::ComPtr<IEnumMoniker> monikers;
+    // S_FALSE: the category is empty.
+    if (deviceEnumerator->CreateClassEnumerator(CLSID_VideoInputDeviceCategory, &monikers, 0) != S_OK || !monikers) {
+        return candidates;
+    }
+    Microsoft::WRL::ComPtr<IMoniker> moniker;
+    while (monikers->Next(1, &moniker, nullptr) == S_OK) {
+        Microsoft::WRL::ComPtr<IPropertyBag> properties;
+        if (SUCCEEDED(moniker->BindToStorage(nullptr, nullptr, IID_PPV_ARGS(&properties)))) {
+            CLSID monikerClsid{};
+            const std::wstring clsidText = readPropertyString(properties.Get(), L"CLSID");
+            if (!clsidText.empty() && SUCCEEDED(CLSIDFromString(clsidText.c_str(), &monikerClsid)) &&
+                IsEqualCLSID(monikerClsid, clsid)) {
+                DeviceCandidate candidate{
+                    readPropertyString(properties.Get(), L"FriendlyName"),
+                    readPropertyString(properties.Get(), L"DevicePath")};
+                if (candidate.identity.empty()) {
+                    LPOLESTR displayName = nullptr;
+                    if (SUCCEEDED(moniker->GetDisplayName(nullptr, nullptr, &displayName)) && displayName) {
+                        candidate.identity = displayName;
+                        CoTaskMemFree(displayName);
+                    }
+                }
+                candidates.push_back(std::move(candidate));
+            }
+        }
+        moniker.Reset();
+    }
+    return candidates;
+}
+
 } // namespace
 
 struct DirectShowWebcamCapture::Impl {
@@ -119,6 +177,8 @@ struct DirectShowWebcamCapture::Impl {
     Microsoft::WRL::ComPtr<ISampleGrabber> sampleGrabber;
     Microsoft::WRL::ComPtr<IBaseFilter> nullRenderer;
     Microsoft::WRL::ComPtr<IMediaControl> mediaControl;
+    /** Where the graph says the device left; optional, see captureLoop. */
+    Microsoft::WRL::ComPtr<IMediaEventEx> mediaEvent;
     bool comInitialized = false;
     bool running = false;
 };
@@ -218,6 +278,7 @@ bool DirectShowWebcamCapture::buildGraph(
     // Every attempt starts from empty filters. A RenderStream that fails can
     // leave pins connected behind it, and retrying on top of that half-built
     // graph is how you get a second failure that says nothing about the format.
+    impl_->mediaEvent.Reset();
     impl_->mediaControl.Reset();
     impl_->nullRenderer.Reset();
     impl_->sampleGrabber.Reset();
@@ -294,7 +355,8 @@ bool DirectShowWebcamCapture::initialize(
     const std::wstring& directShowClsid,
     int requestedWidth,
     int requestedHeight,
-    int requestedFps) {
+    int requestedFps,
+    const DeviceClaims& claims) {
     (void)deviceId;
     stop();
     delete impl_;
@@ -320,6 +382,27 @@ bool DirectShowWebcamCapture::initialize(
         return false;
     }
     selectedDeviceName_ = deviceName.empty() ? directShowClsid : deviceName;
+
+    // Every device this filter stands for has already been matched by name in
+    // Electron, so the only thing left to choose on is which one is free. With
+    // no moniker naming the filter, the CLSID itself is the identity.
+    const std::vector<DeviceCandidate> candidates = enumerateDevicesForClsid(selectedClsid);
+    if (candidates.empty()) {
+        deviceIdentity_ = directShowClsid;
+        if (claims.contains(deviceIdentity_)) {
+            std::cerr << "ERROR: DirectShow webcam filter is already recording in this take" << std::endl;
+            return false;
+        }
+    } else {
+        const int selectedIndex = selectUnclaimedDevice(candidates, L"", L"", claims);
+        if (selectedIndex < 0) {
+            std::cerr << "ERROR: Every DirectShow webcam for this filter is already recording in this take"
+                      << std::endl;
+            return false;
+        }
+        deviceIdentity_ = candidates[selectedIndex].identity;
+    }
+    std::wcerr << L"INFO: DirectShow webcam device " << deviceIdentity_ << std::endl;
 
     // The camera's own format first, a forced RGB32 conversion only if we cannot
     // read it.
@@ -354,6 +437,10 @@ bool DirectShowWebcamCapture::initialize(
     impl_->sampleGrabber->SetOneShot(FALSE);
     if (!succeeded(impl_->graph.As(&impl_->mediaControl), "QueryInterface(IMediaControl)")) {
         return false;
+    }
+    // Best-effort: without it a lost device goes unnoticed, as it always did.
+    if (FAILED(impl_->graph.As(&impl_->mediaEvent))) {
+        impl_->mediaEvent.Reset();
     }
 
     return true;
@@ -467,6 +554,7 @@ void DirectShowWebcamCapture::stop() {
         impl_->mediaControl->Stop();
     }
     impl_->running = false;
+    impl_->mediaEvent.Reset();
     impl_->mediaControl.Reset();
     impl_->nullRenderer.Reset();
     impl_->sampleGrabber.Reset();
@@ -484,6 +572,11 @@ void DirectShowWebcamCapture::captureLoop() {
     const MmcssThread mmcss(L"Capture");
     const HRESULT coinitHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     while (!stopRequested_ && impl_ && impl_->sampleGrabber) {
+        // The sample grabber keeps handing back its last buffer after the
+        // camera is gone, so the frames cannot tell; the graph's events can.
+        if (deviceLeftGraph()) {
+            break;
+        }
         long bufferSize = 0;
         HRESULT hr = impl_->sampleGrabber->GetCurrentBuffer(&bufferSize, nullptr);
         if (SUCCEEDED(hr) && bufferSize > 0) {
@@ -498,6 +591,32 @@ void DirectShowWebcamCapture::captureLoop() {
     if (SUCCEEDED(coinitHr)) {
         CoUninitialize();
     }
+}
+
+bool DirectShowWebcamCapture::deviceLeftGraph() {
+    if (!impl_->mediaEvent) {
+        return false;
+    }
+    long code = 0;
+    LONG_PTR param1 = 0;
+    LONG_PTR param2 = 0;
+    // A zero timeout drains what is queued without waiting for more.
+    while (SUCCEEDED(impl_->mediaEvent->GetEvent(&code, &param1, &param2, 0))) {
+        impl_->mediaEvent->FreeEventParams(code, param1, param2);
+        // EC_DEVICE_LOST's second parameter is 0 when the device was removed,
+        // 1 when it came back; a stream error or abort stops the graph.
+        const bool lost = (code == EC_DEVICE_LOST && param2 == 0) || code == EC_ERRORABORT ||
+            code == EC_STREAM_ERROR_STOPPED;
+        if (lost && !lost_.exchange(true)) {
+            reportWebcamLost(selectedDeviceName_, static_cast<HRESULT>(code));
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DirectShowWebcamCapture::isLost() const {
+    return lost_;
 }
 
 void DirectShowWebcamCapture::storeFrame(const BYTE* buffer, long length) {
@@ -592,6 +711,10 @@ int DirectShowWebcamCapture::height() const {
 
 int DirectShowWebcamCapture::fps() const {
     return fps_;
+}
+
+const std::wstring& DirectShowWebcamCapture::deviceIdentity() const {
+    return deviceIdentity_;
 }
 
 const std::wstring& DirectShowWebcamCapture::selectedDeviceName() const {

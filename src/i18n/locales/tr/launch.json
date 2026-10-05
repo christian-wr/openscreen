@@ -48,6 +48,10 @@
 		"camera": "Kamera",
 		"cameraDevice": "Kamera cihazı",
 		"quality": "Kamera kalitesi",
+		"additionalCameras": "Ek kameralar",
+		"additionalCamerasHint": "Yalnızca yerel Windows kaydıyla",
+		"camerasNotRecorded": "Kaydedilmedi: {{names}}",
+		"camerasStoppedEarly": "Erken durdu: {{names}}",
 		"quality1080p": "1080p",
 		"quality1440p": "1440p",
 		"quality2160p": "4K"

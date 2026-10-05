@@ -23,6 +23,9 @@ cbuffer Layer : register(b0)
     float4 trail_a;   // mode 8 : coins TL, TR du plan à la frame précédente (px locaux, comme fx) ; mode 18 incliné : en fractions de sortie
     float4 trail_b;   // mode 8 : coins BR, BL du plan à la frame précédente (comme src_prev) ; mode 18 incliné : en fractions de sortie
     float4 trail_mb;  // mode 8 : x = taps, y = force du flou de mouvement (ceux du mode 0) ; mode 18 incliné : le `mb` du mode 8 (profondeur de champ), et `color.xy` sa lampe ; 0 ailleurs
+    float4 cover;     // x = desk-view cover 0..1, y = blur radius (quad px), z = dim, w unused
+    float4 persp[3];  // mode 0: rows of the homography quad point (0..1 in dst) -> camera uv (0..1 of the valid frame), xyz; read when layer_fx.y = 1
+    float4 layer_fx;  // x = transparency 0..1 (0 = opaque), every mode; y = 1 when persp applies; z, w unused
 };
 // Mode 15 (curseur modélisé) : le détail des emplacements est dans `frame_geometry.rs`, en tête
 // de la section « Curseur modélisé » (`cursor_model_cb`). Mode 17 (appareil modelé) : en tête de
@@ -475,6 +478,19 @@ float band_cov(float x, float half_w)
     return saturate(half_w + 0.5 - abs(x));
 }
 
+// Camera homography (`persp`, read when `layer_fx.y` = 1): the camera point (0..1 of its valid
+// frame) seen at `local` (0..1 in the layer's dst quad), and in z whether there is one -- 0 when
+// the point is behind the projection (q.z <= 0) or outside the camera frame, where the layer is
+// transparent.
+float3 persp_camera(float2 local)
+{
+    float3 p = float3(local, 1.0);
+    float3 q = float3(dot(persp[0].xyz, p), dot(persp[1].xyz, p), dot(persp[2].xyz, p));
+    float2 cam = q.xy / max(q.z, 1e-6);
+    bool inside = q.z > 0.0 && all(cam >= 0.0) && all(cam <= 1.0);
+    return float3(cam, inside ? 1.0 : 0.0);
+}
+
 // Fond flouté pour le mode "blur" de la webcam.
 // Disque de Vogel (spirale à angle d'or) à 21 échantillons avec pondération gaussienne et
 // rotation par pixel via Interleaved Gradient Noise (IGN) pour un bokeh photographique doux, isotrope et rapide.
@@ -502,10 +518,15 @@ static const float3 VOGEL_TAPS[21] = {
     float3(-0.633036, -0.758588, 0.087119)
 };
 
-float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 local_px)
+// Vogel-disc blur of the camera texture at a radius in quad pixels. `valid` is the part of the
+// texture the picture fills (fx.xy): decoders allocate aligned textures (a 1080-line camera in a
+// 1088-line texture), so each tap is clamped half a chroma texel inside it, never into padding.
+float3 blur_webcam_radius(float2 uv, float max_r_px, float2 qpx, float2 local_px, float2 valid)
 {
-    float max_r_px = max(intensity, 0.0) * 22.0 + 1.5;
     float2 step = max_r_px / max(qpx, 1.0);
+    float cw, ch;
+    texUV.GetDimensions(cw, ch);
+    float2 hi = max(valid - 0.5 / max(float2(cw, ch), 1.0), 0.0);
     // Interleaved Gradient Noise pour rotation aléatoire par pixel
     float noise = frac(52.9829189 * frac(0.06711056 * local_px.x + 0.00583715 * local_px.y));
     float angle = noise * 6.2831853;
@@ -518,10 +539,15 @@ float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 local_px)
         float2 p = VOGEL_TAPS[k].xy;
         float w = VOGEL_TAPS[k].z;
         float2 rot_p = float2(p.x * c - p.y * s, p.x * s + p.y * c);
-        sum += sample_yuv(saturate(uv + rot_p * step)) * w;
+        sum += sample_yuv(clamp(uv + rot_p * step, 0.0, hi)) * w;
         total += w;
     }
     return sum / max(total, 1e-4);
+}
+
+float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 local_px, float2 valid)
+{
+    return blur_webcam_radius(uv, max(intensity, 0.0) * 22.0 + 1.5, qpx, local_px, valid);
 }
 
 // ============ Curseur MODÉLISÉ (mode 15) ============
@@ -3468,7 +3494,8 @@ float4 device_frame(float2 local)
     return float4(rgb * a, a); // prémultiplié
 }
 
-float4 ps_main(VSOut i) : SV_Target
+// The body of `ps_main`, which only adds the layer's transparency on top of it.
+float4 ps_layer(VSOut i)
 {
     // mode 18 : l'écran CADRÉ (ombre, cadre, métrage, appareil) flouté comme UN objet rigide
     // (`FrameGeometry::screen_trail`). t2 = son rendu isolé, prémultiplié, à la taille de la
@@ -3980,6 +4007,8 @@ float4 ps_main(VSOut i) : SV_Target
     float3 rgb;
     // 1 sauf en mode detourage, ou il porte le masque du sujet (cf. la branche fx.z ci-dessous).
     float alpha_mask = 1.0;
+    // 0 where a camera homography finds no camera point (`persp_camera`), 1 everywhere else.
+    float persp_keep = 1.0;
     if (mode < 0.5)
     {
         // flou de mouvement par vélocité (§8) : pour CE pixel sortie, uv à la frame
@@ -3988,6 +4017,17 @@ float4 ps_main(VSOut i) : SV_Target
         float2 uv_now = i.uv;
         float2 localp = (i.pout - dst_prev.xy) / dst_prev.zw;
         float2 uv_prev = src_prev.xy + localp * (src_prev.zw - src_prev.xy);
+        if (layer_fx.y > 0.5)
+        {
+            // Camera homography: the texture uv comes from the fragment's place in the quad
+            // (`src` is not used), scaled to the valid part of the decoder texture. The previous
+            // frame's uv is the same map at the quad's previous place.
+            float3 cam = persp_camera((i.pout - dst.xy) / dst.zw);
+            persp_keep = cam.z;
+            uv_now = cam.xy * fx.xy;
+            float3 cam_prev = persp_camera(localp);
+            uv_prev = (cam_prev.z > 0.5) ? cam_prev.xy * fx.xy : uv_now;
+        }
         float2 duv = uv_now - uv_prev;
         float mb_scale = saturate(mb.y);
         float2 duv_blur = duv * mb_scale;
@@ -4028,12 +4068,20 @@ float4 ps_main(VSOut i) : SV_Target
             }
             else if (effect > 1.5)
             {
-                rgb = lerp(blur_webcam_bg(uv_now, fx.w, quad_px, i.local), rgb, person);
+                rgb = lerp(blur_webcam_bg(uv_now, fx.w, quad_px, i.local, fx.xy), rgb, person);
             }
             else
             {
                 alpha_mask = person;
             }
+        }
+
+        // Desk-view cover: the camera is being tilted, so the whole picture is blurred and
+        // dimmed (cover.x = strength, cover.y = radius in quad px, cover.z = dim at full cover).
+        if (cover.x > 0.001)
+        {
+            float3 hidden = blur_webcam_radius(uv_now, cover.y, quad_px, i.local, fx.xy);
+            rgb = lerp(rgb, hidden, cover.x) * (1.0 - cover.z * cover.x);
         }
     }
     else
@@ -4041,7 +4089,7 @@ float4 ps_main(VSOut i) : SV_Target
         rgb = color.rgb;
     }
 
-    float alpha = color.a * alpha_mask;
+    float alpha = color.a * alpha_mask * persp_keep;
     if (radius_px > 0.0)
     {
         // `quad_px` est en px de SORTIE (le render target porte la géométrie de sortie) et
@@ -4063,6 +4111,12 @@ float4 ps_main(VSOut i) : SV_Target
         alpha *= 1.0 - smoothstep(0.0, 1.5, d); // ~1.5px feather (§7 fwidth-like)
     }
     return float4(rgb * alpha, alpha); // prémultiplié
+}
+
+float4 ps_main(VSOut i) : SV_Target
+{
+    // Premultiplied, so the transparency scales all four channels; 0 leaves them as they are.
+    return ps_layer(i) * (1.0 - layer_fx.x);
 }
 
 // ============ RGB -> NV12 (§5) : deux passes vers les plans d'une texture NV12 ============

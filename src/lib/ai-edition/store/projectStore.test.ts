@@ -251,6 +251,82 @@ describe("useProjectStore", () => {
 		expect(camera?.offsetMs).toBe(-193);
 	});
 
+	it("addAsset keeps a recording's additional cameras beside camera 1", async () => {
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: sampleDoc,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+		bridgeMocks.save.mockImplementation(async (document) => ({ success: true, document }));
+		// biome-ignore lint/suspicious/noExplicitAny: test-only stub of the legacy contextBridge surface
+		(window as any).electronAPI.findRecordingCamera.mockResolvedValue({
+			success: true,
+			webcamVideoPath: "/w.mp4",
+			offsetMs: 0,
+			additionalWebcams: [{ path: "/w-2.mp4", label: "Desk" }],
+		});
+		bridgeMocks.addAsset.mockResolvedValue({
+			assetId: "asset_1",
+			document: {
+				...sampleDoc,
+				assets: [
+					{ id: "asset_1", kind: "video", label: "screen.mp4", originalPath: "/tmp/screen.mp4" },
+				],
+				project: { ...sampleDoc.project, primaryAssetId: "asset_1" },
+			},
+		});
+
+		await useProjectStore.getState().addAsset("/tmp/screen.mp4");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const asset = useProjectStore.getState().document?.assets[0];
+		expect(asset?.cameraTrack?.sourcePath).toBe("/w.mp4");
+		expect(asset?.additionalCameraTracks).toHaveLength(1);
+		expect(asset?.additionalCameraTracks?.[0]).toMatchObject({
+			sourcePath: "/w-2.mp4",
+			label: "Desk",
+			startMs: 0,
+			offsetMs: 0,
+			visible: true,
+		});
+	});
+
+	it("addAsset adds no additionalCameraTracks key when the recording has no extras", async () => {
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: sampleDoc,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+		bridgeMocks.save.mockImplementation(async (document) => ({ success: true, document }));
+		// biome-ignore lint/suspicious/noExplicitAny: test-only stub of the legacy contextBridge surface
+		(window as any).electronAPI.findRecordingCamera.mockResolvedValue({
+			success: true,
+			webcamVideoPath: "/w.mp4",
+			offsetMs: 0,
+		});
+		bridgeMocks.addAsset.mockResolvedValue({
+			assetId: "asset_1",
+			document: {
+				...sampleDoc,
+				assets: [
+					{ id: "asset_1", kind: "video", label: "screen.mp4", originalPath: "/tmp/screen.mp4" },
+				],
+				project: { ...sampleDoc.project, primaryAssetId: "asset_1" },
+			},
+		});
+
+		await useProjectStore.getState().addAsset("/tmp/screen.mp4");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const asset = useProjectStore.getState().document?.assets[0];
+		expect(asset?.cameraTrack?.sourcePath).toBe("/w.mp4");
+		expect(asset).not.toHaveProperty("additionalCameraTracks");
+	});
+
 	it("addAsset stays silent (no toast) when a plain imported video has no camera", async () => {
 		useProjectStore.setState({
 			projectId: "proj_test",

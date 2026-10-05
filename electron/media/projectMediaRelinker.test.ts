@@ -62,6 +62,54 @@ describe("relinkProjectMedia", () => {
 		expect(logged.join("\n")).toContain(currentWebcamPath);
 	});
 
+	it("relinks additional cameras by index and leaves absent ones alone", async () => {
+		const currentScreenPath = path.join(tempDir, "recording-43.mp4");
+		const currentWebcamPath = path.join(tempDir, "recording-43-webcam.mp4");
+		const currentExtra2 = path.join(tempDir, "recording-43-webcam-2.mp4");
+		const currentExtra3 = path.join(tempDir, "recording-43-webcam-3.mp4");
+		await fs.writeFile(currentScreenPath, "screen bytes");
+		await fs.writeFile(currentWebcamPath, "webcam bytes");
+		await fs.writeFile(currentExtra2, "extra 2");
+		await fs.writeFile(currentExtra3, "extra 3");
+		await registerMediaLinks(tempDir, currentScreenPath, {
+			webcamVideoPath: currentWebcamPath,
+			additionalWebcams: [
+				{ path: currentExtra2, label: "Desk" },
+				{ path: currentExtra3, label: "Wide" },
+			],
+		});
+
+		const project = {
+			assets: [
+				{
+					id: "asset-1",
+					originalPath: "C:\\Users\\demo\\recording-43.mp4",
+					sizeBytes: Buffer.byteLength("screen bytes"),
+					cameraTrack: {
+						sourcePath: "C:\\Users\\demo\\recording-43-webcam.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+					},
+					additionalCameraTracks: [
+						{ sourcePath: "C:\\Users\\demo\\recording-43-webcam-2.mp4", label: "Desk" },
+						{ sourcePath: "C:\\Users\\demo\\recording-43-webcam-3.mp4", label: "Wide" },
+					],
+				},
+			],
+		};
+
+		const relinked = (await relinkProjectMedia(project, tempDir)) as typeof project;
+
+		expect(relinked.assets[0].cameraTrack.sourcePath).toBe(currentWebcamPath);
+		expect(relinked.assets[0].additionalCameraTracks.map((t) => t.sourcePath)).toEqual([
+			currentExtra2,
+			currentExtra3,
+		]);
+		expect(relinked.assets[0].additionalCameraTracks.map((t) => t.label)).toEqual(["Desk", "Wide"]);
+		expect(project.assets[0].additionalCameraTracks[0].sourcePath).toContain("demo");
+	});
+
 	it("refuses to relink an asset the document recorded no size for", async () => {
 		// A same-named recording exists and is registered with its webcam, so a
 		// basename match would resolve — that is exactly what must not happen. The

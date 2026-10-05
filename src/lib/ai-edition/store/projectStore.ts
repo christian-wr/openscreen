@@ -381,6 +381,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 					const camDims = await probeVideoDimensions(toFileUrl(camera.webcamVideoPath)).catch(
 						() => null,
 					);
+					// Cameras 2-4 get the same treatment as camera 1 (same T0 on Windows, so the
+					// same offset) and the same non-fatal dimension probe.
+					const extras = await Promise.all(
+						(camera.additionalWebcams ?? []).map(async (extra) => {
+							const dims = await probeVideoDimensions(toFileUrl(extra.path)).catch(() => null);
+							return {
+								sourcePath: extra.path,
+								label: extra.label,
+								startMs: 0,
+								offsetMs: Math.round(camera.offsetMs ?? 0),
+								visible: true,
+								...(dims ?? {}),
+							};
+						}),
+					);
 					const linked = {
 						sourcePath: camera.webcamVideoPath,
 						startMs: 0,
@@ -403,7 +418,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 					const next: AxcutDocument = {
 						...document,
 						assets: document.assets.map((a) =>
-							a.id === addedAsset.id ? { ...a, cameraTrack: linked } : a,
+							a.id === addedAsset.id
+								? {
+										...a,
+										cameraTrack: linked,
+										...(extras.length > 0 ? { additionalCameraTracks: extras } : {}),
+									}
+								: a,
 						),
 					};
 					// Only adopt the linked document if it actually reached disk -- otherwise
