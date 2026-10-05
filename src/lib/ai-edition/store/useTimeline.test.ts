@@ -3108,6 +3108,21 @@ describe("useTimeline.setCameraSettings", () => {
 		expect(stored().cameraSettings).toEqual([null, { mirror: true }]);
 	});
 
+	it("a patch that changes nothing writes nothing", async () => {
+		seed(null);
+		bridgeMocks.save.mockClear();
+		const { result } = renderTimeline();
+		const before = useProjectStore.getState().document;
+		await act(async () => {
+			await result.current.setCameraSettings(9, { mirror: true });
+			await result.current.setCameraSettings(0, { mirror: true });
+			await result.current.setCameraSettings(1, null);
+		});
+		expect(useProjectStore.getState().document).toBe(before);
+		expect(useProjectStore.getState().document?.legacyEditor).toBeNull();
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+	});
+
 	it("camera 1 accepts only a perspective", async () => {
 		seed({});
 		const { result } = renderTimeline();

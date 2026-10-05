@@ -54,6 +54,14 @@ describe("resizeSlotRect", () => {
 		expect(next.width).toBeGreaterThan(square.width);
 	});
 
+	it("shrinks on a single-axis inward drag", () => {
+		const next = resizeSlotRect(start, "se", -0.05, 0, 16 / 9, FRAME);
+		expect(next.width).toBeCloseTo(start.width - 0.05);
+		expect(pixelAspect(next)).toBeCloseTo(16 / 9);
+		const vertical = resizeSlotRect(start, "se", 0, -0.02, 16 / 9, FRAME);
+		expect(vertical.height).toBeLessThan(start.height);
+	});
+
 	it("clamps to a minimum size", () => {
 		const next = resizeSlotRect(start, "se", -0.5, -0.5, 16 / 9, FRAME);
 		const shortSidePx = Math.min(next.width * FRAME.width, next.height * FRAME.height);

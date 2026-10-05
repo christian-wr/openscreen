@@ -99,7 +99,11 @@ export function resizeSlotRect(
 	const roomY = signY > 0 ? 1 - fixedY : fixedY;
 	const maxWidth = Math.min(roomX * frame.width, roomY * frame.height * aspect);
 	// The frame wins over the minimum: a place never leaves it.
-	const widthPx = Math.min(Math.max(fromX, fromY, minWidth), maxWidth);
+	// Follow the axis with the larger change, so a single-axis inward drag shrinks the box too.
+	const changeX = Math.abs(fromX - rect.width * frame.width);
+	const changeY = Math.abs(fromY - rect.height * frame.height * aspect);
+	const asked = changeX >= changeY ? fromX : fromY;
+	const widthPx = Math.min(Math.max(asked, minWidth), maxWidth);
 	const width = widthPx / frame.width;
 	const height = widthPx / aspect / frame.height;
 	return {

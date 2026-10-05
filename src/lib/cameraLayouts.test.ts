@@ -5,6 +5,7 @@ import {
 	MAX_CAMERAS,
 	normalizeCameraLayoutRegions,
 	normalizeCameraSettings,
+	patchCameraSettings,
 } from "./cameraLayouts";
 
 const base = { id: "a", startMs: 0, endMs: 1000 };
@@ -241,5 +242,37 @@ describe("normalizeCameraSettings", () => {
 			{ crop },
 			{},
 		]);
+	});
+});
+
+describe("patchCameraSettings", () => {
+	it("an out-of-range index leaves the list alone", () => {
+		expect(patchCameraSettings([null, { mirror: true }], MAX_CAMERAS, { mirror: true })).toEqual([
+			null,
+			{ mirror: true },
+		]);
+		expect(patchCameraSettings(undefined, -1, { mirror: true })).toBeUndefined();
+		expect(patchCameraSettings(undefined, 1.5, { mirror: true })).toBeUndefined();
+	});
+
+	it("trims trailing nulls but keeps a middle hole", () => {
+		const raw = [null, { mirror: true }, null, { rotation: 180 }];
+		expect(patchCameraSettings(raw, 3, null)).toEqual([null, { mirror: true }]);
+		expect(patchCameraSettings(raw, 1, null)).toEqual([null, null, null, { rotation: 180 }]);
+	});
+
+	it("undefined clears a key", () => {
+		const raw = [null, { mirror: true, rotation: 180 }];
+		expect(patchCameraSettings(raw, 1, { mirror: undefined })).toEqual([null, { rotation: 180 }]);
+	});
+
+	it("drops defaults", () => {
+		expect(patchCameraSettings(undefined, 1, { rotation: 0, mirror: false })).toBeUndefined();
+		expect(patchCameraSettings([null, { mirror: true }], 1, { mirror: false })).toBeUndefined();
+	});
+
+	it("null resets a middle camera", () => {
+		const raw = [null, { mirror: true }, { rotation: 180 }];
+		expect(patchCameraSettings(raw, 1, null)).toEqual([null, null, { rotation: 180 }]);
 	});
 });

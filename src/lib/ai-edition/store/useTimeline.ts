@@ -1387,6 +1387,13 @@ export function useTimeline() {
 			if (!document) return;
 			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 			const list = patchCameraSettings(legacy.cameraSettings, index, patch);
+			// Nothing changes (out-of-range index, camera-1 patch without a perspective, resetting a
+			// default camera): no save and no empty undo step.
+			if (
+				JSON.stringify(list ?? []) ===
+				JSON.stringify(normalizeCameraSettings(legacy.cameraSettings))
+			)
+				return;
 			const { cameraSettings: _prev, ...rest } = legacy;
 			const next: AxcutDocument = {
 				...document,
