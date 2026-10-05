@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AxcutAsset, AxcutClip, AxcutDocument } from "../schema";
-import { camerasForClipAt, projectCameras } from "./cameraList";
+import { camerasForClipAt, camerasOfSection, projectCameras } from "./cameraList";
 
 const t = (key: string, vars?: Record<string, unknown>) => `${key}:${String(vars?.n ?? "")}`;
 
@@ -60,5 +60,23 @@ describe("camerasForClipAt", () => {
 		} as unknown as AxcutDocument;
 		expect(camerasForClipAt(doc, 2, t)).toHaveLength(3);
 		expect(camerasForClipAt(doc, 7, t)).toHaveLength(1);
+	});
+});
+
+describe("camerasOfSection", () => {
+	const single = asset({ id: "a2", additionalCameraTracks: [] });
+	const doc = {
+		assets: [asset(), single],
+		timeline: { clips: [clip("c1", "a1", 0, 5), clip("c2", "a2", 5, 10)] },
+	} as unknown as AxcutDocument;
+
+	it("reads the cameras of the anchored row's asset, not of the clip at its middle", () => {
+		// The span's middle (7 s) lies on the single-camera clip; the anchor names a1.
+		const row = { assetId: "a1", startMs: 4000, endMs: 10000 };
+		expect(camerasOfSection(doc, row, t)).toHaveLength(3);
+	});
+
+	it("falls back to the clip under the middle for a row without an anchor", () => {
+		expect(camerasOfSection(doc, { startMs: 4000, endMs: 10000 }, t)).toHaveLength(1);
 	});
 });

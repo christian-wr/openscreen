@@ -54,9 +54,14 @@ describe("camerasForLayoutMenu", () => {
 		expect(camerasForLayoutMenu(clips, assets, 7, t)).toHaveLength(2);
 	});
 
-	it("falls back to the nearest clip with cameras when the playhead clip has none", () => {
+	it("keeps a camera-less clip under the playhead camera-less", () => {
 		const clips = [clip("a", "twoCams", 0, 5), clip("b", "screenOnly", 5, 10)];
-		expect(camerasForLayoutMenu(clips, assets, 8, t)).toHaveLength(2);
+		expect(camerasForLayoutMenu(clips, assets, 8, t)).toEqual([]);
+	});
+
+	it("falls back to the nearest clip with cameras only when no clip is under the playhead", () => {
+		const clips = [clip("a", "twoCams", 0, 5), clip("b", "screenOnly", 5, 10)];
+		expect(camerasForLayoutMenu(clips, assets, 12, t)).toHaveLength(2);
 	});
 
 	it("is empty only when no clip has a camera", () => {

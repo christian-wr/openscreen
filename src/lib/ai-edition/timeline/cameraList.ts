@@ -50,3 +50,22 @@ export function camerasForClipAt(
 		t,
 	);
 }
+
+/**
+ * The cameras of the asset a camera section is anchored to (its row's `assetId`). A row
+ * without an anchor (hand-written or legacy) falls back to the clip under its middle, so a
+ * section touching a cut is not taken for its neighbour's.
+ */
+export function camerasOfSection(
+	document: AxcutDocument,
+	row: { assetId?: string; startMs: number; endMs: number },
+	t: Translate,
+): ProjectCamera[] {
+	if (row.assetId !== undefined) {
+		return projectCameras(
+			document.assets.find((a) => a.id === row.assetId),
+			t,
+		);
+	}
+	return camerasForClipAt(document, (row.startMs + row.endMs) / 2000, t);
+}

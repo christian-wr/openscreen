@@ -58,7 +58,7 @@ import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { rafCoalesce } from "@/lib/ai-edition/store/rafCoalesce";
 import { useEditorSettings } from "@/lib/ai-edition/store/useEditorSettings";
 import type { useTimeline } from "@/lib/ai-edition/store/useTimeline";
-import { camerasForClipAt } from "@/lib/ai-edition/timeline/cameraList";
+import { camerasOfSection } from "@/lib/ai-edition/timeline/cameraList";
 import { formatSeconds } from "@/lib/ai-edition/timeline/format";
 import { coalescedTrimGroups } from "@/lib/ai-edition/timeline/trim-mapping";
 import {
@@ -1187,10 +1187,9 @@ function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }
 		);
 	}
 
-	// The cameras of the clip a layout section sits on, read at its middle so a section touching a
-	// cut is not taken for its neighbour's.
-	const camerasUnder = (region: { startMs: number; endMs: number }) =>
-		doc ? camerasForClipAt(doc, (region.startMs + region.endMs) / 2000, ts) : [];
+	// The cameras of the asset a camera section is anchored to (its row's `assetId`).
+	const camerasUnder = (region: { assetId?: string; startMs: number; endMs: number }) =>
+		doc ? camerasOfSection(doc, region, ts) : [];
 	const blockPreset = isWebcamBlockLayout(settings.webcamLayoutPreset);
 
 	if (selection.kind === "cameraLayout") {

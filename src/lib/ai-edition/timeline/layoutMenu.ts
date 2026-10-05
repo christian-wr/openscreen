@@ -50,8 +50,9 @@ export function defaultLayoutCameras(
 
 /**
  * The cameras the "Add layout" menu judges its templates by: those of the clip under the
- * playhead, and when that clip has none available (a screen-only clip, or the playhead past
- * every clip) those of the nearest clip that has some. Empty only when no clip has a camera.
+ * playhead, even when it has none (a section anchored on a screen-only clip would reference
+ * cameras its asset lacks). Only with no clip under the playhead (past every clip) does the
+ * menu fall back to the nearest clip that has cameras.
  */
 export function camerasForLayoutMenu(
 	clips: AxcutClip[],
@@ -64,9 +65,14 @@ export function camerasForLayoutMenu(
 			assets.find((a) => a.id === clip.assetId),
 			t,
 		).filter((c) => c.available);
-	const under = locateVirtualPosition(clips, timelineSec)?.clip;
-	const own = under ? availableOf(under) : [];
-	if (own.length > 0) return own;
+	// `locateVirtualPosition` clamps to the nearest clip; "under" means the playhead is
+	// really inside it (its end included, for the playhead parked at the timeline's end).
+	const located = locateVirtualPosition(clips, timelineSec)?.clip;
+	const under =
+		located && timelineSec >= located.timelineStartSec && timelineSec <= located.timelineEndSec
+			? located
+			: null;
+	if (under) return availableOf(under);
 	const distance = (clip: AxcutClip) =>
 		Math.max(clip.timelineStartSec - timelineSec, timelineSec - clip.timelineEndSec, 0);
 	let best: { cameras: ProjectCamera[]; distance: number } | null = null;
