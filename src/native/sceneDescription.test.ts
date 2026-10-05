@@ -3040,3 +3040,161 @@ describe("buildSceneDescription.audioTracks", () => {
 		expect(buildSceneDescription(doc).audioTracks).toEqual([]);
 	});
 });
+
+// --- extra cameras, camera settings and layout regions ----------------------
+
+describe("buildSceneDescription cameras", () => {
+	const extra = { sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 120, visible: true, label: "Desk" };
+	const docWith = (
+		assetOverrides: Partial<AxcutAsset>,
+		legacyEditor: Record<string, unknown> | null,
+	) => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			...assetOverrides,
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 10,
+			timelineStartSec: 0,
+			timelineEndSec: 10,
+		});
+		return makeDoc({ assets: [asset], clips: [clip], legacyEditor });
+	};
+	const layoutRegion = (template: string, slots: unknown[], extraFields = {}) => ({
+		id: "a",
+		startMs: 1000,
+		endMs: 4000,
+		template,
+		slots,
+		...extraFields,
+	});
+
+	it("a project without camera layouts produces the same scene as before", () => {
+		const scene = buildSceneDescription(docWith({}, null));
+		expect(scene.cameras).toBeUndefined();
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		for (const clip of scene.clips) expect("additionalCameras" in clip).toBe(false);
+	});
+
+	it("extra camera tracks become clip cameras", () => {
+		const scene = buildSceneDescription(docWith({ additionalCameraTracks: [extra] }, null));
+		expect(scene.clips[0].additionalCameras).toEqual([{ path: "/w-2.mp4", offsetSec: 0.12 }]);
+	});
+
+	it("a camera-full region for camera 1 stays a Full Camera region", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{},
+				{
+					cameraLayoutRegions: [layoutRegion("camera-full", [{ camera: 0 }], { rotation: 180 })],
+				},
+			),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([
+			{ startSec: 1, endSec: 4, rotation: 180 },
+		]);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+	});
+
+	it("a camera-full-pip region becomes resolved layers", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		const [region] = scene.cameraLayoutRegions ?? [];
+		expect(region).toMatchObject({ startSec: 1, endSec: 4, clipIndex: 0 });
+		expect(region.layers.map((l) => [l.camera, l.fillsFrame])).toEqual([
+			[1, true],
+			[0, false],
+		]);
+	});
+
+	it("a degenerate perspective sends no homography", () => {
+		const collinear = [
+			{ x: 0, y: 0 },
+			{ x: 0.5, y: 0 },
+			{ x: 1, y: 0 },
+			{ x: 0.2, y: 0 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{ cameraSettings: [null, { perspective: { corners: collinear, aspect: 1.5 } }] },
+			),
+		);
+		expect(scene.cameras ?? []).toEqual(scene.cameras ? [{ index: 1 }] : []);
+		for (const camera of scene.cameras ?? []) expect(camera).not.toHaveProperty("homography");
+	});
+
+	it("a valid perspective sends the matrix and replaces rotation, mirror and crop", () => {
+		const corners = [
+			{ x: 0.1, y: 0.1 },
+			{ x: 0.9, y: 0.15 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.15, y: 0.8 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraSettings: [
+						null,
+						{ rotation: 180, mirror: true, perspective: { corners, aspect: 1.5 } },
+					],
+				},
+			),
+		);
+		expect(scene.cameras).toHaveLength(1);
+		const [camera] = scene.cameras ?? [];
+		expect(camera.index).toBe(1);
+		expect(camera.homography).toHaveLength(9);
+		expect(camera.aspect).toBe(1.5);
+		expect(camera).not.toHaveProperty("rotation");
+		expect(camera).not.toHaveProperty("mirror");
+	});
+
+	it("plain settings are sent per camera index", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraSettings: [
+						null,
+						{ rotation: 180, mirror: false, crop: { x: 0, y: 0, width: 0.5, height: 1 } },
+					],
+				},
+			),
+		);
+		expect(scene.cameras).toEqual([
+			{ index: 1, rotation: 180, mirror: false, crop: { x: 0, y: 0, width: 0.5, height: 1 } },
+		]);
+	});
+
+	it("a layer for a camera the asset does not have is dropped", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{},
+				{
+					cameraLayoutRegions: [
+						layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }]),
+						layoutRegion("camera-full", [{ camera: 2 }], { id: "b" }),
+					],
+				},
+			),
+		);
+		// The first keeps only camera 0; the second has no layer left and is dropped.
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([0]);
+	});
+});

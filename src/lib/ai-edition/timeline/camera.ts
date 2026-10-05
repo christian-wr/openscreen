@@ -4,6 +4,7 @@
 // timeline, and whether the timeline has ANY camera at all — used to gate
 // camera-only preview chrome and settings controls.
 
+import type { CompositorClipCamera } from "@/native/contracts";
 import type { AxcutAsset, AxcutCameraTrack, AxcutClip } from "../schema";
 import { locateVirtualPosition } from "./virtual-preview";
 
@@ -49,4 +50,18 @@ export function assetCameraSource(asset: AxcutAsset | undefined): {
 	const cam = asset?.cameraTrack;
 	if (!cam?.visible || !cam.sourcePath) return { path: "", offsetSec: 0 };
 	return { path: cam.sourcePath, offsetSec: (cam.startMs + cam.offsetMs) / 1000 };
+}
+
+/**
+ * Cameras 2-4 of an asset, index k-1 = camera k. Same rule as `assetCameraSource`: a hidden
+ * track or one without a file is "no camera" (`path: ""`), but it keeps its slot so the
+ * indices stay aligned with `asset.additionalCameraTracks`.
+ */
+export function assetAdditionalCameraSources(
+	asset: AxcutAsset | undefined,
+): CompositorClipCamera[] {
+	return (asset?.additionalCameraTracks ?? []).map((cam) => ({
+		path: cam.visible && cam.sourcePath ? cam.sourcePath : "",
+		offsetSec: (cam.startMs + cam.offsetMs) / 1000,
+	}));
 }
