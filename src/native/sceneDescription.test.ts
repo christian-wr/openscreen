@@ -6,6 +6,7 @@
 // crop / settings mapping / output dims).
 
 import { describe, expect, it, vi } from "vitest";
+import type { CameraPerspective } from "@/components/video-editor/types";
 import {
 	DEFAULT_CROP_REGION,
 	getZoomScale,
@@ -27,6 +28,7 @@ import {
 	annotationFootageRect,
 	buildSceneDescription,
 	wallpaperAcceptsMotion,
+	webcamBoxSourceSize,
 	zoomScaleLimit,
 } from "./sceneDescription";
 
@@ -3213,6 +3215,74 @@ describe("buildSceneDescription cameras", () => {
 		// Same unit as `computeCompositeLayout`: the radius is a fraction of the short side
 		// (= roundness of half of it).
 		expect(pip?.radiusFrac).toBeCloseTo(0.3, 6);
+	});
+
+	it("camera 1's box takes its perspective's aspect, in the default PiP and in a template", () => {
+		const corners = [
+			{ x: 0.1, y: 0.1 },
+			{ x: 0.9, y: 0.15 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.15, y: 0.8 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{
+					cameraTrack: {
+						sourcePath: "/w-1.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1920,
+						height: 1080,
+					},
+					additionalCameraTracks: [extra],
+				},
+				{
+					webcamMaskShape: "rectangle",
+					// The crop is ignored once the perspective is valid.
+					webcamCropRegion: { x: 0, y: 0, width: 0.5, height: 1 },
+					cameraSettings: [{ perspective: { corners, aspect: 4 / 3 } }],
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		const { width, height } = scene.output;
+		const ratio = (rect: { width: number; height: number } | null | undefined) =>
+			((rect?.width ?? 0) * width) / ((rect?.height ?? 1) * height);
+		expect(ratio(scene.layout.webcamRect)).toBeCloseTo(4 / 3, 2);
+		expect(ratio(scene.layout.layoutByClip?.[0]?.webcamRect)).toBeCloseTo(4 / 3, 2);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 0);
+		expect(ratio(pip?.rect)).toBeCloseTo(4 / 3, 2);
+	});
+
+	it("the box source size reads a valid perspective and ignores a degenerate one", () => {
+		const camera = { width: 1920, height: 1080 };
+		const crop = { width: 0.5, height: 1 };
+		const square: CameraPerspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 1, y: 1 },
+				{ x: 0, y: 1 },
+			],
+			aspect: 0.75,
+		};
+		const valid = webcamBoxSourceSize(camera, null, crop, square);
+		expect(valid.width / valid.height).toBeCloseTo(0.75, 3);
+		const collinear: CameraPerspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 0.5, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 0.2, y: 0 },
+			],
+			aspect: 0.75,
+		};
+		expect(webcamBoxSourceSize(camera, null, crop, collinear)).toEqual({
+			width: 960,
+			height: 1080,
+		});
+		expect(webcamBoxSourceSize(camera, null, crop)).toEqual({ width: 960, height: 1080 });
 	});
 
 	it("an extra camera's PiP is sized from its cropped picture", () => {

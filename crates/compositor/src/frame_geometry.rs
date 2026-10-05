@@ -2365,9 +2365,12 @@ impl FrameGeometry {
     /// Camera 0's settings as a `SceneCamera`, for `camera_source_rect` / `camera_layer_cb`:
     /// its orientation is the project mirror and the desk-view turn (`self.webcam`, expressed so
     /// that `mirror ^ turned` gives back `flip_u`), its crop is the layout's (none for a
-    /// full-frame desk shot), and only its homography comes from `Scene::camera(0)`.
+    /// full-frame desk shot), and only its homography and the corrected picture's aspect (so a
+    /// box of another ratio cover-crops it, `with_camera_homography`) come from
+    /// `Scene::camera(0)`.
     pub(crate) fn camera0_settings(&self, scene: Option<&Scene>) -> crate::scene::SceneCamera {
         let turned = self.webcam.flip_v;
+        let settings = scene.and_then(|s| s.camera(0));
         crate::scene::SceneCamera {
             index: 0,
             rotation: if turned { 180 } else { 0 },
@@ -2377,8 +2380,8 @@ impl FrameGeometry {
             } else {
                 scene.and_then(|s| s.layout.webcam_crop)
             },
-            homography: scene.and_then(|s| s.camera(0)).and_then(|c| c.homography),
-            aspect: None,
+            homography: settings.and_then(|c| c.homography),
+            aspect: settings.and_then(|c| c.aspect),
         }
     }
 
@@ -7870,6 +7873,72 @@ mod tests {
             assert!(cam0.homography.is_none());
             assert_eq!(camera_source_rect(Some(&cam0), visible, tex, box_ar), [u0, v0, u1, v1]);
         }
+    }
+
+    /// Camera 0 with a perspective is cover-fitted into a box of another ratio, on both paths:
+    /// its default draw in a Full Camera section (no layout region, the box fills the frame)
+    /// and a planned frame-filling layer. Its PiP box, which has the corrected aspect, shows
+    /// the whole corrected picture.
+    #[test]
+    fn camera_0_with_a_perspective_is_cover_fitted_on_both_paths() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let identity = "[1,0,0,0,1,0,0,0,1]";
+        let aspect = 4.0_f32 / 3.0;
+        let cameras = format!(r#""cameras":[{{"index":0,"homography":{identity},"aspect":{aspect}}}]"#);
+        let zoom = r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#;
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        let render = [1170.0_f32, 658.0];
+        let box_ar = render[0] / render[1];
+        // A 4:3 picture in a wider box: the full width, a centred band of the box's ratio.
+        let dv = aspect / box_ar;
+        let check = |cb: &LayerCB| {
+            assert_eq!(cb.layer_fx[1], 1.0);
+            assert!(near(cb.persp[0][0], 1.0) && near(cb.persp[0][2], 0.0), "{:?}", cb.persp);
+            assert!(near(cb.persp[1][1], dv), "{:?}", cb.persp);
+            assert!(near(cb.persp[1][2], (1.0 - dv) * 0.5), "{:?}", cb.persp);
+        };
+
+        // No layout region, inside a Full Camera section: the default box fills the frame.
+        let json = zoomed_golden_scene_json().replace(
+            zoom,
+            &format!(
+                r#""zoomRegions":[],{cameras},"cameraFullscreenRegions":[{{"clipIndex":0,"startSec":0.0,"endSec":9.0}}]"#
+            ),
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        let g = plan_frame(&FrameGeometryInput {
+            timeline_t_override: Some(4.0),
+            ..golden_input(&scene, &cfg)
+        });
+        assert!(g.camera_layers.is_empty());
+        assert!(near(g.w_px[0], render[0]) && near(g.w_px[1], render[1]), "{:?}", g.w_px);
+        let cam0 = g.camera0_settings(Some(&scene));
+        assert_eq!(cam0.aspect, Some(aspect));
+        check(&with_camera_homography(
+            g.webcam_video_cb([0.0, 0.0, 1.0, 1.0], [1.0, 1.0], 0.0, 0.0),
+            Some(&cam0),
+        ));
+
+        // A planned layer that fills the frame.
+        let json = zoomed_golden_scene_json().replace(
+            zoom,
+            &format!(
+                r#""zoomRegions":[],{cameras},"cameraLayoutRegions":[{{"clipIndex":0,"startSec":0.0,"endSec":4.0,"layers":[
+                {{"camera":0,"rect":{{"x":0,"y":0,"width":1,"height":1}},"fillsFrame":true}}]}}]"#
+            ),
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        let g = plan_frame(&golden_input(&scene, &cfg));
+        assert_eq!(g.camera_layers.len(), 1);
+        let cam0 = g.camera0_settings(Some(&scene));
+        let base = g.webcam_video_cb([0.0; 4], [1.0, 1.0], 0.0, 0.0);
+        let plan = g.camera_layers[0];
+        check(&camera_layer_cb(&plan, Some(&cam0), [1280.0, 720.0], [1280.0, 720.0], render, &base));
+
+        // The PiP box the app gives camera 0 has the corrected aspect: nothing is cropped.
+        let pip = LayerCB { quad_px: [400.0, 300.0], ..Default::default() };
+        let cb = with_camera_homography(pip, Some(&cam0));
+        assert!(near(cb.persp[0][0], 1.0) && near(cb.persp[1][1], 1.0), "{:?}", cb.persp);
     }
 
     /// The shadow of a planned layer fades with it, and a frame-filling layer has none.

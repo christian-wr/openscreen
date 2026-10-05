@@ -61,7 +61,7 @@ import { webcamAnchorAt } from "@/lib/projectDefaults";
 import { wallpaperStyle } from "@/lib/wallpaper";
 import { getCssClipPath } from "@/lib/webcamMaskShapes";
 import { computeCameraFullscreenProgress } from "@/lib/zoomMath/cameraFullscreenUtils";
-import { webcamBoxSourceSize } from "@/native/sceneDescription";
+import { camera0PerspectiveOf, webcamBoxSourceSize } from "@/native/sceneDescription";
 import {
 	getWebcamNativeSize,
 	getWebcamNativeSizeRevision,
@@ -243,6 +243,8 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 		getWebcamNativeSizeRevision,
 		() => 0,
 	);
+	// A perspective on camera 1 gives the box its corrected ratio, as in the scene.
+	const camera0Perspective = useMemo(() => camera0PerspectiveOf(document), [document]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the revision re-reads the probed-size cache
 	const webcamSourceSize = useMemo(
 		() =>
@@ -250,8 +252,9 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 				activeCameraTrack,
 				activeCameraTrack?.sourcePath ? getWebcamNativeSize(activeCameraTrack.sourcePath) : null,
 				settings.webcamCropRegion,
+				camera0Perspective,
 			),
-		[activeCameraTrack, settings.webcamCropRegion, webcamSizeRevision],
+		[activeCameraTrack, settings.webcamCropRegion, camera0Perspective, webcamSizeRevision],
 	);
 
 	const formatFill = useMemo(() => (document ? isFormatFillActive(document) : false), [document]);

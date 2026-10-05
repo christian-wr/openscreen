@@ -18,6 +18,7 @@
 import type {
 	CameraFullscreenRegion,
 	CameraLayoutRegion,
+	CameraPerspective,
 	Rotation3DPreset,
 	SpeedRegion,
 	WallpaperMotion,
@@ -808,20 +809,38 @@ type Size = { width: number; height: number };
  * That ordering is the fix: the box used to depend on WHO was asking rather than on what
  * was recorded, so a 16:9 camera was framed 16:9 in the preview and 4:3 in the export.
  * The scene and the editor's drag box both read the same answer now.
+ *
+ * A valid `perspective` replaces the crop: the box then takes the corrected picture's own
+ * ratio (`perspective.aspect`), the target format the corners were drawn for.
  */
 export function webcamBoxSourceSize(
 	camera: { width?: number; height?: number } | null | undefined,
 	probed: Size | null,
 	crop: Size,
+	perspective?: CameraPerspective | null,
 ): Size {
 	const source =
 		camera?.width && camera?.height
 			? { width: camera.width, height: camera.height }
 			: (probed ?? { width: 960, height: 720 });
+	if (perspective && perspectiveMatrix(perspective)) {
+		return {
+			width: Math.max(1, Math.round(source.width)),
+			height: Math.max(1, Math.round(source.width / perspective.aspect)),
+		};
+	}
 	return {
 		width: Math.max(1, Math.round(source.width * crop.width)),
 		height: Math.max(1, Math.round(source.height * crop.height)),
 	};
+}
+
+/** Camera 1's stored perspective (`legacyEditor.cameraSettings[0]`), if any. */
+export function camera0PerspectiveOf(
+	document: Pick<AxcutDocument, "legacyEditor"> | null | undefined,
+): CameraPerspective | null {
+	const legacyRaw = document?.legacyEditor as Record<string, unknown> | null | undefined;
+	return normalizeCameraSettings(legacyRaw?.cameraSettings)[0]?.perspective ?? null;
 }
 
 const DESK_LABEL_KEY = "cameraFullscreen.deskLabel";
@@ -1272,6 +1291,7 @@ export function buildSceneDescription(
 			assetById.get(clip.assetId)?.cameraTrack,
 			webcamSourceSize,
 			settings.webcamCropRegion,
+			cameraSettings[0]?.perspective,
 		);
 	const layoutForClip = (
 		screenSize: { width: number; height: number },
@@ -1364,6 +1384,7 @@ export function buildSceneDescription(
 						asset.cameraTrack,
 						webcamSourceSize,
 						settings.webcamCropRegion,
+						cameraSettings[0]?.perspective,
 					);
 				}
 				const track = asset.additionalCameraTracks?.[camera - 1];
