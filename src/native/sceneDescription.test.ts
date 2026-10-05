@@ -937,6 +937,27 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		expect(labels.every((a) => a.space === "frame")).toBe(true);
 	});
 
+	it("reads Full Camera from the layout regions alone once they are stored", () => {
+		// The save rule writes a camera-1 Full Camera section to both lists; the load rule
+		// ignores the legacy copy as soon as `cameraLayoutRegions` exists.
+		const section = { id: "cf1", startMs: 0, endMs: 20_000, rotation: 180 };
+		const doc = makeDoc({
+			legacyEditor: {
+				cameraFullscreenRegions: [section],
+				cameraLayoutRegions: [{ ...section, template: "camera-full", slots: [{ camera: 0 }] }],
+			},
+		});
+		const scene = buildSceneDescription(doc);
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		const labels = scene.annotations.filter((a) => a.text?.animation?.startsWith("deskCover"));
+		expect(labels.map((a) => a.text?.animation)).toEqual(["deskCoverStart", "deskCoverEnd"]);
+		// Even an empty list of layout regions is the authority.
+		const emptied = makeDoc({
+			legacyEditor: { cameraFullscreenRegions: [section], cameraLayoutRegions: [] },
+		});
+		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toEqual([]);
+	});
+
 	it("no label for a plain section or with the label off", () => {
 		for (const region of [
 			{ id: "cf1", startMs: 0, endMs: 20_000 },

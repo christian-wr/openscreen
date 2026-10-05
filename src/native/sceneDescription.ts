@@ -1166,9 +1166,15 @@ export function buildSceneDescription(
 	// A Full Camera of camera 1 stays a Full Camera region: that keeps the desk view and its label.
 	const isPlainFullCamera = (region: CameraLayoutRegion) =>
 		region.template === "camera-full" && region.slots.length === 1 && region.slots[0].camera === 0;
+	// Once a project stores `cameraLayoutRegions` (even empty), its Full Camera sections live
+	// there and the legacy list is only a copy kept for older builds: reading both would emit
+	// every section twice (two covers, two desk labels).
+	const legacyFullscreenRegions = Array.isArray(legacyRaw?.cameraLayoutRegions)
+		? []
+		: ((legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? []);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
 		[
-			...((legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? []),
+			...legacyFullscreenRegions,
 			...layoutRegions.filter(isPlainFullCamera).map(
 				({ id, startMs, endMs, rotation, mirror, deskLabel }): CameraFullscreenRegion => ({
 					id,
