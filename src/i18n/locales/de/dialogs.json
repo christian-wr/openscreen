@@ -113,8 +113,9 @@
 		"preview": "Vorschau",
 		"loupe": "Lupe",
 		"cropArea": "Zuschnittbereich",
-		"invalidQuad": "Die Ecken überkreuzen sich oder liegen auf einer Linie. Ordne sie zu einem Viereck an, um zu übernehmen.",
+		"invalidQuad": "Die Ecken überkreuzen sich, liegen auf einer Linie oder bilden eine eingedellte (nicht konvexe) Form. Ordne sie zu einem konvexen Viereck an, um zu übernehmen.",
 		"reset": "Zurücksetzen",
-		"apply": "Übernehmen"
+		"apply": "Übernehmen",
+		"invalidRatio": "Gib ein Verhältnis zwischen {{min}} und {{max}} ein."
 	}
 }

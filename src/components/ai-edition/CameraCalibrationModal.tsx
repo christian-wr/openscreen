@@ -105,22 +105,23 @@ function copyCorners(c: Corners): Corners {
 	return [{ ...c[0] }, { ...c[1] }, { ...c[2] }, { ...c[3] }];
 }
 
-/** A pointer drag on `window` until release; `onMove` gets the offset from the press. */
-function trackDrag(
-	e: ReactPointerEvent,
-	onMove: (dxPx: number, dyPx: number) => void,
-	onEnd?: () => void,
-) {
+/**
+ * A pointer drag on `window` until release or cancel; `onMove` gets the offset from the press.
+ * Returns a disposer that removes the listeners early (the dialog closing mid-drag).
+ */
+function trackDrag(e: ReactPointerEvent, onMove: (dxPx: number, dyPx: number) => void) {
 	const startX = e.clientX;
 	const startY = e.clientY;
 	const move = (ev: PointerEvent) => onMove(ev.clientX - startX, ev.clientY - startY);
-	const up = () => {
+	const stop = () => {
 		window.removeEventListener("pointermove", move);
-		window.removeEventListener("pointerup", up);
-		onEnd?.();
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
 	};
 	window.addEventListener("pointermove", move);
-	window.addEventListener("pointerup", up);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
+	return stop;
 }
 
 export function CameraCalibrationModal({
@@ -155,6 +156,21 @@ export function CameraCalibrationModal({
 	const loupeRef = useRef<HTMLCanvasElement | null>(null);
 	const previewRef = useRef<HTMLCanvasElement | null>(null);
 	const handleRefs = useRef<Array<HTMLButtonElement | null>>([]);
+	// The running drag's disposer: a new drag or unmounting ends the previous one.
+	const stopDragRef = useRef<(() => void) | null>(null);
+
+	useEffect(
+		() => () => {
+			stopDragRef.current?.();
+			stopDragRef.current = null;
+		},
+		[],
+	);
+
+	const startDrag = (e: ReactPointerEvent, onMove: (dxPx: number, dyPx: number) => void) => {
+		stopDragRef.current?.();
+		stopDragRef.current = trackDrag(e, onMove);
+	};
 
 	// The still, at full resolution.
 	useEffect(() => {
@@ -256,7 +272,7 @@ export function CameraCalibrationModal({
 		handleRefs.current[hit]?.focus();
 		setActiveHandle(hit);
 		const start = corners[hit];
-		trackDrag(e, (dx, dy) =>
+		startDrag(e, (dx, dy) =>
 			setCorner(hit, { x: start.x + dx / r.width, y: start.y + dy / r.height }),
 		);
 	};
@@ -285,7 +301,7 @@ export function CameraCalibrationModal({
 		const r = frame.getBoundingClientRect();
 		if (r.width <= 0 || r.height <= 0) return;
 		const start = crop;
-		trackDrag(e, (dx, dy) => setCrop(moveCrop(start, dx / r.width, dy / r.height)));
+		startDrag(e, (dx, dy) => setCrop(moveCrop(start, dx / r.width, dy / r.height)));
 	};
 
 	const startCropResize = (edges: CropEdges) => (e: ReactPointerEvent) => {
@@ -296,7 +312,7 @@ export function CameraCalibrationModal({
 		const r = frame.getBoundingClientRect();
 		if (r.width <= 0 || r.height <= 0) return;
 		const start = crop;
-		trackDrag(e, (dx, dy) => setCrop(resizeCrop(start, edges, dx / r.width, dy / r.height)));
+		startDrag(e, (dx, dy) => setCrop(resizeCrop(start, edges, dx / r.width, dy / r.height)));
 	};
 
 	// The arrows move the crop; Shift + the arrows resize it from its bottom-right corner.
@@ -519,9 +535,21 @@ export function CameraCalibrationModal({
 									step={0.01}
 									value={freeAspect}
 									onChange={(e) => setFreeAspect(e.target.value)}
+									aria-invalid={aspect === null}
+									aria-describedby={aspect === null ? "calibration-invalid-ratio" : undefined}
 									style={{ width: 80 }}
 								/>
 							</label>
+						) : null}
+						{format === "free" && aspect === null ? (
+							<p
+								id="calibration-invalid-ratio"
+								className={styles.hint}
+								role="alert"
+								style={{ margin: 0 }}
+							>
+								{t("cameraCalibration.invalidRatio", { min: MIN_ASPECT, max: MAX_ASPECT })}
+							</p>
 						) : null}
 						<label style={{ display: "flex", gap: 8, alignItems: "center" }}>
 							<span className={styles.label}>{t("cameraCalibration.margin")}</span>
@@ -595,7 +623,13 @@ export function CameraCalibrationModal({
 						className={`${styles.btn} ${styles.btnPrimary}`}
 						onClick={apply}
 						disabled={!canApply}
-						aria-describedby={isPerspective && !quadValid ? "calibration-invalid" : undefined}
+						aria-describedby={
+							isPerspective && !quadValid
+								? "calibration-invalid"
+								: isPerspective && aspect === null
+									? "calibration-invalid-ratio"
+									: undefined
+						}
 					>
 						{t("cameraCalibration.apply")}
 					</button>

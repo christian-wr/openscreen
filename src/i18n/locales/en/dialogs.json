@@ -113,8 +113,9 @@
 		"preview": "Preview",
 		"loupe": "Magnifier",
 		"cropArea": "Crop area",
-		"invalidQuad": "The corners cross or lie on one line. Move them into a four-sided shape to apply.",
+		"invalidQuad": "The corners cross, lie on one line or form a dented (not convex) shape. Move them into a convex four-sided shape to apply.",
 		"reset": "Reset",
-		"apply": "Apply"
+		"apply": "Apply",
+		"invalidRatio": "Enter a ratio between {{min}} and {{max}}."
 	}
 }

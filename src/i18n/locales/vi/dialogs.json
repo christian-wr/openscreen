@@ -113,8 +113,9 @@
 		"preview": "Xem trước",
 		"loupe": "Kính lúp",
 		"cropArea": "Vùng cắt",
-		"invalidQuad": "Các góc cắt nhau hoặc nằm trên một đường thẳng. Hãy sắp xếp chúng thành hình tứ giác để áp dụng.",
+		"invalidQuad": "Các góc cắt nhau, nằm trên một đường thẳng hoặc tạo thành hình lõm (không lồi). Hãy sắp xếp chúng thành hình tứ giác lồi để áp dụng.",
 		"reset": "Đặt lại",
-		"apply": "Áp dụng"
+		"apply": "Áp dụng",
+		"invalidRatio": "Nhập tỷ lệ từ {{min}} đến {{max}}."
 	}
 }

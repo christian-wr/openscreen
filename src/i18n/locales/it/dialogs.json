@@ -113,8 +113,9 @@
 		"preview": "Anteprima",
 		"loupe": "Lente",
 		"cropArea": "Area di ritaglio",
-		"invalidQuad": "Gli angoli si incrociano o sono allineati. Disponili a formare un quadrilatero per applicare.",
+		"invalidQuad": "Gli angoli si incrociano, sono allineati o formano una figura rientrante (non convessa). Disponili a formare un quadrilatero convesso per applicare.",
 		"reset": "Ripristina",
-		"apply": "Applica"
+		"apply": "Applica",
+		"invalidRatio": "Inserisci un rapporto compreso tra {{min}} e {{max}}."
 	}
 }

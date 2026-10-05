@@ -113,8 +113,9 @@
 		"preview": "Önizleme",
 		"loupe": "Büyüteç",
 		"cropArea": "Kırpma alanı",
-		"invalidQuad": "Köşeler kesişiyor veya aynı doğru üzerinde. Uygulamak için onları bir dörtgen oluşturacak şekilde yerleştirin.",
+		"invalidQuad": "Köşeler kesişiyor, aynı doğru üzerinde veya içe göçük (dışbükey olmayan) bir şekil oluşturuyor. Uygulamak için onları dışbükey bir dörtgen oluşturacak şekilde yerleştirin.",
 		"reset": "Sıfırla",
-		"apply": "Uygula"
+		"apply": "Uygula",
+		"invalidRatio": "{{min}} ile {{max}} arasında bir oran girin."
 	}
 }

@@ -113,8 +113,9 @@
 		"preview": "Náhled",
 		"loupe": "Lupa",
 		"cropArea": "Oblast ořezu",
-		"invalidQuad": "Rohy se kříží nebo leží na jedné přímce. Rozmístěte je do čtyřúhelníku, abyste mohli použít.",
+		"invalidQuad": "Rohy se kříží, leží na jedné přímce nebo tvoří promáčknutý (nekonvexní) tvar. Rozmístěte je do konvexního čtyřúhelníku, abyste mohli použít.",
 		"reset": "Obnovit",
-		"apply": "Použít"
+		"apply": "Použít",
+		"invalidRatio": "Zadejte poměr mezi {{min}} a {{max}}."
 	}
 }

@@ -113,8 +113,9 @@
 		"preview": "Vista previa",
 		"loupe": "Lupa",
 		"cropArea": "Área de recorte",
-		"invalidQuad": "Las esquinas se cruzan o están en una misma línea. Colócalas formando un cuadrilátero para aplicar.",
+		"invalidQuad": "Las esquinas se cruzan, están en una misma línea o forman una figura hundida (no convexa). Colócalas formando un cuadrilátero convexo para aplicar.",
 		"reset": "Restablecer",
-		"apply": "Aplicar"
+		"apply": "Aplicar",
+		"invalidRatio": "Introduce una proporción entre {{min}} y {{max}}."
 	}
 }

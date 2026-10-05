@@ -113,8 +113,9 @@
 		"preview": "Aperçu",
 		"loupe": "Loupe",
 		"cropArea": "Zone de recadrage",
-		"invalidQuad": "Les coins se croisent ou sont alignés. Disposez-les en quadrilatère pour appliquer.",
+		"invalidQuad": "Les coins se croisent, sont alignés ou forment une figure rentrante (non convexe). Disposez-les en quadrilatère convexe pour appliquer.",
 		"reset": "Réinitialiser",
-		"apply": "Appliquer"
+		"apply": "Appliquer",
+		"invalidRatio": "Saisissez un rapport entre {{min}} et {{max}}."
 	}
 }

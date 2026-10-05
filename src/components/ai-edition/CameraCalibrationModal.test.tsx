@@ -132,6 +132,58 @@ describe("CameraCalibrationModal", () => {
 		expect(onApply).not.toHaveBeenCalled();
 	});
 
+	it("an invalid free ratio says why and marks the field", async () => {
+		renderModal("perspective", null);
+		await stillLoaded();
+		fireEvent.click(screen.getByRole("button", { name: "dialogs.cameraCalibration.formats.free" }));
+		const input = screen.getByRole("spinbutton");
+		expect(input).toHaveAttribute("aria-invalid", "false");
+		fireEvent.change(input, { target: { value: "50" } });
+		expect(input).toHaveAttribute("aria-invalid", "true");
+		expect(screen.getByRole("alert")).toHaveTextContent("dialogs.cameraCalibration.invalidRatio");
+		expect(apply()).toBeDisabled();
+	});
+
+	it("a drag ends on pointercancel and its listeners go with the dialog", async () => {
+		const add = vi.spyOn(window, "addEventListener");
+		const remove = vi.spyOn(window, "removeEventListener");
+		const { unmount } = render(
+			<CameraCalibrationModal
+				open
+				camera={CAMERA}
+				mode="crop"
+				initial={null}
+				onApply={vi.fn()}
+				onClose={vi.fn()}
+			/>,
+		);
+		await stillLoaded();
+		const frame = screen.getByTestId("calibration-frame");
+		vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 100, 80));
+		const crop = screen.getByTestId("calibration-crop");
+		const dragTypes = ["pointermove", "pointerup", "pointercancel"];
+		// The drag's own listeners: added after `from`, still registered unless removed since.
+		const dragListeners = (from: number) =>
+			add.mock.calls.slice(from).filter(([type]) => dragTypes.includes(type));
+		const stillAttached = (from: number) =>
+			dragListeners(from).filter(
+				([type, fn]) => !remove.mock.calls.some(([t, f]) => t === type && f === fn),
+			).length;
+
+		let from = add.mock.calls.length;
+		fireEvent.pointerDown(crop, { clientX: 10, clientY: 10 });
+		expect(dragListeners(from)).toHaveLength(3);
+		fireEvent(window, new Event("pointercancel"));
+		expect(stillAttached(from)).toBe(0);
+
+		// A drag still running when the dialog goes away is ended with it.
+		from = add.mock.calls.length;
+		fireEvent.pointerDown(crop, { clientX: 10, clientY: 10 });
+		expect(stillAttached(from)).toBe(3);
+		unmount();
+		expect(stillAttached(from)).toBe(0);
+	});
+
 	it("reset removes the stored perspective", async () => {
 		const { onApply } = renderModal("perspective", {
 			perspective: {

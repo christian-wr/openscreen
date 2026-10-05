@@ -113,8 +113,9 @@
 		"preview": "Prévia",
 		"loupe": "Lupa",
 		"cropArea": "Área de recorte",
-		"invalidQuad": "Os cantos se cruzam ou estão alinhados. Posicione-os formando um quadrilátero para aplicar.",
+		"invalidQuad": "Os cantos se cruzam, estão alinhados ou formam uma figura reentrante (não convexa). Posicione-os formando um quadrilátero convexo para aplicar.",
 		"reset": "Redefinir",
-		"apply": "Aplicar"
+		"apply": "Aplicar",
+		"invalidRatio": "Insira uma proporção entre {{min}} e {{max}}."
 	}
 }
