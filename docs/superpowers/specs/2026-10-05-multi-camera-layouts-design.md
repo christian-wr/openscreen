@@ -256,3 +256,26 @@ berichtet und nicht stillschweigend hingenommen.
   klein“, „Bildschirm + 2 PiP“, „nebeneinander“, gleitender Wechsel, MP4-Export; Leistung der Vorschau
   mit mehreren Kameras. Ergebnis ins Results-Log von
   `technical-documentation/testing/manual-e2e-checklist.md`.
+
+## 6. Verbindliche Vorgaben für Teilprojekt 3 (aus den Reviews von Teilprojekt 2)
+
+- **Speichern:** Liegt `legacyEditor.cameraLayoutRegions` als Liste vor, ignoriert der Szenenbau die
+  alte Liste `cameraFullscreenRegions`. Der Editor muss beide Listen gemeinsam schreiben (Abschnitte
+  `camera-full` mit Kamera 1 in beide), sonst gehen Full-Camera-Abschnitte verloren.
+- **Kamera-1-Einstellungen:** Drehung, Spiegeln und Zuschnitt von Kamera 1 stehen weiter in den
+  bestehenden Projektfeldern (`webcamMirrored`, Schreibtisch-Abschnitte, `webcamCropRegion`), nicht in
+  `cameraSettings[0]`; für Kamera 1 wertet der Compositor aus `cameraSettings[0]` nur die Perspektive.
+- **Schreibtisch-Schalter** nur bei `camera-full` mit Kamera 1 anbieten (der Normalizer verwirft sie
+  sonst).
+- **Vorlagen bei Block-Layouts** (`dual-frame`, `vertical-stack`): Bild-im-Bild-Vorlagen ausgrauen oder
+  den Bildschirm neu anordnen — sonst bleibt eine Hälfte leer.
+- **Form:** Ein runder/quadratischer Platz braucht ein quadratisches Rechteck und Radius 0,5; beim
+  Verschieben/Skalieren im Editor das Seitenverhältnis halten (das Backend liest die Form nicht).
+- **Fehlende Kamera:** Fehlt eine Kamera schon im Projekt (Spur fehlt/unsichtbar), entfällt ihr Platz
+  und ein Abschnitt ohne Plätze wird verworfen; lässt sich nur die Datei nicht öffnen, bleibt der
+  Abschnitt und die Kamera fehlt im Bild. Der Hinweis im Editor muss das jeweilige Ergebnis nennen.
+- **Nahtstelle Full Camera ↔ Layout-Abschnitt:** gleitet direkt; die Unschärfe eines gedrehten
+  Abschnitts endet dort mit ihrer eigenen Blende (sichtbarer Schnitt im Vollbild) — im Editor
+  gegebenenfalls einen Hinweis geben oder die Kippung an solche Nahtstellen nicht legen.
+- **Zuordnung gleicher Kameras** folgt der Windows-Reihenfolge (Teilprojekt 1): jede Kamera muss jedem
+  Platz frei zuweisbar sein.
