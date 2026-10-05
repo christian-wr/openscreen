@@ -473,6 +473,14 @@
 		"resetWindows": "Redefinir janelas"
 	},
 	"cameras": {
-		"cameraN": "Câmera {{n}}"
+		"cameraN": "Câmera {{n}}",
+		"title": "Câmeras",
+		"unavailable": "Indisponível",
+		"camera1Hint": "Rotação, espelhamento e recorte da câmera 1 ficam nos controles acima.",
+		"rotation": "Rotação",
+		"mirror": "Espelhar",
+		"crop": "Recorte…",
+		"perspective": "Corrigir perspectiva…",
+		"reset": "Redefinir"
 	}
 }

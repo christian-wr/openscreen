@@ -473,6 +473,14 @@
 		"resetWindows": "창 재설정"
 	},
 	"cameras": {
-		"cameraN": "카메라 {{n}}"
+		"cameraN": "카메라 {{n}}",
+		"title": "카메라",
+		"unavailable": "사용할 수 없음",
+		"camera1Hint": "카메라 1의 회전, 좌우 반전, 자르기는 위의 컨트롤에서 설정합니다.",
+		"rotation": "회전",
+		"mirror": "좌우 반전",
+		"crop": "자르기…",
+		"perspective": "원근 보정…",
+		"reset": "초기화"
 	}
 }

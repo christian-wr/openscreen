@@ -473,6 +473,14 @@
 		"resetWindows": "Restablecer ventanas"
 	},
 	"cameras": {
-		"cameraN": "Cámara {{n}}"
+		"cameraN": "Cámara {{n}}",
+		"title": "Cámaras",
+		"unavailable": "No disponible",
+		"camera1Hint": "El giro, el espejo y el recorte de la cámara 1 están en los controles de arriba.",
+		"rotation": "Giro",
+		"mirror": "Espejo",
+		"crop": "Recorte…",
+		"perspective": "Corregir perspectiva…",
+		"reset": "Restablecer"
 	}
 }

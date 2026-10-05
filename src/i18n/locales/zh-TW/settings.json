@@ -473,6 +473,14 @@
 		"resetWindows": "重設視窗"
 	},
 	"cameras": {
-		"cameraN": "攝影機 {{n}}"
+		"cameraN": "攝影機 {{n}}",
+		"title": "攝影機",
+		"unavailable": "無法使用",
+		"camera1Hint": "攝影機 1 的旋轉、鏡像與裁切在上方的控制項中設定。",
+		"rotation": "旋轉",
+		"mirror": "鏡像",
+		"crop": "裁切…",
+		"perspective": "校正透視…",
+		"reset": "重設"
 	}
 }

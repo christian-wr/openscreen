@@ -72,6 +72,7 @@ import {
 import { isWebcamBlockLayout } from "@/lib/compositeLayout";
 import { clampToBound } from "@/lib/projectDefaults";
 import { annotationFootageRect, zoomScaleLimit } from "@/native/sceneDescription";
+import type { CamerasSectionProps } from "../CamerasSection";
 import { ColorField } from "../ColorField";
 import shell from "../NewEditorShell.module.css";
 import {
@@ -133,6 +134,8 @@ interface FloatingInspectorProps {
 	 * selected. Clicking elsewhere on the timeline clears the selection
 	 * (see V4Timeline's empty-area click handler) which closes this pane. */
 	tl: TimelineApi;
+	/** Opens the camera calibration dialog; unwired until the dialog exists. */
+	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 }
 
 export function FloatingInspector({
@@ -144,6 +147,7 @@ export function FloatingInspector({
 	onEditClip,
 	transcriptProps,
 	tl,
+	onOpenCalibration,
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
 	const te = useScopedT("editor");
@@ -188,7 +192,13 @@ export function FloatingInspector({
 					) : audioTrackSelected ? (
 						<AudioTrackPane tl={tl} onClose={() => tl.clearSelection()} />
 					) : (
-						<FacetBody facet={facet} onCollapse={onToggleOpen} transcriptProps={transcriptProps} />
+						<FacetBody
+							facet={facet}
+							onCollapse={onToggleOpen}
+							transcriptProps={transcriptProps}
+							tl={tl}
+							onOpenCalibration={onOpenCalibration}
+						/>
 					)}
 				</div>
 			) : null}
@@ -1332,10 +1342,14 @@ function FacetBody({
 	facet,
 	onCollapse,
 	transcriptProps,
+	tl,
+	onOpenCalibration,
 }: {
 	facet: Facet;
 	onCollapse: () => void;
 	transcriptProps: TranscriptProps;
+	tl: TimelineApi;
+	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 }) {
 	const te = useScopedT("editor");
 	// A small collapse affordance floated over the reused pane header.
@@ -1365,7 +1379,17 @@ function FacetBody({
 		</button>
 	);
 
-	if (facet === "layout") return wrap(collapse, <LayoutPane />);
+	if (facet === "layout")
+		return wrap(
+			collapse,
+			<LayoutPane
+				cameras={{
+					cameraSettings: tl.cameraSettings,
+					setCameraSettings: tl.setCameraSettings,
+					onOpenCalibration,
+				}}
+			/>,
+		);
 	if (facet === "audio") return wrap(collapse, <AudioPane />);
 	if (facet === "cursor") return wrap(collapse, <CursorPane />);
 	if (facet === "transcript") return wrap(collapse, <TranscriptPane {...transcriptProps} />);

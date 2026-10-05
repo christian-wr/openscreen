@@ -473,6 +473,14 @@
 		"resetWindows": "Reset windows"
 	},
 	"cameras": {
-		"cameraN": "Camera {{n}}"
+		"cameraN": "Camera {{n}}",
+		"title": "Cameras",
+		"unavailable": "Unavailable",
+		"camera1Hint": "Rotation, mirror and crop of camera 1 are the controls above.",
+		"rotation": "Rotation",
+		"mirror": "Mirror",
+		"crop": "Crop…",
+		"perspective": "Correct perspective…",
+		"reset": "Reset"
 	}
 }

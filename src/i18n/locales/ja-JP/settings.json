@@ -473,6 +473,14 @@
 		"resetWindows": "ウィンドウをリセット"
 	},
 	"cameras": {
-		"cameraN": "カメラ {{n}}"
+		"cameraN": "カメラ {{n}}",
+		"title": "カメラ",
+		"unavailable": "利用できません",
+		"camera1Hint": "カメラ1の回転・反転・切り抜きは上のコントロールで設定します。",
+		"rotation": "回転",
+		"mirror": "反転",
+		"crop": "切り抜き…",
+		"perspective": "パースを補正…",
+		"reset": "リセット"
 	}
 }

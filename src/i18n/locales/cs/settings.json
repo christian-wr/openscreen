@@ -473,6 +473,14 @@
 		"resetWindows": "Obnovit okna"
 	},
 	"cameras": {
-		"cameraN": "Kamera {{n}}"
+		"cameraN": "Kamera {{n}}",
+		"title": "Kamery",
+		"unavailable": "Nedostupné",
+		"camera1Hint": "Otočení, zrcadlení a ořez kamery 1 jsou v ovládacích prvcích výše.",
+		"rotation": "Otočení",
+		"mirror": "Zrcadlit",
+		"crop": "Ořez…",
+		"perspective": "Opravit perspektivu…",
+		"reset": "Obnovit"
 	}
 }

@@ -473,6 +473,14 @@
 		"resetWindows": "Réinitialiser les fenêtres"
 	},
 	"cameras": {
-		"cameraN": "Caméra {{n}}"
+		"cameraN": "Caméra {{n}}",
+		"title": "Caméras",
+		"unavailable": "Indisponible",
+		"camera1Hint": "La rotation, le miroir et le recadrage de la caméra 1 sont dans les réglages ci-dessus.",
+		"rotation": "Rotation",
+		"mirror": "Miroir",
+		"crop": "Recadrage…",
+		"perspective": "Corriger la perspective…",
+		"reset": "Réinitialiser"
 	}
 }

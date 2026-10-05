@@ -473,6 +473,14 @@
 		"resetWindows": "重置窗口"
 	},
 	"cameras": {
-		"cameraN": "摄像头 {{n}}"
+		"cameraN": "摄像头 {{n}}",
+		"title": "摄像头",
+		"unavailable": "不可用",
+		"camera1Hint": "摄像头 1 的旋转、镜像和裁剪在上方的控件中设置。",
+		"rotation": "旋转",
+		"mirror": "镜像",
+		"crop": "裁剪…",
+		"perspective": "校正透视…",
+		"reset": "重置"
 	}
 }
