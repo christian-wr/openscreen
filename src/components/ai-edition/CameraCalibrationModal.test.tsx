@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CameraSettings } from "@/components/video-editor/types";
 import {
 	cropToPerspective,
-	fitCrop,
+	fitCropInside,
 	perspectiveToCrop,
 	planeView,
 } from "@/lib/ai-edition/timeline/planeCrop";
@@ -221,6 +221,7 @@ describe("CameraCalibrationModal", () => {
 		aspect: 2,
 		widthMm: 1000,
 	};
+	type Corners = typeof PLANE.corners;
 	const detect = () =>
 		fireEvent.click(
 			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
@@ -231,7 +232,7 @@ describe("CameraCalibrationModal", () => {
 		const view = planeView(base);
 		const box = view && perspectiveToCrop(view, base);
 		if (!view || !box) throw new Error("test plane must be usable");
-		return cropToPerspective(view, fitCrop(view.aspect, aspect, box));
+		return cropToPerspective(view, fitCropInside(view, aspect, box, FOUND as Corners));
 	}
 
 	it("detect without a plane puts the handles on the markers", async () => {
@@ -265,14 +266,20 @@ describe("CameraCalibrationModal", () => {
 		});
 	});
 
-	it("a format refits the crop on the desk", async () => {
+	it("a format refits the crop inside the markers", async () => {
 		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
 		const { onApply } = renderModal("perspective", null);
 		await stillLoaded();
 		detect();
 		fireEvent.click(screen.getByRole("button", { name: "9:16" }));
 		fireEvent.click(apply());
-		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(9 / 16, 9);
+		const stored = onApply.mock.calls[0][0].perspective;
+		const expected = expectedPerspective(9 / 16);
+		expect(stored.aspect).toBeCloseTo(9 / 16, 9);
+		stored.corners.forEach((c: { x: number; y: number }, i: number) => {
+			expect(c.x).toBeCloseTo(expected?.corners[i].x ?? Number.NaN, 9);
+			expect(c.y).toBeCloseTo(expected?.corners[i].y ?? Number.NaN, 9);
+		});
 	});
 
 	it("Shift + arrows resize a fixed-format crop on the desk: left shrinks, right grows", async () => {

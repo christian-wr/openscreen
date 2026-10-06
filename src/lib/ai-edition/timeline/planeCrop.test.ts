@@ -7,6 +7,7 @@ import {
 	cropLeavesImage,
 	cropToPerspective,
 	fitCrop,
+	fitCropInside,
 	PLANE_VIEW_GROW,
 	perspectiveToCrop,
 	planeView,
@@ -127,6 +128,114 @@ describe("fitCrop", () => {
 	it("keeps the box for a free format", () => {
 		const box = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
 		expect(fitCrop(2, null, box)).toEqual(box);
+	});
+});
+
+type Quad = CameraPerspective["corners"];
+
+/** Inside or on a convex quad, either winding. */
+function inQuad(q: Quad, p: { x: number; y: number }, eps = 1e-9): boolean {
+	const s = q.map((a, i) => {
+		const b = q[(i + 1) % 4];
+		return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+	});
+	return s.every((v) => v >= -eps) || s.every((v) => v <= eps);
+}
+
+function centroid(q: Quad) {
+	return { x: q.reduce((t, p) => t + p.x, 0) / 4, y: q.reduce((t, p) => t + p.y, 0) / 4 };
+}
+
+/** `crop` grown by `f` about its own centre. */
+function grownBy(crop: CropRegion, f: number): CropRegion {
+	const cx = crop.x + crop.width / 2;
+	const cy = crop.y + crop.height / 2;
+	return {
+		x: cx - (crop.width * f) / 2,
+		y: cy - (crop.height * f) / 2,
+		width: crop.width * f,
+		height: crop.height * f,
+	};
+}
+
+describe("fitCropInside", () => {
+	// The inner corners as markers lie: no rectangle, inside FLAT's base.
+	const TRAPEZOID: Quad = [
+		{ x: 0.3, y: 0.2 },
+		{ x: 0.8, y: 0.26 },
+		{ x: 0.72, y: 0.8 },
+		{ x: 0.2, y: 0.68 },
+	];
+
+	function check(base: CameraPerspective, quad: Quad, aspect: number | null) {
+		const view = planeView(base);
+		const box = view && perspectiveToCrop(view, base);
+		expect(view).not.toBeNull();
+		expect(box).not.toBeNull();
+		if (!view || !box) throw new Error("unusable test base");
+		const crop = fitCropInside(view, aspect, box, quad);
+		const p = cropToPerspective(view, crop);
+		expect(p).not.toBeNull();
+		if (!p) throw new Error("no perspective");
+		for (const c of p.corners) {
+			expect(inQuad(quad, c, 1e-6)).toBe(true);
+			expect(c.x).toBeGreaterThanOrEqual(-1e-9);
+			expect(c.y).toBeGreaterThanOrEqual(-1e-9);
+			expect(c.x).toBeLessThanOrEqual(1 + 1e-9);
+			expect(c.y).toBeLessThanOrEqual(1 + 1e-9);
+		}
+		// Centred on the inner corners' centroid.
+		const mid = centroid(quad);
+		const at = perspectiveToCrop(view, { corners: [mid, mid, mid, mid], aspect: 1 });
+		expect(crop.x + crop.width / 2).toBeCloseTo(at?.x ?? Number.NaN, 6);
+		expect(crop.y + crop.height / 2).toBeCloseTo(at?.y ?? Number.NaN, 6);
+		// As large as it can be: a little more and a corner leaves the quad or the image.
+		const larger = cropToPerspective(view, grownBy(crop, 1.01));
+		expect(
+			larger?.corners.some((c) => !inQuad(quad, c) || c.x < 0 || c.y < 0 || c.x > 1 || c.y > 1),
+		).toBe(true);
+		return { crop, p, box, view };
+	}
+
+	it("puts the largest 16:9 crop inside a quad that is not a rectangle", () => {
+		const { p } = check(FLAT, TRAPEZOID, 16 / 9);
+		expect(p.aspect).toBeCloseTo(16 / 9, 9);
+	});
+
+	it("does the same on a steep desk", () => {
+		const quad: Quad = [
+			{ x: 0.45, y: 0.33 },
+			{ x: 0.55, y: 0.31 },
+			{ x: 0.9, y: 0.93 },
+			{ x: 0.1, y: 0.9 },
+		];
+		const { p } = check(STEEP, quad, 4 / 3);
+		expect(p.aspect).toBeCloseTo(4 / 3, 9);
+	});
+
+	it("keeps the crop in the camera image where the quad is not", () => {
+		const base: CameraPerspective = {
+			corners: [
+				{ x: -0.3, y: 0.1 },
+				{ x: 0.9, y: 0.1 },
+				{ x: 0.9, y: 0.9 },
+				{ x: -0.3, y: 0.9 },
+			],
+			aspect: 1.5,
+		};
+		const quad: Quad = [
+			{ x: -0.3, y: 0.1 },
+			{ x: 0.9, y: 0.1 },
+			{ x: 0.9, y: 0.9 },
+			{ x: -0.3, y: 0.9 },
+		];
+		const { p } = check(base, quad, 16 / 9);
+		expect(Math.min(...p.corners.map((c) => c.x))).toBeGreaterThan(-1e-6);
+	});
+
+	it("keeps the box's shape for a free format", () => {
+		const { crop, box } = check(FLAT, TRAPEZOID, null);
+		expect(crop.width / crop.height).toBeCloseTo(box.width / box.height, 9);
 	});
 });
 

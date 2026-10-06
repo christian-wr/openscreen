@@ -109,6 +109,72 @@ export function fitCrop(
 	};
 }
 
+const FIT_STEPS = 40;
+
+/** Inside or on a convex quad, whichever way round its corners run. */
+function insideQuad(q: Corners, p: { x: number; y: number }): boolean {
+	const eps = 1e-12;
+	let pos = false;
+	let neg = false;
+	for (let i = 0; i < 4; i++) {
+		const a = q[i];
+		const b = q[(i + 1) % 4];
+		const side = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+		if (side > eps) pos = true;
+		if (side < -eps) neg = true;
+	}
+	return !(pos && neg);
+}
+
+/**
+ * The largest crop of real aspect `cropAspect` (the box's own shape when free) that `fitCrop`
+ * would put in `box`, but centred on the centroid of `quad` — the markers' inner corners, in
+ * image fractions — and shrunk until its four image corners lie inside `quad` and inside the
+ * camera image. A homography keeps convex shapes convex, so testing the corners in image space
+ * is enough, and shrinking about a point inside both keeps it inside: bisection finds the size.
+ * Falls back to `fitCrop` when the centroid cannot be placed in the view.
+ */
+export function fitCropInside(
+	view: CameraPerspective,
+	cropAspect: number | null,
+	box: CropRegion,
+	quad: Corners,
+): CropRegion {
+	const start = fitCrop(view.aspect, cropAspect, box);
+	const h = homographyFromUnitSquare(view.corners);
+	const inv = h ? invert3(h) : null;
+	const mid = {
+		x: quad.reduce((t, p) => t + p.x, 0) / 4,
+		y: quad.reduce((t, p) => t + p.y, 0) / 4,
+	};
+	const c = inv ? mapThrough(inv, mid.x, mid.y) : null;
+	if (!c) return start;
+	const at = (s: number): CropRegion => {
+		const width = start.width * s;
+		const height = start.height * s;
+		return { x: c.x - width / 2, y: c.y - height / 2, width, height };
+	};
+	const fits = (crop: CropRegion) => {
+		if (crop.x < 0 || crop.y < 0 || crop.x + crop.width > 1 || crop.y + crop.height > 1) {
+			return false;
+		}
+		const p = cropToPerspective(view, crop);
+		return (
+			p !== null &&
+			p.corners.every((q) => q.x >= 0 && q.y >= 0 && q.x <= 1 && q.y <= 1 && insideQuad(quad, q))
+		);
+	};
+	if (fits(at(1))) return at(1);
+	let lo = 0;
+	let hi = 1;
+	for (let i = 0; i < FIT_STEPS; i++) {
+		const m = (lo + hi) / 2;
+		if (fits(at(m))) lo = m;
+		else hi = m;
+	}
+	return lo > 0 ? at(lo) : start;
+}
+
 export type CropCorner = "nw" | "ne" | "sw" | "se";
 
 /**

@@ -45,6 +45,7 @@ import {
 	cropLeavesImage,
 	cropToPerspective,
 	fitCrop,
+	fitCropInside,
 	perspectiveToCrop,
 	planeView,
 	resizeCropLocked,
@@ -211,6 +212,8 @@ export function CameraCalibrationModal({
 	const [plane, setPlane] = useState<CameraPerspective | null>(() => storedPlane(stored));
 	const [manual, setManual] = useState(() => storedPlane(stored) === null);
 	const [planeWidthMm, setPlaneWidthMm] = useState<number | null>(null);
+	// The markers' inner corners, which the default crop stays inside; null for a stored plane.
+	const [markerInner, setMarkerInner] = useState<Corners | null>(null);
 	const [planeFormat, setPlaneFormat] = useState<PlaneFormatId>(() =>
 		storedPlane(stored) ? planeFormatOf(stored?.aspect ?? 1) : "wide",
 	);
@@ -452,8 +455,17 @@ export function CameraCalibrationModal({
 		setActiveCrop(moveCrop(activeCrop, dx * CROP_STEP, dy * CROP_STEP));
 	};
 
-	// The markers fix the desk plane; the crop on it starts as the format's largest rectangle in
-	// the markers' frame. Without a plane they still place the four corners.
+	// The format's largest crop, centred on the markers and inside them and the camera image; a
+	// stored plane (no markers) fits it into the plane's rectangle.
+	const defaultCrop = (
+		v: CameraPerspective,
+		target: number | null,
+		box: CropRegion,
+		inner: Corners | null,
+	) => (inner ? fitCropInside(v, target, box, inner) : fitCrop(v.aspect, target, box));
+
+	// The markers fix the desk plane; the crop on it starts as the format's largest rectangle
+	// inside them. Without a plane they still place the four corners.
 	const detectMarkers = () => {
 		if (!image) return;
 		const area = detectMarkedArea(image);
@@ -474,7 +486,8 @@ export function CameraCalibrationModal({
 		}
 		setPlane(base);
 		setPlaneWidthMm(area.plane?.widthMm ?? null);
-		setPlaneCrop(fitCrop(nextView.aspect, planeAspect, box));
+		setMarkerInner(copyCorners(area.corners));
+		setPlaneCrop(defaultCrop(nextView, planeAspect, box, area.corners));
 		setManual(false);
 		setMarkerResult({ kind: "found" });
 	};
@@ -482,7 +495,9 @@ export function CameraCalibrationModal({
 	const selectPlaneFormat = (id: PlaneFormatId) => {
 		setPlaneFormat(id);
 		const target = PLANE_FORMATS.find((f) => f.id === id)?.aspect ?? null;
-		if (target !== null && view && baseBox) setPlaneCrop(fitCrop(view.aspect, target, baseBox));
+		if (target !== null && view && baseBox) {
+			setPlaneCrop(defaultCrop(view, target, baseBox, markerInner));
+		}
 	};
 
 	// Real size of the crop, when the markers measured the plane.
