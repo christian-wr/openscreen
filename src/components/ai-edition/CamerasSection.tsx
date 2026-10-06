@@ -170,119 +170,130 @@ export function CamerasSection({
 	return (
 		<>
 			<div className={styles.sectionLabel}>{ts("cameras.title")}</div>
-			{cameras.map((camera) => {
-				const settings = cameraSettings[camera.index] ?? null;
-				const isFirst = camera.index === 0;
-				// A perspective replaces the crop at render, so the crop is not offered then.
-				const hasPerspective = settings?.perspective != null;
-				return (
-					<div
-						key={camera.index}
-						data-testid={`camera-row-${camera.index}`}
-						style={{
-							display: "flex",
-							flexDirection: "column",
-							gap: 8,
-							margin: "0 var(--sp-4) 14px",
-						}}
-					>
-						<div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-							<CameraThumbnail
-								still={camera.available ? stills.get(camera.index) : undefined}
-								label={camera.label}
-							/>
-							<div style={{ minWidth: 0 }}>
-								<div className={styles.label}>{camera.label}</div>
-								{camera.available ? null : (
-									<p className={styles.hint}>{ts("cameras.unavailable")}</p>
-								)}
-							</div>
-						</div>
-						{offerDesk ? (
-							<div
-								style={{
-									display: "flex",
-									justifyContent: "space-between",
-									alignItems: "center",
-									gap: 12,
-								}}
-							>
-								<span className={styles.label}>
-									{ts("cameras.deskCamera")}
-									{/* Which camera was resolved without a choice: picking it fixes it. */}
-									{deskAuto && desk.camera === camera.index ? (
-										<span className={styles.hint}> {ts("cameras.deskCameraAuto")}</span>
-									) : null}
-								</span>
-								{/* Exactly one: a click picks this camera; on the stored choice it lifts
-								    the choice and the project goes back to the automatic one. */}
-								<Toggle
-									checked={desk.camera === camera.index}
-									ariaLabel={ts("cameras.deskCamera")}
-									onChange={() =>
-										void desk.setDeskCamera(desk.chosen === camera.index ? null : camera.index)
-									}
+			{/* With a desk choice the rows hold one radio each: the group is the one choice. */}
+			<div
+				role={offerDesk ? "radiogroup" : undefined}
+				aria-label={offerDesk ? ts("cameras.deskCamera") : undefined}
+			>
+				{cameras.map((camera) => {
+					const settings = cameraSettings[camera.index] ?? null;
+					const isFirst = camera.index === 0;
+					// A perspective replaces the crop at render, so the crop is not offered then.
+					const hasPerspective = settings?.perspective != null;
+					return (
+						<div
+							key={camera.index}
+							data-testid={`camera-row-${camera.index}`}
+							style={{
+								display: "flex",
+								flexDirection: "column",
+								gap: 8,
+								margin: "0 var(--sp-4) 14px",
+							}}
+						>
+							<div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+								<CameraThumbnail
+									still={camera.available ? stills.get(camera.index) : undefined}
+									label={camera.label}
 								/>
+								<div style={{ minWidth: 0 }}>
+									<div className={styles.label}>{camera.label}</div>
+									{camera.available ? null : (
+										<p className={styles.hint}>{ts("cameras.unavailable")}</p>
+									)}
+								</div>
 							</div>
-						) : null}
-						{isFirst ? <p className={styles.hint}>{ts("cameras.camera1Hint")}</p> : null}
-						{isFirst ? null : (
-							<>
-								<ChoiceRow<CameraRotation>
-									label={ts("cameras.rotation")}
-									options={[
-										{ value: 0, label: "0°" },
-										{ value: 180, label: "180°" },
-									]}
-									value={settings?.rotation ?? 0}
-									onChange={(rotation) => void setCameraSettings(camera.index, { rotation })}
-								/>
-								<div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-									<span className={styles.label}>{ts("cameras.mirror")}</span>
-									<Toggle
-										checked={settings?.mirror === true}
-										ariaLabel={ts("cameras.mirror")}
-										onChange={(mirror) => void setCameraSettings(camera.index, { mirror })}
+							{offerDesk ? (
+								<div
+									style={{
+										display: "flex",
+										justifyContent: "space-between",
+										alignItems: "center",
+										gap: 12,
+									}}
+								>
+									<span className={styles.label}>
+										{ts("cameras.deskCamera")}
+										{/* Which camera was resolved without a choice: picking it fixes it. */}
+										{deskAuto && desk.camera === camera.index ? (
+											<span className={styles.hint}> {ts("cameras.deskCameraAuto")}</span>
+										) : null}
+									</span>
+									{/* Exactly one: a click picks this camera; on the stored choice it lifts
+								    the choice and the project goes back to the automatic one. A camera
+								    that draws nothing is not offered, unless it is that stored choice. */}
+									<button
+										type="button"
+										role="radio"
+										aria-checked={desk.camera === camera.index}
+										aria-label={`${ts("cameras.deskCamera")} – ${camera.label}`}
+										className={`${styles.toggle} ${desk.camera === camera.index ? styles.isOn : ""}`}
+										disabled={!camera.available && desk.chosen !== camera.index}
+										onClick={() =>
+											void desk.setDeskCamera(desk.chosen === camera.index ? null : camera.index)
+										}
 									/>
 								</div>
-							</>
-						)}
-						<div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+							) : null}
+							{isFirst ? <p className={styles.hint}>{ts("cameras.camera1Hint")}</p> : null}
 							{isFirst ? null : (
-								<button
-									type="button"
-									className={BUTTON}
-									disabled={!camera.available || hasPerspective}
-									title={hasPerspective ? ts("cameras.cropOffWithPerspective") : undefined}
-									onClick={() => onOpenCalibration?.(camera.index, "crop")}
-								>
-									{ts("cameras.crop")}
-								</button>
+								<>
+									<ChoiceRow<CameraRotation>
+										label={ts("cameras.rotation")}
+										options={[
+											{ value: 0, label: "0°" },
+											{ value: 180, label: "180°" },
+										]}
+										value={settings?.rotation ?? 0}
+										onChange={(rotation) => void setCameraSettings(camera.index, { rotation })}
+									/>
+									<div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+										<span className={styles.label}>{ts("cameras.mirror")}</span>
+										<Toggle
+											checked={settings?.mirror === true}
+											ariaLabel={ts("cameras.mirror")}
+											onChange={(mirror) => void setCameraSettings(camera.index, { mirror })}
+										/>
+									</div>
+								</>
 							)}
-							<button
-								type="button"
-								className={BUTTON}
-								disabled={!camera.available}
-								onClick={() => onOpenCalibration?.(camera.index, "perspective")}
-							>
-								{ts("cameras.perspective")}
-							</button>
-							{!isFirst && settings ? (
+							<div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+								{isFirst ? null : (
+									<button
+										type="button"
+										className={BUTTON}
+										disabled={!camera.available || hasPerspective}
+										title={hasPerspective ? ts("cameras.cropOffWithPerspective") : undefined}
+										onClick={() => onOpenCalibration?.(camera.index, "crop")}
+									>
+										{ts("cameras.crop")}
+									</button>
+								)}
 								<button
 									type="button"
 									className={BUTTON}
-									onClick={() => void setCameraSettings(camera.index, null)}
+									disabled={!camera.available}
+									onClick={() => onOpenCalibration?.(camera.index, "perspective")}
 								>
-									{ts("cameras.reset")}
+									{ts("cameras.perspective")}
 								</button>
+								{!isFirst && settings ? (
+									<button
+										type="button"
+										className={BUTTON}
+										onClick={() => void setCameraSettings(camera.index, null)}
+									>
+										{ts("cameras.reset")}
+									</button>
+								) : null}
+							</div>
+							{!isFirst && hasPerspective ? (
+								<p className={styles.hint}>{ts("cameras.cropOffWithPerspective")}</p>
 							) : null}
 						</div>
-						{!isFirst && hasPerspective ? (
-							<p className={styles.hint}>{ts("cameras.cropOffWithPerspective")}</p>
-						) : null}
-					</div>
-				);
-			})}
+					);
+				})}
+			</div>
 		</>
 	);
 }

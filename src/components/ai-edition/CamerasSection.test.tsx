@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AxcutDocument } from "@/lib/ai-edition/schema";
 
@@ -185,28 +185,49 @@ describe("CamerasSection", () => {
 });
 
 describe("CamerasSection desk camera", () => {
-	const renderDesk = (camera: number | null, chosen: number | null, extra = 1) => {
+	const renderDesk = (
+		camera: number | null,
+		chosen: number | null,
+		extra = 1,
+		document: AxcutDocument = makeDoc(extra),
+	) => {
 		const setDeskCamera = vi.fn();
 		render(
 			<CamerasSection
-				document={makeDoc(extra)}
+				document={document}
 				playheadSec={2}
 				cameraSettings={[]}
 				setCameraSettings={vi.fn()}
 				desk={{ camera, chosen, setDeskCamera }}
 			/>,
 		);
-		const switchOf = (index: number) =>
-			within(screen.getByTestId(`camera-row-${index}`)).getByRole("button", {
-				name: "settings.cameras.deskCamera",
-			});
-		return { setDeskCamera, switchOf };
+		const radioOf = (index: number) =>
+			within(screen.getByTestId(`camera-row-${index}`)).getByRole("radio");
+		return { setDeskCamera, radioOf };
 	};
 
+	// One choice among the cameras: radios in one named group, each named after its camera.
+	it("offers the desk camera as one radio group, each radio named after its camera", () => {
+		renderDesk(1, null);
+		const group = screen.getByRole("radiogroup", { name: "settings.cameras.deskCamera" });
+		const radios = within(group).getAllByRole("radio");
+		expect(radios).toHaveLength(2);
+		expect(
+			screen.getByRole("radio", {
+				name: "settings.cameras.deskCamera – settings.cameras.cameraN#1",
+			}),
+		).toBe(radios[0]);
+		expect(
+			screen.getByRole("radio", {
+				name: "settings.cameras.deskCamera – settings.cameras.cameraNamed#2|Desk",
+			}),
+		).toBe(radios[1]);
+	});
+
 	it("marks the resolved desk camera and says when it was picked automatically", () => {
-		const { switchOf } = renderDesk(1, null);
-		expect(switchOf(0)).toHaveAttribute("aria-pressed", "false");
-		expect(switchOf(1)).toHaveAttribute("aria-pressed", "true");
+		const { radioOf } = renderDesk(1, null);
+		expect(radioOf(0)).toHaveAttribute("aria-checked", "false");
+		expect(radioOf(1)).toHaveAttribute("aria-checked", "true");
 		expect(screen.getByTestId("camera-row-1")).toHaveTextContent("settings.cameras.deskCameraAuto");
 		expect(screen.getByTestId("camera-row-0")).not.toHaveTextContent(
 			"settings.cameras.deskCameraAuto",
@@ -214,33 +235,56 @@ describe("CamerasSection desk camera", () => {
 	});
 
 	it("picks camera 2 as the desk camera", () => {
-		const { setDeskCamera, switchOf } = renderDesk(1, null);
-		fireEvent.click(switchOf(1));
+		const { setDeskCamera, radioOf } = renderDesk(1, null);
+		fireEvent.click(radioOf(1));
 		expect(setDeskCamera).toHaveBeenCalledWith(1);
 	});
 
 	it("a click on the chosen desk camera lifts the choice", () => {
-		const { setDeskCamera, switchOf } = renderDesk(1, 1);
+		const { setDeskCamera, radioOf } = renderDesk(1, 1);
 		expect(screen.queryByText("settings.cameras.deskCameraAuto")).toBeNull();
-		fireEvent.click(switchOf(1));
+		fireEvent.click(radioOf(1));
 		expect(setDeskCamera).toHaveBeenCalledWith(null);
 	});
 
 	// The chosen camera is not in the project (file lost): the one shown is automatic again.
 	it("marks the fallback as automatic when the chosen desk camera is gone", () => {
-		const { switchOf } = renderDesk(1, 5);
-		expect(switchOf(1)).toHaveAttribute("aria-pressed", "true");
+		const { radioOf } = renderDesk(1, 5);
+		expect(radioOf(1)).toHaveAttribute("aria-checked", "true");
 		expect(screen.getByTestId("camera-row-1")).toHaveTextContent("settings.cameras.deskCameraAuto");
 	});
 
 	it("camera 1 can be the desk camera", () => {
-		const { setDeskCamera, switchOf } = renderDesk(1, null);
-		fireEvent.click(switchOf(0));
+		const { setDeskCamera, radioOf } = renderDesk(1, null);
+		fireEvent.click(radioOf(0));
 		expect(setDeskCamera).toHaveBeenCalledWith(0);
+	});
+
+	// A hidden camera draws nothing: it is not offered, unless it is the stored choice to lift.
+	it("does not offer an unavailable camera as the desk camera", () => {
+		const doc = makeDoc(2);
+		const hidden = {
+			...doc,
+			assets: doc.assets.map((a) => ({
+				...a,
+				additionalCameraTracks: (a.additionalCameraTracks ?? []).map((t, i) =>
+					i === 0 ? { ...t, visible: false } : t,
+				),
+			})),
+		} as AxcutDocument;
+		const { radioOf } = renderDesk(2, null, 2, hidden);
+		expect(radioOf(1)).toBeDisabled();
+		expect(radioOf(2)).toBeEnabled();
+		cleanup();
+		const lifted = renderDesk(2, 1, 2, hidden);
+		expect(lifted.radioOf(1)).toBeEnabled();
+		fireEvent.click(lifted.radioOf(1));
+		expect(lifted.setDeskCamera).toHaveBeenCalledWith(null);
 	});
 
 	it("offers no desk choice to a one-camera project", () => {
 		renderDesk(null, null, 0);
-		expect(screen.queryByRole("button", { name: "settings.cameras.deskCamera" })).toBeNull();
+		expect(screen.queryByRole("radio")).toBeNull();
+		expect(screen.queryByRole("radiogroup")).toBeNull();
 	});
 });

@@ -236,7 +236,7 @@ try {
 	await sleep(600);
 	const row = editor.getByTestId("camera-row-1");
 	await row.scrollIntoViewIfNeeded();
-	await row.getByLabel("Desk camera").click();
+	await row.getByRole("radio", { name: /^Desk camera – Camera 2/ }).click();
 	const picked = await waitState((s) => s.deskCamera === 1);
 	note(
 		"A: picking camera 2 stores it as the desk camera",
