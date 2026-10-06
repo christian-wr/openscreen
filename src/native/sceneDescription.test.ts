@@ -3540,20 +3540,154 @@ describe("buildSceneDescription desk sections", () => {
 		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 3, endSec: 5 });
 	});
 
-	it("leaves a document without desk sections as it was", () => {
-		const legacy = {
-			cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000, rotation: 180 }],
-			cameraLayoutRegions: [
-				{ id: "l1", startMs: 4000, endMs: 6000, template: "screen-pip", slots: [{ camera: 1 }] },
-			],
-		};
-		const scene = buildSceneDescription(docWith(2, legacy));
-		expect(buildSceneDescription(docWith(2, { ...legacy, deskRegions: [] }))).toEqual(scene);
-		expect(Object.keys(scene)).toEqual(
-			Object.keys(buildSceneDescription(docWith(2, { ...legacy, deskRegions: [] }))),
+	it("leaves an old project without desk fields exactly as it was", () => {
+		// The expected values were taken from the scene this fixture produced before desk
+		// sections existed (commit 650bf61a), written out so this cannot compare a scene with itself.
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000, rotation: 180 }],
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 4000, endMs: 6000, template: "screen-pip", slots: [{ camera: 1 }] },
+				],
+			}),
 		);
-		expect(scene.annotations.map((a) => a.text?.animation)).toEqual([DESK_COVER_ANIMATION]);
-		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(Object.keys(scene)).toEqual([
+			"clips",
+			"layout",
+			"effects",
+			"cursor",
+			"audio",
+			"audioTracks",
+			"background",
+			"zoomRegions",
+			"annotations",
+			"cameraFullscreenRegions",
+			"cameraLayoutRegions",
+			"speedRegions",
+			"cropByClip",
+			"output",
+		]);
+		expect(scene.cameraFullscreenRegions).toEqual([
+			{ startSec: 1, endSec: 3, clipIndex: 0, rotation: 180, mirror: false, fullFrame: true },
+		]);
+		expect(scene.cameraLayoutRegions).toEqual([
+			{
+				startSec: 4,
+				endSec: 6,
+				clipIndex: 0,
+				layers: [
+					{
+						camera: 1,
+						rect: {
+							x: 0.8026041666666667,
+							y: 0.6798986486486487,
+							width: 0.18489583333333334,
+							height: 0.2998310810810811,
+						},
+						radiusFrac: 0.3492957746478873,
+						shape: "square",
+						fillsFrame: false,
+					},
+				],
+			},
+		]);
+		expect(scene.annotations).toEqual([
+			{
+				id: "desk-cf1-0",
+				startSec: 1,
+				endSec: 3,
+				clipIndex: 0,
+				kind: "text",
+				space: "frame",
+				x: 0.1,
+				y: 0.4,
+				w: 0.8,
+				h: 0.2,
+				zIndex: 200000,
+				text: {
+					content: "Desk mode",
+					color: "#ffffff",
+					backgroundColor: "rgba(0, 0, 0, 0.55)",
+					fontSizeRel: 0.044444444444444446,
+					fontFamily: "Inter",
+					fontWeight: "bold",
+					fontStyle: "normal",
+					textDecoration: "none",
+					textAlign: "center",
+					verticalAlign: "center",
+					animation: DESK_COVER_ANIMATION,
+				},
+			},
+		]);
+	});
+
+	it("an empty desk list changes nothing", () => {
+		const legacy = { cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }] };
+		expect(buildSceneDescription(docWith(2, { ...legacy, deskRegions: [] }))).toEqual(
+			buildSceneDescription(docWith(2, legacy)),
+		);
+	});
+
+	it("drops a desk section that overlaps a Full Camera section", () => {
+		const legacy = { cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }] };
+		const scene = buildSceneDescription(
+			docWith(2, { ...legacy, deskRegions: [{ id: "d1", startMs: 2000, endMs: 4000 }] }),
+		);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(deskLabels(scene)).toEqual([]);
+		expect(scene.cameraFullscreenRegions).toEqual(
+			buildSceneDescription(docWith(2, legacy)).cameraFullscreenRegions,
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+	});
+
+	it("drops a desk section of camera 1 that overlaps a Full Camera section", () => {
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }],
+				deskRegions: [{ id: "d1", startMs: 2000, endMs: 4000 }],
+				deskCamera: 0,
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
 		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	it("drops a desk section that overlaps a layout section", () => {
+		const layout = {
+			id: "l1",
+			startMs: 1000,
+			endMs: 3000,
+			template: "screen-pip",
+			slots: [{ camera: 1 }],
+		};
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraLayoutRegions: [layout],
+				deskRegions: [{ id: "d1", startMs: 2500, endMs: 4000 }],
+			}),
+		);
+		expect(scene.cameraLayoutRegions).toEqual(
+			buildSceneDescription(docWith(2, { cameraLayoutRegions: [layout] })).cameraLayoutRegions,
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	it("keeps a desk section that only touches a layout section", () => {
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 3000, template: "screen-pip", slots: [{ camera: 1 }] },
+				],
+				deskRegions: [{ id: "d1", startMs: 3000, endMs: 4000 }],
+			}),
+		);
+		expect(scene.cameraLayoutRegions?.map((l) => [l.startSec, l.endSec])).toEqual([
+			[1, 3],
+			[3, 4],
+		]);
+		expect(deskLabels(scene).map((a) => a.id)).toEqual(["desk-d1-0"]);
 	});
 });

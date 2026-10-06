@@ -65,6 +65,7 @@ import {
 	maxZoomScaleFor,
 } from "@/lib/ai-edition/timeline/zoom-scale";
 import {
+	cameraSectionsOverlapping,
 	fullCameraRowsOfLayoutList,
 	normalizeCameraLayoutRegions,
 	normalizeCameraSettings,
@@ -1294,25 +1295,7 @@ export function buildSceneDescription(
 	);
 	const legacyRaw = document.legacyEditor as Record<string, unknown> | null;
 	const cameraSettings = normalizeCameraSettings(legacyRaw?.cameraSettings);
-	// Desk sections become rows of the two lists below: a camera-full layout of the desk camera,
-	// or a Full Camera row when the desk camera is camera 1. The desk camera is resolved exactly
-	// as the editor resolves it, so the picture and the timeline never name different cameras.
-	const deskRegions = normalizeDeskRegions(legacyRaw?.deskRegions);
-	const desk = deskRowsForScene(
-		deskRegions,
-		resolveDeskCamera({
-			deskCamera: legacyRaw?.deskCamera,
-			cameraCount: projectCameraCount(document.assets),
-			cameraSettings: cameraSettings.map((s) => s ?? {}),
-		}),
-	);
-	const labelledDeskSections = new Set(
-		deskRegions.filter((region) => showsDeskLabel(region)).map((region) => region.id),
-	);
-	const layoutRegions = [
-		...normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions),
-		...desk.layout,
-	].sort((a, b) => a.startMs - b.startMs);
+	const storedLayoutRegions = normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions);
 	// Two disjoint lists: camera 1's Full Camera sections live in `cameraFullscreenRegions`
 	// (they keep the desk view and its label), every other layout in `cameraLayoutRegions`.
 	// Both are clip-anchored, so `projectRegionsToSource` takes its anchored branch for both.
@@ -1329,6 +1312,34 @@ export function buildSceneDescription(
 				),
 		)
 		.map(({ template: _template, slots: _slots, ...region }): CameraFullscreenRegion => region);
+	// Desk sections become rows of the two lists above: a camera-full layout of the desk camera,
+	// or a Full Camera row when the desk camera is camera 1. The desk camera is resolved exactly
+	// as the editor resolves it, so the picture and the timeline never name different cameras.
+	// The lane never holds overlapping sections; a hand-edited project still might, and then the
+	// existing camera section wins and the desk section (with its label) is dropped.
+	const existingCameraSections = [
+		...fullscreenRegions,
+		...handWrittenFullCamera,
+		...storedLayoutRegions,
+	];
+	const deskRegions = normalizeDeskRegions(legacyRaw?.deskRegions).filter(
+		(region) =>
+			cameraSectionsOverlapping(existingCameraSections, region.startMs, region.endMs).length === 0,
+	);
+	const desk = deskRowsForScene(
+		deskRegions,
+		resolveDeskCamera({
+			deskCamera: legacyRaw?.deskCamera,
+			cameraCount: projectCameraCount(document.assets),
+			cameraSettings: cameraSettings.map((s) => s ?? {}),
+		}),
+	);
+	const labelledDeskSections = new Set(
+		deskRegions.filter((region) => showsDeskLabel(region)).map((region) => region.id),
+	);
+	const layoutRegions = [...storedLayoutRegions, ...desk.layout].sort(
+		(a, b) => a.startMs - b.startMs,
+	);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
 		[...fullscreenRegions, ...handWrittenFullCamera, ...desk.full].map((region) => ({
 			...region,
