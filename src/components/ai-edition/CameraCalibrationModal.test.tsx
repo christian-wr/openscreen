@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CameraSettings } from "@/components/video-editor/types";
 import {
@@ -273,6 +273,44 @@ describe("CameraCalibrationModal", () => {
 		fireEvent.click(screen.getByRole("button", { name: "9:16" }));
 		fireEvent.click(apply());
 		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(9 / 16, 9);
+	});
+
+	it("Shift + arrows resize a fixed-format crop on the desk: left shrinks, right grows", async () => {
+		// The stored crop's width in the image, after detection and `presses` Shift + `key`.
+		const widthAfter = async (key: string | null, presses: number) => {
+			detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
+			const { onApply } = renderModal("perspective", null);
+			await stillLoaded();
+			detect();
+			const crop = screen.getByTestId("calibration-crop");
+			for (let i = 0; key && i < presses; i++) fireEvent.keyDown(crop, { key, shiftKey: true });
+			fireEvent.click(apply());
+			const stored = onApply.mock.calls[0][0].perspective;
+			expect(stored.aspect).toBeCloseTo(16 / 9, 9);
+			cleanup();
+			return Math.hypot(
+				stored.corners[1].x - stored.corners[0].x,
+				stored.corners[1].y - stored.corners[0].y,
+			);
+		};
+		const initial = await widthAfter(null, 0);
+		expect(await widthAfter("ArrowLeft", 5)).toBeLessThan(initial - 1e-3);
+		expect(await widthAfter("ArrowUp", 5)).toBeLessThan(initial - 1e-3);
+		// Grow after shrinking, so the crop has room on any default.
+		const shrunk = await widthAfter("ArrowLeft", 10);
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
+		const { onApply } = renderModal("perspective", null);
+		await stillLoaded();
+		detect();
+		const crop = screen.getByTestId("calibration-crop");
+		for (let i = 0; i < 10; i++) fireEvent.keyDown(crop, { key: "ArrowLeft", shiftKey: true });
+		for (let i = 0; i < 3; i++) fireEvent.keyDown(crop, { key: "ArrowRight", shiftKey: true });
+		fireEvent.click(apply());
+		const grown = onApply.mock.calls[0][0].perspective;
+		expect(grown.aspect).toBeCloseTo(16 / 9, 9);
+		expect(
+			Math.hypot(grown.corners[1].x - grown.corners[0].x, grown.corners[1].y - grown.corners[0].y),
+		).toBeGreaterThan(shrunk + 1e-3);
 	});
 
 	it("shows the crop's real size after detection", async () => {

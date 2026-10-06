@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CameraPerspective, CropRegion } from "@/components/video-editor/types";
 import { homographyFromUnitSquare } from "@/lib/cameraPerspective";
+import { MIN_CROP } from "./calibrationGeometry";
 import {
 	cropAspectOf,
 	cropLeavesImage,
@@ -145,6 +146,51 @@ describe("resizeCropLocked", () => {
 		expect(r.x + r.width).toBeCloseTo(0.6, 9);
 		expect(r.y + r.height).toBeCloseTo(0.2 + 0.45, 9);
 		expect(r.height).toBeCloseTo(0.45 + 0.2, 9);
+	});
+
+	// Outward movement of each corner, in view fractions: (dx, dy) signs that grow the crop.
+	const OUT: Record<"nw" | "ne" | "sw" | "se", [number, number]> = {
+		nw: [-1, -1],
+		ne: [1, -1],
+		sw: [-1, 1],
+		se: [1, 1],
+	};
+	const anchorOf = (r: { x: number; y: number; width: number; height: number }, c: string) => ({
+		x: c.endsWith("e") ? r.x : r.x + r.width,
+		y: c.startsWith("s") ? r.y : r.y + r.height,
+	});
+
+	for (const corner of ["nw", "ne", "sw", "se"] as const) {
+		const [sx, sy] = OUT[corner];
+		for (const [label, sign] of [
+			["grows", 1],
+			["shrinks", -1],
+		] as const) {
+			for (const axis of ["x", "y"] as const) {
+				it(`${label} from ${corner} along ${axis}, aspect and anchor held`, () => {
+					const d = 0.05 * sign;
+					const r =
+						axis === "x"
+							? resizeCropLocked(start, corner, sx * d, 0, 2, 16 / 9)
+							: resizeCropLocked(start, corner, 0, sy * d, 2, 16 / 9);
+					const expected = axis === "x" ? start.width + d : start.width + d / 1.125;
+					expect(r.width).toBeCloseTo(expected, 9);
+					expect(cropAspectOf(2, r)).toBeCloseTo(16 / 9, 9);
+					const a = anchorOf(r, corner);
+					const a0 = anchorOf(start, corner);
+					expect(a.x).toBeCloseTo(a0.x, 9);
+					expect(a.y).toBeCloseTo(a0.y, 9);
+				});
+			}
+		}
+	}
+
+	it("shrinks no further than the smallest crop", () => {
+		const r = resizeCropLocked(start, "se", -5, 0, 2, 16 / 9);
+		expect(r.width).toBeCloseTo(Math.max(MIN_CROP, MIN_CROP / 1.125), 9);
+		expect(r.height).toBeGreaterThanOrEqual(MIN_CROP - 1e-9);
+		expect(r.x).toBeCloseTo(0.2, 9);
+		expect(r.y).toBeCloseTo(0.2, 9);
 	});
 
 	it("stops at the view's edge", () => {

@@ -113,7 +113,9 @@ export type CropCorner = "nw" | "ne" | "sw" | "se";
 
 /**
  * `start` resized from `corner` by (dx, dy), its real aspect held and the opposite corner fixed:
- * the size follows whichever axis the pointer moved further along, inside the view.
+ * the size follows whichever axis the pointer moved further along (measured in crop widths, so
+ * both axes count alike), growing outward and shrinking inward, inside the view and never below
+ * the smallest crop.
  */
 export function resizeCropLocked(
 	start: CropRegion,
@@ -132,7 +134,8 @@ export function resizeCropLocked(
 	const fromY = (start.height + (south ? dy : -dy)) / k;
 	const maxWidth = Math.min(east ? 1 - anchorX : anchorX, (south ? 1 - anchorY : anchorY) / k);
 	const minWidth = Math.max(MIN_CROP, MIN_CROP / k);
-	const width = Math.min(maxWidth, Math.max(minWidth, Math.max(fromX, fromY)));
+	const wanted = Math.abs(dx) >= Math.abs(dy / k) ? fromX : fromY;
+	const width = Math.min(maxWidth, Math.max(minWidth, wanted));
 	const height = width * k;
 	return {
 		x: east ? anchorX : anchorX - width,
