@@ -335,6 +335,17 @@ export interface CameraFullscreenRegion {
 	deskLabel?: false;
 }
 
+/**
+ * A desk section: the project's desk camera fills the frame. Only `false` is stored for
+ * `deskLabel`, which hides the "Desk mode" label of the section.
+ */
+export interface DeskRegion {
+	id: string;
+	startMs: number;
+	endMs: number;
+	deskLabel?: false;
+}
+
 export type CameraLayoutTemplate =
 	| "screen-pip"
 	| "camera-full"
