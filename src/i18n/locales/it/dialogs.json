@@ -120,7 +120,7 @@
 		"invalidRatio": "Inserisci un rapporto compreso tra {{min}} e {{max}}.",
 		"detectMarkers": "Rileva marcatori",
 		"printMarkerSheet": "Stampa foglio marcatori",
-		"markersFound": "Trovati tutti e quattro i marcatori; gli angoli sono stati posizionati su di essi.",
+		"planeFound": "Trovati tutti e quattro i marcatori; la scrivania è raddrizzata. Posiziona il ritaglio su di essa.",
 		"planeHelp": "Trascina il ritaglio sulla scrivania raddrizzata. Le maniglie agli angoli ne cambiano le dimensioni.",
 		"handMode": "Quattro angoli a mano",
 		"planeMode": "Ritaglio sulla scrivania raddrizzata",

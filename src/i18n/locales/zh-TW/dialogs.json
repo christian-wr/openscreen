@@ -120,7 +120,7 @@
 		"invalidRatio": "請輸入 {{min}} 到 {{max}} 之間的比例。",
 		"detectMarkers": "偵測標記",
 		"printMarkerSheet": "列印標記紙",
-		"markersFound": "已找到全部四個標記，角點已放到標記上。",
+		"planeFound": "已找到全部四個標記，桌面已校正。請在其上放置裁切範圍。",
 		"planeHelp": "在校正後的桌面上拖曳裁切範圍。拖曳角落的控點可調整大小。",
 		"handMode": "手動設定四個角",
 		"planeMode": "在校正後的桌面上裁切",

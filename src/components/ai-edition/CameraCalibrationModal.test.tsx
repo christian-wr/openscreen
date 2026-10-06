@@ -251,7 +251,7 @@ describe("CameraCalibrationModal", () => {
 		const { onApply } = renderModal("perspective", null);
 		await stillLoaded();
 		detect();
-		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.markersFound");
+		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.planeFound");
 		expect(screen.getByTestId("calibration-plane")).toBeInTheDocument();
 		expect(screen.queryByTestId("calibration-handle-0")).toBeNull();
 		fireEvent.click(apply());

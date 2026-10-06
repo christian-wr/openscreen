@@ -120,7 +120,7 @@
 		"invalidRatio": "{{min}}에서 {{max}} 사이의 비율을 입력하세요.",
 		"detectMarkers": "마커 감지",
 		"printMarkerSheet": "마커 시트 인쇄",
-		"markersFound": "네 개의 마커를 모두 찾아 모서리를 마커에 맞췄습니다.",
+		"planeFound": "네 개의 마커를 모두 찾아 책상을 보정했습니다. 그 위에 자르기 영역을 배치하세요.",
 		"planeHelp": "보정된 책상 위에서 자르기 영역을 끌어 놓으세요. 모서리 핸들로 크기를 조절합니다.",
 		"handMode": "네 모서리 직접 지정",
 		"planeMode": "보정된 책상에서 자르기",

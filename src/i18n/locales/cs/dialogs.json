@@ -120,7 +120,7 @@
 		"invalidRatio": "Zadejte poměr mezi {{min}} a {{max}}.",
 		"detectMarkers": "Rozpoznat značky",
 		"printMarkerSheet": "Vytisknout list se značkami",
-		"markersFound": "Všechny čtyři značky nalezeny; rohy byly umístěny na ně.",
+		"planeFound": "Všechny čtyři značky nalezeny; stůl je narovnaný. Umístěte na něj výřez.",
 		"planeHelp": "Přetáhněte výřez na narovnaném stole. Rohové úchyty mění jeho velikost.",
 		"handMode": "Čtyři rohy ručně",
 		"planeMode": "Výřez na narovnaném stole",

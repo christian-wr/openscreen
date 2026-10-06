@@ -120,7 +120,7 @@
 		"invalidRatio": "Nhập tỷ lệ từ {{min}} đến {{max}}.",
 		"detectMarkers": "Phát hiện điểm đánh dấu",
 		"printMarkerSheet": "In trang điểm đánh dấu",
-		"markersFound": "Đã tìm thấy cả bốn điểm đánh dấu; các góc đã được đặt lên chúng.",
+		"planeFound": "Đã tìm thấy cả bốn điểm đánh dấu; mặt bàn đã được nắn thẳng. Hãy đặt vùng cắt lên đó.",
 		"planeHelp": "Kéo vùng cắt trên mặt bàn đã được nắn thẳng. Các tay nắm ở góc thay đổi kích thước.",
 		"handMode": "Bốn góc thủ công",
 		"planeMode": "Cắt trên mặt bàn đã nắn thẳng",

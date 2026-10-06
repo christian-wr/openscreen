@@ -747,7 +747,7 @@ export function CameraCalibrationModal({
 					) : null}
 					<p role="status" className={styles.hint} style={{ margin: 0, flex: "1 1 200px" }}>
 						{markerResult?.kind === "found"
-							? t("cameraCalibration.markersFound")
+							? t("cameraCalibration.planeFound")
 							: markerResult?.kind === "noPlane"
 								? t("cameraCalibration.noPlane")
 								: markerResult?.kind === "notFound"

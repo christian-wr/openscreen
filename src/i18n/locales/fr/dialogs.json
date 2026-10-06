@@ -120,7 +120,7 @@
 		"invalidRatio": "Saisissez un rapport entre {{min}} et {{max}}.",
 		"detectMarkers": "Détecter les marqueurs",
 		"printMarkerSheet": "Imprimer la feuille de marqueurs",
-		"markersFound": "Les quatre marqueurs ont été trouvés ; les coins y ont été placés.",
+		"planeFound": "Les quatre marqueurs ont été trouvés ; le bureau est redressé. Placez-y le cadrage.",
 		"planeHelp": "Faites glisser le cadrage sur le bureau redressé. Les poignées d'angle le redimensionnent.",
 		"handMode": "Quatre coins à la main",
 		"planeMode": "Cadrage sur le bureau redressé",

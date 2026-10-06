@@ -120,7 +120,7 @@
 		"invalidRatio": "{{min}} ile {{max}} arasında bir oran girin.",
 		"detectMarkers": "İşaretçileri algıla",
 		"printMarkerSheet": "İşaretçi sayfasını yazdır",
-		"markersFound": "Dört işaretçinin tümü bulundu; köşeler bunların üzerine yerleştirildi.",
+		"planeFound": "Dört işaretçinin tümü bulundu; masa düzeltildi. Kırpma alanını üzerine yerleştirin.",
 		"planeHelp": "Kırpma alanını düzeltilmiş masa üzerinde sürükleyin. Köşe tutamaçları boyutunu değiştirir.",
 		"handMode": "Dört köşe elle",
 		"planeMode": "Düzeltilmiş masada kırpma",

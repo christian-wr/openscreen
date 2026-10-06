@@ -120,7 +120,7 @@
 		"invalidRatio": "Gib ein Verhältnis zwischen {{min}} und {{max}} ein.",
 		"detectMarkers": "Marker erkennen",
 		"printMarkerSheet": "Markerblatt drucken",
-		"markersFound": "Alle vier Marker gefunden; die Ecken wurden auf sie gesetzt.",
+		"planeFound": "Alle vier Marker gefunden; der Tisch ist entzerrt. Lege den Ausschnitt darauf fest.",
 		"planeHelp": "Ziehe den Ausschnitt auf dem entzerrten Tisch. Die Eckgriffe ändern die Größe.",
 		"handMode": "Vier Ecken von Hand",
 		"planeMode": "Ausschnitt auf entzerrtem Tisch",

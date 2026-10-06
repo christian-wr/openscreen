@@ -120,7 +120,7 @@
 		"invalidRatio": "Enter a ratio between {{min}} and {{max}}.",
 		"detectMarkers": "Detect markers",
 		"printMarkerSheet": "Print marker sheet",
-		"markersFound": "All four markers found; the corners were placed on them.",
+		"planeFound": "All four markers found; the desk is straightened. Place the crop on it.",
 		"planeHelp": "Drag the crop on the straightened desk. The corner handles resize it.",
 		"handMode": "Four corners by hand",
 		"planeMode": "Crop on the straightened desk",

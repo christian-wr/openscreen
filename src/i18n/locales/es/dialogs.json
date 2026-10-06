@@ -120,7 +120,7 @@
 		"invalidRatio": "Introduce una proporción entre {{min}} y {{max}}.",
 		"detectMarkers": "Detectar marcadores",
 		"printMarkerSheet": "Imprimir hoja de marcadores",
-		"markersFound": "Se encontraron los cuatro marcadores; las esquinas se colocaron sobre ellos.",
+		"planeFound": "Se encontraron los cuatro marcadores; el escritorio está enderezado. Coloca el recorte sobre él.",
 		"planeHelp": "Arrastra el recorte sobre el escritorio enderezado. Las asas de las esquinas cambian su tamaño.",
 		"handMode": "Cuatro esquinas a mano",
 		"planeMode": "Recorte sobre el escritorio enderezado",
