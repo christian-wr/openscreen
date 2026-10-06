@@ -374,6 +374,12 @@ export function NewEditorShell() {
 			enqueueTimelineWrite(() => setTimelineCameraSettings(index, patch)),
 		[enqueueTimelineWrite, setTimelineCameraSettings],
 	);
+	// The desk camera choice rides the same queue, so it cannot race a camera settings write.
+	const setTimelineDeskCamera = tl.setDeskCamera;
+	const setDeskCameraQueued = useCallback(
+		(index: number | null) => enqueueTimelineWrite(() => setTimelineDeskCamera(index)),
+		[enqueueTimelineWrite, setTimelineDeskCamera],
+	);
 
 	const promptUnsaved = useCallback(
 		(action: "close" | "new" | "open" | "record"): Promise<UnsavedChoice> => {
@@ -1697,6 +1703,7 @@ export function NewEditorShell() {
 								transcriptProps={transcriptProps}
 								onOpenCalibration={openCalibration}
 								setCameraSettings={setCameraSettingsQueued}
+								setDeskCamera={setDeskCameraQueued}
 							/>
 						</>
 					) : mode === "media" ? (

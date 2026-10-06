@@ -38,15 +38,28 @@ vi.mock("../RightPanes", async (importOriginal) => ({
 		</div>
 	),
 	CursorPane: () => <div data-testid="cursor-pane">CursorPane</div>,
-	// Hands its `cameras` writer out, so a test can tell which one the inspector passed down.
-	LayoutPane: ({ cameras }: { cameras?: { setCameraSettings?: unknown } }) => (
-		<button
-			type="button"
-			data-testid="layout-pane"
-			onClick={() => (cameras?.setCameraSettings as (i: number, p: null) => void)?.(1, null)}
-		>
-			LayoutPane
-		</button>
+	// Hands its `cameras` writers out, so a test can tell which ones the inspector passed down.
+	LayoutPane: ({
+		cameras,
+	}: {
+		cameras?: { setCameraSettings?: unknown; desk?: { setDeskCamera?: unknown } };
+	}) => (
+		<>
+			<button
+				type="button"
+				data-testid="layout-pane"
+				onClick={() => (cameras?.setCameraSettings as (i: number, p: null) => void)?.(1, null)}
+			>
+				LayoutPane
+			</button>
+			<button
+				type="button"
+				data-testid="layout-pane-desk"
+				onClick={() => (cameras?.desk?.setDeskCamera as (i: number) => void)?.(2)}
+			>
+				Desk
+			</button>
+		</>
 	),
 	SliderCell: () => <div data-testid="slider-cell">SliderCell</div>,
 	TranscriptPane: () => <div data-testid="transcript-pane">TranscriptPane</div>,
@@ -94,6 +107,7 @@ describe("FloatingInspector", () => {
 		clips: [],
 		onEditClip: vi.fn(),
 		setCameraSettings: vi.fn(),
+		setDeskCamera: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
 		>["transcriptProps"],
@@ -115,6 +129,19 @@ describe("FloatingInspector", () => {
 		fireEvent.click(screen.getByTestId("layout-pane"));
 		expect(setCameraSettings).toHaveBeenCalledWith(1, null);
 		expect(tl.setCameraSettings).not.toHaveBeenCalled();
+	});
+
+	// Through the shell's write queue, like the camera settings, so it cannot race them.
+	it("the layout pane writes the desk camera through the writer it was given", () => {
+		const setDeskCamera = vi.fn();
+		const tl = {
+			...defaultProps.tl,
+			setDeskCamera: vi.fn(),
+		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"];
+		render(<FloatingInspector {...defaultProps} tl={tl} setDeskCamera={setDeskCamera} />);
+		fireEvent.click(screen.getByTestId("layout-pane-desk"));
+		expect(setDeskCamera).toHaveBeenCalledWith(2);
+		expect(tl.setDeskCamera).not.toHaveBeenCalled();
 	});
 
 	it("renders layout facet button on rail with camera icon and settings.layout.title", () => {
@@ -685,6 +712,7 @@ describe("FloatingInspector desk pane", () => {
 		clips: [],
 		onEditClip: vi.fn(),
 		setCameraSettings: vi.fn(),
+		setDeskCamera: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
 		>["transcriptProps"],

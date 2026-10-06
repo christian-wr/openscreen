@@ -73,7 +73,7 @@ import {
 import { isWebcamBlockLayout } from "@/lib/compositeLayout";
 import { clampToBound } from "@/lib/projectDefaults";
 import { annotationFootageRect, zoomScaleLimit } from "@/native/sceneDescription";
-import type { CamerasSectionProps } from "../CamerasSection";
+import type { CamerasSectionProps, DeskCameraChoice } from "../CamerasSection";
 import { ColorField } from "../ColorField";
 import shell from "../NewEditorShell.module.css";
 import {
@@ -139,6 +139,8 @@ interface FloatingInspectorProps {
 	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 	/** Per-camera settings writer; the shell's queued one, so it cannot race other writes. */
 	setCameraSettings: CamerasSectionProps["setCameraSettings"];
+	/** Desk camera writer; the shell's queued one too, for the same reason. */
+	setDeskCamera: DeskCameraChoice["setDeskCamera"];
 }
 
 export function FloatingInspector({
@@ -152,6 +154,7 @@ export function FloatingInspector({
 	tl,
 	onOpenCalibration,
 	setCameraSettings,
+	setDeskCamera,
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
 	const te = useScopedT("editor");
@@ -210,6 +213,7 @@ export function FloatingInspector({
 							tl={tl}
 							onOpenCalibration={onOpenCalibration}
 							setCameraSettings={setCameraSettings}
+							setDeskCamera={setDeskCamera}
 						/>
 					)}
 				</div>
@@ -1409,6 +1413,7 @@ function FacetBody({
 	tl,
 	onOpenCalibration,
 	setCameraSettings,
+	setDeskCamera,
 }: {
 	facet: Facet;
 	onCollapse: () => void;
@@ -1416,6 +1421,7 @@ function FacetBody({
 	tl: TimelineApi;
 	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 	setCameraSettings: CamerasSectionProps["setCameraSettings"];
+	setDeskCamera: DeskCameraChoice["setDeskCamera"];
 }) {
 	const te = useScopedT("editor");
 	// A small collapse affordance floated over the reused pane header.
@@ -1456,7 +1462,7 @@ function FacetBody({
 					desk: {
 						camera: tl.deskCamera,
 						chosen: tl.deskCameraChosen,
-						setDeskCamera: tl.setDeskCamera,
+						setDeskCamera,
 					},
 				}}
 			/>,
