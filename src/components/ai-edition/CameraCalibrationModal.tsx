@@ -4,8 +4,8 @@
 // finds the four printed markers (`arucoMarkers.ts`); when they fix the desk plane the frame
 // shows the straightened desk with a crop on it (`planeCrop.ts`), otherwise the corners go onto
 // the markers. "Print marker sheet" prints them (`markerSheet.ts`). Crop mode: a rectangle with
-// corner and edge handles. Built on `ModalShell`, so the editor's shortcuts and undo stay blocked while it is open; Apply hands
-// back one settings patch (one undo step).
+// corner and edge handles. Built on `ModalShell`, so the editor's shortcuts and undo stay blocked
+// while it is open; Apply hands back one settings patch (one undo step).
 
 import {
 	type CSSProperties,
@@ -922,7 +922,7 @@ export function CameraCalibrationModal({
 						aria-describedby={
 							isPerspective && !planeMode && !quadValid
 								? "calibration-invalid"
-								: isPerspective && aspect === null
+								: isPerspective && !planeMode && aspect === null
 									? "calibration-invalid-ratio"
 									: undefined
 						}

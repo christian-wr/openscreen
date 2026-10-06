@@ -320,6 +320,21 @@ describe("CameraCalibrationModal", () => {
 		).toBeGreaterThan(shrunk + 1e-3);
 	});
 
+	it("on the desk, apply does not point at the hand mode's ratio message", async () => {
+		renderModal("perspective", null);
+		await stillLoaded();
+		// An invalid ratio left behind in the four-handle mode...
+		fireEvent.click(screen.getByRole("button", { name: "dialogs.cameraCalibration.formats.free" }));
+		fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "50" } });
+		expect(apply()).toHaveAttribute("aria-describedby", "calibration-invalid-ratio");
+		// ...does not concern the crop on the desk, where that message is not shown.
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
+		detect();
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(apply()).toBeEnabled();
+		expect(apply()).not.toHaveAttribute("aria-describedby");
+	});
+
 	it("shows the crop's real size after detection", async () => {
 		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
 		renderModal("perspective", null);
