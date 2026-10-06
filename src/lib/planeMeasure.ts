@@ -96,7 +96,10 @@ function length(a: Pt, b: Pt): number {
 	return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
-/** Image -> metric plane (similarity-correct), from the squares; `anchor` must be off the horizon. */
+/**
+ * Image -> metric plane (similarity-correct), from the squares; `anchor` must be off the
+ * horizon.
+ */
 function rectifyingHomography(squares: Corners[], anchor: Pt): number[] | null {
 	const points = squares.map(circularPoint).filter((v): v is CVec => v !== null);
 	if (points.length === 0) return null;

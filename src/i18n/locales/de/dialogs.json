@@ -121,7 +121,7 @@
 		"detectMarkers": "Marker erkennen",
 		"printMarkerSheet": "Markerblatt drucken",
 		"planeFound": "Alle vier Marker gefunden; der Tisch ist entzerrt. Lege den Ausschnitt darauf fest.",
-		"planeHelp": "Ziehe den Ausschnitt auf dem entzerrten Tisch. Die Eckgriffe ändern die Größe.",
+		"planeHelp": "Ziehe den Ausschnitt auf dem entzerrten Tisch. Die Eckgriffe ändern die Größe (bei „Frei“ auch die Kanten), ebenso Umschalt + Pfeiltasten.",
 		"handMode": "Vier Ecken von Hand",
 		"planeMode": "Ausschnitt auf entzerrtem Tisch",
 		"noPlane": "Alle vier Marker gefunden, aber die Tischebene ließ sich nicht bestimmen; die Ecken wurden auf sie gesetzt.",

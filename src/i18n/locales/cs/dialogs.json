@@ -121,7 +121,7 @@
 		"detectMarkers": "Rozpoznat značky",
 		"printMarkerSheet": "Vytisknout list se značkami",
 		"planeFound": "Všechny čtyři značky nalezeny; stůl je narovnaný. Umístěte na něj výřez.",
-		"planeHelp": "Přetáhněte výřez na narovnaném stole. Rohové úchyty mění jeho velikost.",
+		"planeHelp": "Přetáhněte výřez na narovnaném stole. Rohové úchyty mění jeho velikost (u „Volný“ i okraje), stejně jako Shift + šipky.",
 		"handMode": "Čtyři rohy ručně",
 		"planeMode": "Výřez na narovnaném stole",
 		"noPlane": "Všechny čtyři značky nalezeny, ale rovinu stolu se nepodařilo určit; rohy byly umístěny na ně.",

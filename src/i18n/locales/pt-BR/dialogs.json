@@ -121,7 +121,7 @@
 		"detectMarkers": "Detectar marcadores",
 		"printMarkerSheet": "Imprimir folha de marcadores",
 		"planeFound": "Os quatro marcadores foram encontrados; a mesa foi endireitada. Posicione o recorte sobre ela.",
-		"planeHelp": "Arraste o recorte sobre a mesa endireitada. As alças dos cantos mudam o tamanho.",
+		"planeHelp": "Arraste o recorte sobre a mesa endireitada. As alças dos cantos mudam o tamanho (em “Livre”, as bordas também), assim como Shift + as setas.",
 		"handMode": "Quatro cantos à mão",
 		"planeMode": "Recorte na mesa endireitada",
 		"noPlane": "Os quatro marcadores foram encontrados, mas não foi possível determinar o plano da mesa; os cantos foram posicionados sobre eles.",

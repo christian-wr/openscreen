@@ -121,7 +121,7 @@
 		"detectMarkers": "İşaretçileri algıla",
 		"printMarkerSheet": "İşaretçi sayfasını yazdır",
 		"planeFound": "Dört işaretçinin tümü bulundu; masa düzeltildi. Kırpma alanını üzerine yerleştirin.",
-		"planeHelp": "Kırpma alanını düzeltilmiş masa üzerinde sürükleyin. Köşe tutamaçları boyutunu değiştirir.",
+		"planeHelp": "Kırpma alanını düzeltilmiş masa üzerinde sürükleyin. Köşe tutamaçları boyutunu değiştirir (“Serbest” modunda kenarlar da), Shift + ok tuşları da öyle.",
 		"handMode": "Dört köşe elle",
 		"planeMode": "Düzeltilmiş masada kırpma",
 		"noPlane": "Dört işaretçinin tümü bulundu, ancak masa düzlemi belirlenemedi; köşeler bunların üzerine yerleştirildi.",

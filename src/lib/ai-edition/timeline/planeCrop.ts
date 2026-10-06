@@ -31,7 +31,9 @@ function cornersOf(h: number[], x0: number, y0: number, x1: number, y1: number):
 
 /**
  * The base grown `grow` times about its centre — less when that would reach past the horizon,
- * never less than the base itself. Null when the base is not a usable quad.
+ * but for `grow` >= 1 never less than the base itself. Only corners and aspect are kept: a
+ * stored `margin` is dropped on purpose, the view shows the plane itself. Null when the base is
+ * not a usable quad.
  */
 export function planeView(
 	base: CameraPerspective,

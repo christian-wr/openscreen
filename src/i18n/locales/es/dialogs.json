@@ -121,7 +121,7 @@
 		"detectMarkers": "Detectar marcadores",
 		"printMarkerSheet": "Imprimir hoja de marcadores",
 		"planeFound": "Se encontraron los cuatro marcadores; el escritorio está enderezado. Coloca el recorte sobre él.",
-		"planeHelp": "Arrastra el recorte sobre el escritorio enderezado. Las asas de las esquinas cambian su tamaño.",
+		"planeHelp": "Arrastra el recorte sobre el escritorio enderezado. Las asas de las esquinas cambian su tamaño (en «Libre» también los bordes), igual que Mayús + las flechas.",
 		"handMode": "Cuatro esquinas a mano",
 		"planeMode": "Recorte sobre el escritorio enderezado",
 		"noPlane": "Se encontraron los cuatro marcadores, pero no se pudo determinar el plano del escritorio; las esquinas se colocaron sobre ellos.",

@@ -121,7 +121,7 @@
 		"detectMarkers": "Rileva marcatori",
 		"printMarkerSheet": "Stampa foglio marcatori",
 		"planeFound": "Trovati tutti e quattro i marcatori; la scrivania è raddrizzata. Posiziona il ritaglio su di essa.",
-		"planeHelp": "Trascina il ritaglio sulla scrivania raddrizzata. Le maniglie agli angoli ne cambiano le dimensioni.",
+		"planeHelp": "Trascina il ritaglio sulla scrivania raddrizzata. Le maniglie agli angoli ne cambiano le dimensioni (in «Libero» anche i bordi), così come Maiusc + le frecce.",
 		"handMode": "Quattro angoli a mano",
 		"planeMode": "Ritaglio sulla scrivania raddrizzata",
 		"noPlane": "Trovati tutti e quattro i marcatori, ma non è stato possibile determinare il piano della scrivania; gli angoli sono stati posizionati su di essi.",

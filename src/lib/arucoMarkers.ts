@@ -35,8 +35,12 @@ export const MARKER_SIZE_MM = 40;
 
 /** The four inner corners and a frame that is rectangular on the desk. */
 export interface MarkedArea {
+	/** The markers' inner corners, normalized 0..1 of the image, in handle order. */
 	corners: MarkerCorners;
-	/** Corners normalized 0..1 of the image; null when the markers cannot fix the plane. */
+	/**
+	 * The frame, its corners normalized 0..1 of the image; null when the markers cannot fix
+	 * the plane.
+	 */
 	plane: PlaneRect | null;
 }
 

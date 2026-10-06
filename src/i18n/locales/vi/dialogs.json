@@ -121,7 +121,7 @@
 		"detectMarkers": "Phát hiện điểm đánh dấu",
 		"printMarkerSheet": "In trang điểm đánh dấu",
 		"planeFound": "Đã tìm thấy cả bốn điểm đánh dấu; mặt bàn đã được nắn thẳng. Hãy đặt vùng cắt lên đó.",
-		"planeHelp": "Kéo vùng cắt trên mặt bàn đã được nắn thẳng. Các tay nắm ở góc thay đổi kích thước.",
+		"planeHelp": "Kéo vùng cắt trên mặt bàn đã được nắn thẳng. Các tay nắm ở góc thay đổi kích thước (ở chế độ “Tự do” cả các cạnh), Shift + phím mũi tên cũng vậy.",
 		"handMode": "Bốn góc thủ công",
 		"planeMode": "Cắt trên mặt bàn đã nắn thẳng",
 		"noPlane": "Đã tìm thấy cả bốn điểm đánh dấu nhưng không xác định được mặt phẳng bàn; các góc đã được đặt lên chúng.",
