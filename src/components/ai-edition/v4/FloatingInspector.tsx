@@ -1333,6 +1333,14 @@ function SelectionPane({
 		if (!region) return null;
 		const cameraName =
 			tl.deskCamera === null ? null : projectCameraLabel(tl.assets, tl.deskCamera, ts);
+		// A stored choice the resolver passed over is a camera the project no longer has (its
+		// file was lost): say so, and name the camera shown instead when there is one.
+		const chosenLost = tl.deskCameraChosen !== null && tl.deskCameraChosen !== tl.deskCamera;
+		const cameraText = chosenLost
+			? cameraName
+				? ts("desk.unavailableUsing", { camera: cameraName })
+				: ts("desk.unavailable")
+			: (cameraName ?? ts("desk.unavailable"));
 		return (
 			<div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
 				{paneHeader(<LampDesk size={16} />, ts("desk.title"), onClose, tc("actions.close"))}
@@ -1340,9 +1348,7 @@ function SelectionPane({
 					{paneStack(
 						ts("desk.camera"),
 						<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-							<span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 13 }}>
-								{cameraName ?? ts("desk.unavailable")}
-							</span>
+							<span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 13 }}>{cameraText}</span>
 							<button type="button" onClick={onShowCameras} className={PANE_BUTTON}>
 								{ts("desk.change")}
 							</button>

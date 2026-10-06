@@ -492,6 +492,7 @@
 		"camera": "Desk camera",
 		"change": "Change",
 		"showLabel": "Show label",
-		"unavailable": "Not available"
+		"unavailable": "Not available",
+		"unavailableUsing": "Not available — using {{camera}}"
 	}
 }

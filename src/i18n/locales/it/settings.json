@@ -492,6 +492,7 @@
 		"camera": "Fotocamera da scrivania",
 		"change": "Cambia",
 		"showLabel": "Mostra etichetta",
-		"unavailable": "Non disponibile"
+		"unavailable": "Non disponibile",
+		"unavailableUsing": "Non disponibile — in uso {{camera}}"
 	}
 }

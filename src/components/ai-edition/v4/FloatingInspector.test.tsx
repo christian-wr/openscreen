@@ -656,7 +656,7 @@ describe("FloatingInspector desk pane", () => {
 		visible: true,
 		...extra,
 	});
-	const deskTl = (deskCamera: number | null) => {
+	const deskTl = (deskCamera: number | null, deskCameraChosen: number | null = null) => {
 		const tl = {
 			selection: { kind: "desk", id: "d1" },
 			clearSelection: vi.fn(),
@@ -671,7 +671,7 @@ describe("FloatingInspector desk pane", () => {
 			],
 			deskRegions: [{ id: "d1", startMs: 0, endMs: 2000, assetId: "a1" }],
 			deskCamera,
-			deskCameraChosen: null,
+			deskCameraChosen,
 			updateDeskLabel: vi.fn(),
 			removeRegion: vi.fn(),
 		};
@@ -704,6 +704,18 @@ describe("FloatingInspector desk pane", () => {
 
 	it("says when no desk camera resolves", () => {
 		render(<FloatingInspector {...props(deskTl(null))} />);
+		expect(screen.getByText("settings.desk.unavailable")).toBeInTheDocument();
+	});
+
+	// The chosen camera's file is gone: the pane says so and names the camera used instead.
+	it("says the chosen desk camera is gone and names the fallback", () => {
+		render(<FloatingInspector {...props(deskTl(1, 4))} />);
+		expect(screen.getByText("settings.desk.unavailableUsing")).toBeInTheDocument();
+		expect(screen.queryByText("settings.cameras.cameraNamed")).toBeNull();
+	});
+
+	it("says the chosen desk camera is gone when nothing resolves either", () => {
+		render(<FloatingInspector {...props(deskTl(null, 4))} />);
 		expect(screen.getByText("settings.desk.unavailable")).toBeInTheDocument();
 	});
 

@@ -492,6 +492,7 @@
 		"camera": "كاميرا المكتب",
 		"change": "تغيير",
 		"showLabel": "إظهار التسمية",
-		"unavailable": "غير متاح"
+		"unavailable": "غير متاح",
+		"unavailableUsing": "غير متاح — يتم استخدام {{camera}}"
 	}
 }

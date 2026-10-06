@@ -492,6 +492,7 @@
 		"camera": "Câmera de mesa",
 		"change": "Alterar",
 		"showLabel": "Mostrar rótulo",
-		"unavailable": "Indisponível"
+		"unavailable": "Indisponível",
+		"unavailableUsing": "Indisponível — usando {{camera}}"
 	}
 }

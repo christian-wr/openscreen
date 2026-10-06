@@ -492,6 +492,7 @@
 		"camera": "书桌摄像头",
 		"change": "更改",
 		"showLabel": "显示标签",
-		"unavailable": "不可用"
+		"unavailable": "不可用",
+		"unavailableUsing": "不可用 — 正在使用 {{camera}}"
 	}
 }

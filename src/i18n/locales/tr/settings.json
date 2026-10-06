@@ -492,6 +492,7 @@
 		"camera": "Masa kamerası",
 		"change": "Değiştir",
 		"showLabel": "Etiketi göster",
-		"unavailable": "Kullanılamıyor"
+		"unavailable": "Kullanılamıyor",
+		"unavailableUsing": "Kullanılamıyor — {{camera}} kullanılıyor"
 	}
 }

@@ -165,6 +165,8 @@ export function CamerasSection({
 	if (cameras.length === 0) return null;
 	// One camera has nothing to be a desk camera for, unless it was chosen and must be lifted.
 	const offerDesk = desk !== undefined && (cameras.length >= 2 || desk.chosen !== null);
+	// Picked automatically: nothing stored, or the stored camera is gone and was passed over.
+	const deskAuto = desk !== undefined && desk.chosen !== desk.camera;
 	return (
 		<>
 			<div className={styles.sectionLabel}>{ts("cameras.title")}</div>
@@ -208,7 +210,7 @@ export function CamerasSection({
 								<span className={styles.label}>
 									{ts("cameras.deskCamera")}
 									{/* Which camera was resolved without a choice: picking it fixes it. */}
-									{desk.chosen === null && desk.camera === camera.index ? (
+									{deskAuto && desk.camera === camera.index ? (
 										<span className={styles.hint}> {ts("cameras.deskCameraAuto")}</span>
 									) : null}
 								</span>

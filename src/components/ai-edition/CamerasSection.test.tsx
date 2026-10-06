@@ -226,6 +226,13 @@ describe("CamerasSection desk camera", () => {
 		expect(setDeskCamera).toHaveBeenCalledWith(null);
 	});
 
+	// The chosen camera is not in the project (file lost): the one shown is automatic again.
+	it("marks the fallback as automatic when the chosen desk camera is gone", () => {
+		const { switchOf } = renderDesk(1, 5);
+		expect(switchOf(1)).toHaveAttribute("aria-pressed", "true");
+		expect(screen.getByTestId("camera-row-1")).toHaveTextContent("settings.cameras.deskCameraAuto");
+	});
+
 	it("camera 1 can be the desk camera", () => {
 		const { setDeskCamera, switchOf } = renderDesk(1, null);
 		fireEvent.click(switchOf(0));

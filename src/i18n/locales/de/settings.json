@@ -492,6 +492,7 @@
 		"camera": "Tischkamera",
 		"change": "Ändern",
 		"showLabel": "Schriftzug zeigen",
-		"unavailable": "Nicht verfügbar"
+		"unavailable": "Nicht verfügbar",
+		"unavailableUsing": "Nicht verfügbar — verwendet wird {{camera}}"
 	}
 }

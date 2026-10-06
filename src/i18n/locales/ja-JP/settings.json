@@ -492,6 +492,7 @@
 		"camera": "机上カメラ",
 		"change": "変更",
 		"showLabel": "ラベルを表示",
-		"unavailable": "利用できません"
+		"unavailable": "利用できません",
+		"unavailableUsing": "利用できません — {{camera}} を使用中"
 	}
 }

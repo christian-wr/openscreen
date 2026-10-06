@@ -492,6 +492,7 @@
 		"camera": "書桌攝影機",
 		"change": "變更",
 		"showLabel": "顯示標籤",
-		"unavailable": "無法使用"
+		"unavailable": "無法使用",
+		"unavailableUsing": "無法使用 — 正在使用 {{camera}}"
 	}
 }

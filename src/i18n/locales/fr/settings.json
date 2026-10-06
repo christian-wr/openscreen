@@ -492,6 +492,7 @@
 		"camera": "Caméra de bureau",
 		"change": "Modifier",
 		"showLabel": "Afficher le titre",
-		"unavailable": "Indisponible"
+		"unavailable": "Indisponible",
+		"unavailableUsing": "Indisponible — utilise {{camera}}"
 	}
 }

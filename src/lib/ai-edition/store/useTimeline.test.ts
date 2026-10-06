@@ -3297,6 +3297,15 @@ describe("useTimeline desk sections", () => {
 		expect(past).toHaveLength(2);
 	});
 
+	// A chosen camera whose file is gone stays stored (and readable), while the resolved camera
+	// falls back: the editor needs both to say "not available, using camera 2".
+	it("keeps a lost desk camera choice while the resolved camera falls back", () => {
+		seed({ deskCamera: 7 });
+		const { result } = renderTimeline();
+		expect(result.current.deskCameraChosen).toBe(7);
+		expect(result.current.deskCamera).toBe(1);
+	});
+
 	it("hides and shows a desk section's label", async () => {
 		seed({ deskRegions: [row("desk_1", 1000, 3000)] });
 		const { result } = renderTimeline();

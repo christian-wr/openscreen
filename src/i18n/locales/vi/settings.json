@@ -492,6 +492,7 @@
 		"camera": "Camera bàn",
 		"change": "Thay đổi",
 		"showLabel": "Hiện nhãn",
-		"unavailable": "Không khả dụng"
+		"unavailable": "Không khả dụng",
+		"unavailableUsing": "Không khả dụng — đang dùng {{camera}}"
 	}
 }

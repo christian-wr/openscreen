@@ -492,6 +492,7 @@
 		"camera": "Stolní kamera",
 		"change": "Změnit",
 		"showLabel": "Zobrazit popisek",
-		"unavailable": "Nedostupné"
+		"unavailable": "Nedostupné",
+		"unavailableUsing": "Nedostupné — používá se {{camera}}"
 	}
 }

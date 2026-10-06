@@ -492,6 +492,7 @@
 		"camera": "Камера стола",
 		"change": "Изменить",
 		"showLabel": "Показывать надпись",
-		"unavailable": "Недоступна"
+		"unavailable": "Недоступна",
+		"unavailableUsing": "Недоступна — используется {{camera}}"
 	}
 }

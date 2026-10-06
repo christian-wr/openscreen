@@ -492,6 +492,7 @@
 		"camera": "Cámara de escritorio",
 		"change": "Cambiar",
 		"showLabel": "Mostrar rótulo",
-		"unavailable": "No disponible"
+		"unavailable": "No disponible",
+		"unavailableUsing": "No disponible: se usa {{camera}}"
 	}
 }
