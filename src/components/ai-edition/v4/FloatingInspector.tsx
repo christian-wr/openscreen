@@ -190,15 +190,27 @@ export function FloatingInspector({
 	// takes over the inspector body with its own pane (see AudioTrackPane).
 	const audioTrackSelected = Boolean(tl.selectedAudioTrackId);
 	const effectiveOpen = open || selection !== null || audioTrackSelected;
+	// "Change" in the desk pane asks for the Cameras section, which sits below the layout
+	// controls: once the layout facet shows, scroll it into view, once.
+	const inspectorRef = useRef<HTMLDivElement | null>(null);
+	const revealCamerasRef = useRef(false);
+	useEffect(() => {
+		if (!revealCamerasRef.current || selection || audioTrackSelected || facet !== "layout") return;
+		revealCamerasRef.current = false;
+		inspectorRef.current
+			?.querySelector('[data-testid="cameras-section"]')
+			?.scrollIntoView({ block: "start" });
+	});
 	return (
 		<div className={styles.inspectorWrap}>
 			{effectiveOpen ? (
-				<div className={styles.inspector}>
+				<div className={styles.inspector} ref={inspectorRef}>
 					{selection ? (
 						<SelectionPane
 							tl={tl}
 							onClose={() => tl.clearSelection()}
 							onShowCameras={() => {
+								revealCamerasRef.current = true;
 								tl.clearSelection();
 								onFacetChange("layout");
 							}}

@@ -288,3 +288,16 @@ describe("CamerasSection desk camera", () => {
 		expect(screen.queryByRole("radiogroup")).toBeNull();
 	});
 });
+
+// The desk pane's "Change" finds the section by this marker to scroll it into view.
+it("marks the Cameras section for the desk pane's 'Change'", () => {
+	render(
+		<CamerasSection
+			document={makeDoc(1)}
+			playheadSec={2}
+			cameraSettings={[]}
+			setCameraSettings={vi.fn()}
+		/>,
+	);
+	expect(screen.getByTestId("cameras-section")).toHaveTextContent("settings.cameras.title");
+});

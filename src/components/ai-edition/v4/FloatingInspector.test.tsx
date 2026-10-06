@@ -59,6 +59,8 @@ vi.mock("../RightPanes", async (importOriginal) => ({
 			>
 				Desk
 			</button>
+			{/* The real Cameras section carries the same marker. */}
+			<div data-testid="cameras-section" />
 		</>
 	),
 	SliderCell: () => <div data-testid="slider-cell">SliderCell</div>,
@@ -685,7 +687,7 @@ describe("FloatingInspector desk pane", () => {
 	});
 	const deskTl = (deskCamera: number | null, deskCameraChosen: number | null = null) => {
 		const tl = {
-			selection: { kind: "desk", id: "d1" },
+			selection: { kind: "desk", id: "d1" } as { kind: string; id: string } | null,
 			clearSelection: vi.fn(),
 			selectedAudioTrackId: null,
 			selectAudioTrack: vi.fn(),
@@ -754,6 +756,31 @@ describe("FloatingInspector desk pane", () => {
 		fireEvent.click(screen.getByRole("button", { name: "settings.desk.change" }));
 		expect(tl.clearSelection).toHaveBeenCalled();
 		expect(onFacetChange).toHaveBeenCalledWith("layout");
+	});
+
+	// The Cameras section sits below the layout controls: "Change" scrolls it into view once the
+	// layout facet is shown.
+	it("'change' scrolls the Cameras section into view once the layout facet shows", () => {
+		const scrollIntoView = vi.fn();
+		const original = Element.prototype.scrollIntoView;
+		Element.prototype.scrollIntoView = scrollIntoView;
+		try {
+			const tl = deskTl(1);
+			const view = render(<FloatingInspector {...props(tl)} />);
+			fireEvent.click(screen.getByRole("button", { name: "settings.desk.change" }));
+			expect(scrollIntoView).not.toHaveBeenCalled();
+			const cleared = { ...tl, selection: null };
+			view.rerender(<FloatingInspector {...props(cleared)} facet="layout" />);
+			expect(scrollIntoView).toHaveBeenCalledTimes(1);
+			expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+			expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByTestId("cameras-section"));
+			// Once only: a later render does not pull the pane back to the cameras.
+			view.rerender(<FloatingInspector {...props(cleared)} facet="layout" open={false} />);
+			view.rerender(<FloatingInspector {...props(cleared)} facet="layout" />);
+			expect(scrollIntoView).toHaveBeenCalledTimes(1);
+		} finally {
+			Element.prototype.scrollIntoView = original;
+		}
 	});
 
 	it("deletes the section", () => {

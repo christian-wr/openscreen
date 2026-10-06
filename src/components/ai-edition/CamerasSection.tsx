@@ -169,7 +169,9 @@ export function CamerasSection({
 	const deskAuto = desk !== undefined && desk.chosen !== desk.camera;
 	return (
 		<>
-			<div className={styles.sectionLabel}>{ts("cameras.title")}</div>
+			<div className={styles.sectionLabel} data-testid="cameras-section">
+				{ts("cameras.title")}
+			</div>
 			{/* With a desk choice the rows hold one radio each: the group is the one choice. */}
 			<div
 				role={offerDesk ? "radiogroup" : undefined}
