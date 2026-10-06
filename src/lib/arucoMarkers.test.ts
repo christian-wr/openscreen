@@ -239,4 +239,16 @@ describe("detectMarkedArea", () => {
 	it("finds nothing without all four markers", () => {
 		expect(detectMarkedArea(photograph(W, H, TILTED, [0, 1, 3]).image)).toBeNull();
 	});
+
+	it("frames the marked area as a rectangle on the sheet, in image fractions", () => {
+		const { image, toImage } = photograph(W, H, TILTED, [0, 1, 2, 3]);
+		const plane = detectMarkedArea(image)?.plane;
+		expect(plane).toBeTruthy();
+		// The test sheet's inner corners already form a rectangle, so the frame is that rectangle.
+		plane?.corners.forEach((c, i) => {
+			expectNear(c, toImage(INNER_ON_SHEET[i]), 4);
+		});
+		expectWithin(plane?.aspect ?? 0, AREA_W / AREA_H, 0.04);
+		expectWithin(plane?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.04);
+	});
 });

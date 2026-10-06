@@ -7,7 +7,7 @@ import aruco, { type ArucoDetector, type ArucoDictionary, type ArucoMarker } fro
 // Registers ARUCO_4X4_1000 in `AR.DICTIONARIES` (side effect).
 import "js-aruco2/src/dictionaries/aruco_4x4_1000.js";
 import type { CameraPoint } from "@/components/video-editor/types";
-import { measureOnPlane, type PlaneSize } from "./planeMeasure";
+import { markerPlaneRect, measureOnPlane, type PlaneRect, type PlaneSize } from "./planeMeasure";
 
 /** The four inner corners, normalized 0..1: TL (id 0), TR (1), BR (2), BL (3). */
 export type MarkerCorners = [CameraPoint, CameraPoint, CameraPoint, CameraPoint];
@@ -33,10 +33,12 @@ const MAX_HAMMING_DISTANCE = 2;
  */
 export const MARKER_SIZE_MM = 40;
 
-/** The four inner corners and, when the markers pin it down, the marked area's real size. */
+/** The four inner corners, the marked area's real size, and a frame that is rectangular on the desk. */
 export interface MarkedArea {
 	corners: MarkerCorners;
 	size: PlaneSize | null;
+	/** Corners normalized 0..1 of the image; null when the markers cannot fix the plane. */
+	plane: PlaneRect | null;
 }
 
 /** The marker IDs of the sheet, in handle order: top-left, top-right, bottom-right, bottom-left. */
@@ -157,13 +159,13 @@ export function detectMarkedArea(image: RgbaImage): MarkedArea | null {
 		return best;
 	});
 	const toCorners = (p: CameraPoint[]): MarkerCorners => [p[0], p[1], p[2], p[3]];
-	const size = measureOnPlane(
-		all.map((m) => toCorners(m.corners)),
-		MARKER_SIZE_MM,
-		toCorners(inner),
-	);
+	const squares = all.map((m) => toCorners(m.corners));
+	const size = measureOnPlane(squares, MARKER_SIZE_MM, toCorners(inner));
+	const rect = markerPlaneRect(squares, MARKER_SIZE_MM, toCorners(inner));
+	const normalize = (p: CameraPoint) => ({ x: p.x / image.width, y: p.y / image.height });
 	return {
-		corners: toCorners(inner.map((p) => ({ x: p.x / image.width, y: p.y / image.height }))),
+		corners: toCorners(inner.map(normalize)),
 		size,
+		plane: rect ? { ...rect, corners: toCorners(rect.corners.map(normalize)) } : null,
 	};
 }
