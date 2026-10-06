@@ -1,9 +1,10 @@
 // The camera calibration dialog. Perspective mode: four corner handles on a still of the camera,
 // dragged with the pointer or nudged with the arrow keys, a loupe for the corner being placed,
 // the target format and margin, and a live preview of the corrected picture. "Detect markers"
-// places the corners on the four printed markers (`arucoMarkers.ts`); "Print marker sheet"
-// prints them (`markerSheet.ts`). Crop mode: a rectangle with corner and edge handles. Built on
-// `ModalShell`, so the editor's shortcuts and undo stay blocked while it is open; Apply hands
+// finds the four printed markers (`arucoMarkers.ts`); when they fix the desk plane the frame
+// shows the straightened desk with a crop on it (`planeCrop.ts`), otherwise the corners go onto
+// the markers. "Print marker sheet" prints them (`markerSheet.ts`). Crop mode: a rectangle with
+// corner and edge handles. Built on `ModalShell`, so the editor's shortcuts and undo stay blocked while it is open; Apply hands
 // back one settings patch (one undo step).
 
 import {
@@ -38,9 +39,18 @@ import {
 	resizeCrop,
 } from "@/lib/ai-edition/timeline/calibrationGeometry";
 import { grabFrame } from "@/lib/ai-edition/timeline/grabFrame";
+import {
+	type CropCorner,
+	cropAspectOf,
+	cropLeavesImage,
+	cropToPerspective,
+	fitCrop,
+	perspectiveToCrop,
+	planeView,
+	resizeCropLocked,
+} from "@/lib/ai-edition/timeline/planeCrop";
 import { detectMarkedArea } from "@/lib/arucoMarkers";
 import { printMarkerSheet } from "@/lib/markerSheet";
-import type { PlaneSize } from "@/lib/planeMeasure";
 import type { CalibrationMode } from "./CamerasSection";
 import { previewBoxStyle } from "./cropDraft";
 import { ModalShell } from "./Modals";
@@ -83,6 +93,20 @@ const FORMATS: ReadonlyArray<{ id: FormatId; aspect: number | null }> = [
 	{ id: "free", aspect: null },
 ];
 
+type PlaneFormatId = "standard" | "wide" | "tall" | "square" | "free";
+
+/** Formats of a crop on the rectified desk. */
+const PLANE_FORMATS: ReadonlyArray<{ id: PlaneFormatId; aspect: number | null }> = [
+	{ id: "standard", aspect: 4 / 3 },
+	{ id: "wide", aspect: 16 / 9 },
+	{ id: "tall", aspect: 9 / 16 },
+	{ id: "square", aspect: 1 },
+	{ id: "free", aspect: null },
+];
+
+/** Long side of the rectified desk drawn in the big frame. */
+const PLANE_VIEW_LONG_SIDE_PX = 960;
+
 const MIN_ASPECT = 0.1;
 const MAX_ASPECT = 10;
 const MAX_MARGIN_PCT = 20;
@@ -94,8 +118,8 @@ const PREVIEW_LONG_SIDE_PX = 320;
 /** One arrow press in crop mode, as a fraction of the image. */
 const CROP_STEP = 0.01;
 
-/** What "Detect markers" last reported; a measured size also set the format. */
-type MarkerResult = { kind: "found"; size: PlaneSize | null } | { kind: "notFound" };
+/** What "Detect markers" last reported. */
+type MarkerResult = { kind: "found" } | { kind: "noPlane" } | { kind: "notFound" };
 
 const CORNER_KEYS = ["topLeft", "topRight", "bottomRight", "bottomLeft"] as const;
 const CROP_CORNERS = ["nw", "ne", "sw", "se"] as const;
@@ -107,6 +131,11 @@ function formatOf(aspect: number): FormatId {
 	return match?.id ?? "free";
 }
 
+function planeFormatOf(aspect: number): PlaneFormatId {
+	const match = PLANE_FORMATS.find((f) => f.aspect !== null && Math.abs(f.aspect - aspect) < 1e-3);
+	return match?.id ?? "free";
+}
+
 function parseAspect(text: string): number | null {
 	const value = Number(text.replace(",", "."));
 	return Number.isFinite(value) && value >= MIN_ASPECT && value <= MAX_ASPECT ? value : null;
@@ -114,6 +143,20 @@ function parseAspect(text: string): number | null {
 
 function copyCorners(c: Corners): Corners {
 	return [{ ...c[0] }, { ...c[1] }, { ...c[2] }, { ...c[3] }];
+}
+
+/** A stored correction that can reopen as a crop on the desk: no margin, a usable quad. */
+function storedPlane(stored: CameraPerspective | undefined): CameraPerspective | null {
+	if (!stored || stored.margin) return null;
+	const base = { corners: copyCorners(stored.corners), aspect: stored.aspect };
+	return planeView(base) ? base : null;
+}
+
+/** The corner a pair of moved edges names; null for a single edge. */
+function cornerOf(edges: CropEdges): CropCorner | null {
+	const ns = edges.top ? "n" : edges.bottom ? "s" : null;
+	const we = edges.left ? "w" : edges.right ? "e" : null;
+	return ns && we ? (`${ns}${we}` as CropCorner) : null;
 }
 
 /**
@@ -163,11 +206,31 @@ export function CameraCalibrationModal({
 	const [loadFailed, setLoadFailed] = useState(false);
 	const [activeHandle, setActiveHandle] = useState<number | null>(null);
 	const [markerResult, setMarkerResult] = useState<MarkerResult | null>(null);
+	// The desk plane: a true rectangle on it (from the markers or the stored correction), the crop
+	// the user places on its rectified view, and the plane's real width when the markers told it.
+	const [plane, setPlane] = useState<CameraPerspective | null>(() => storedPlane(stored));
+	const [manual, setManual] = useState(() => storedPlane(stored) === null);
+	const [planeWidthMm, setPlaneWidthMm] = useState<number | null>(null);
+	const [planeFormat, setPlaneFormat] = useState<PlaneFormatId>(() =>
+		storedPlane(stored) ? planeFormatOf(stored?.aspect ?? 1) : "wide",
+	);
+	const view = useMemo(() => (plane ? planeView(plane) : null), [plane]);
+	/** Where the plane's base rectangle sits in the view: the default crop's box. */
+	const baseBox = useMemo(
+		() => (view && plane ? perspectiveToCrop(view, plane) : null),
+		[view, plane],
+	);
+	const [planeCrop, setPlaneCrop] = useState<CropRegion>(() => {
+		const base = storedPlane(stored);
+		const v = base ? planeView(base) : null;
+		return (v && base && perspectiveToCrop(v, base)) ?? FULL_CROP;
+	});
 
 	const frameRef = useRef<HTMLDivElement | null>(null);
 	const stillRef = useRef<HTMLCanvasElement | null>(null);
 	const loupeRef = useRef<HTMLCanvasElement | null>(null);
 	const previewRef = useRef<HTMLCanvasElement | null>(null);
+	const planeRef = useRef<HTMLCanvasElement | null>(null);
 	const handleRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	// The running drag's disposer: a new drag or unmounting ends the previous one.
 	const stopDragRef = useRef<(() => void) | null>(null);
@@ -220,12 +283,23 @@ export function CameraCalibrationModal({
 	const margin = marginPct / 100;
 	const quadValid = isValidQuad(corners);
 	// Memoized: the preview resamples whenever this object changes, not on every render.
-	const perspective = useMemo<CameraPerspective | null>(
+	const handPerspective = useMemo<CameraPerspective | null>(
 		() =>
 			quadValid && aspect !== null ? { corners, aspect, ...(margin > 0 ? { margin } : {}) } : null,
 		[corners, aspect, margin, quadValid],
 	);
-	const preview = previewSize(aspect ?? 1, PREVIEW_LONG_SIDE_PX);
+	const planeMode = mode === "perspective" && !manual && view !== null;
+	const planeAspect = PLANE_FORMATS.find((f) => f.id === planeFormat)?.aspect ?? null;
+	const planePerspective = useMemo(
+		() => (planeMode && view ? cropToPerspective(view, planeCrop) : null),
+		[planeMode, view, planeCrop],
+	);
+	const planeAspectOk =
+		planePerspective !== null &&
+		planePerspective.aspect >= MIN_ASPECT &&
+		planePerspective.aspect <= MAX_ASPECT;
+	const perspective = planeMode ? (planeAspectOk ? planePerspective : null) : handPerspective;
+	const preview = previewSize(perspective?.aspect ?? aspect ?? 1, PREVIEW_LONG_SIDE_PX);
 
 	// The corrected picture, resampled on every change of the corners, format or margin.
 	useEffect(() => {
@@ -238,6 +312,18 @@ export function CameraCalibrationModal({
 		const pixels = renderRectified(image, perspective, canvas.width, canvas.height);
 		if (pixels) ctx.putImageData(new ImageData(pixels, canvas.width, canvas.height), 0, 0);
 	}, [mode, image, perspective]);
+
+	// The rectified desk under the crop, redrawn when the plane changes.
+	useEffect(() => {
+		const canvas = planeRef.current;
+		const ctx = canvas?.getContext("2d");
+		if (!planeMode || !canvas || !ctx || !image || !view) return;
+		const size = previewSize(view.aspect, PLANE_VIEW_LONG_SIDE_PX);
+		canvas.width = size.width;
+		canvas.height = size.height;
+		const pixels = renderRectified(image, view, size.width, size.height);
+		if (pixels) ctx.putImageData(new ImageData(pixels, size.width, size.height), 0, 0);
+	}, [planeMode, image, view]);
 
 	// The loupe: the area under the active corner, magnified, crisp pixels and a crosshair.
 	useEffect(() => {
@@ -310,6 +396,19 @@ export function CameraCalibrationModal({
 		});
 	};
 
+	// The rectangle the crop handles move: the camera crop, or the crop on the rectified desk.
+	const activeCrop = planeMode ? planeCrop : crop;
+	const setActiveCrop = planeMode ? setPlaneCrop : setCrop;
+	/** Real aspect the crop must keep while resized; null = free. */
+	const lockedAspect = planeMode ? planeAspect : null;
+
+	const resizeActive = (start: CropRegion, edges: CropEdges, dx: number, dy: number) => {
+		const corner = cornerOf(edges);
+		return lockedAspect !== null && corner && view
+			? resizeCropLocked(start, corner, dx, dy, view.aspect, lockedAspect)
+			: resizeCrop(start, edges, dx, dy);
+	};
+
 	const startCropMove = (e: ReactPointerEvent) => {
 		const frame = frameRef.current;
 		if (!frame) return;
@@ -317,8 +416,8 @@ export function CameraCalibrationModal({
 		e.stopPropagation();
 		const r = frame.getBoundingClientRect();
 		if (r.width <= 0 || r.height <= 0) return;
-		const start = crop;
-		startDrag(e, (dx, dy) => setCrop(moveCrop(start, dx / r.width, dy / r.height)));
+		const start = activeCrop;
+		startDrag(e, (dx, dy) => setActiveCrop(moveCrop(start, dx / r.width, dy / r.height)));
 	};
 
 	const startCropResize = (edges: CropEdges) => (e: ReactPointerEvent) => {
@@ -328,8 +427,10 @@ export function CameraCalibrationModal({
 		e.stopPropagation();
 		const r = frame.getBoundingClientRect();
 		if (r.width <= 0 || r.height <= 0) return;
-		const start = crop;
-		startDrag(e, (dx, dy) => setCrop(resizeCrop(start, edges, dx / r.width, dy / r.height)));
+		const start = activeCrop;
+		startDrag(e, (dx, dy) =>
+			setActiveCrop(resizeActive(start, edges, dx / r.width, dy / r.height)),
+		);
 	};
 
 	// The arrows move the crop; Shift + the arrows resize it from its bottom-right corner.
@@ -340,16 +441,19 @@ export function CameraCalibrationModal({
 		e.preventDefault();
 		e.nativeEvent.stopPropagation();
 		if (e.shiftKey) {
-			setCrop(
-				resizeCrop(crop, { right: dx !== 0, bottom: dy !== 0 }, dx * CROP_STEP, dy * CROP_STEP),
-			);
+			// A locked aspect resizes from the corner, so both arrows count.
+			const edges =
+				lockedAspect !== null
+					? { right: true, bottom: true }
+					: { right: dx !== 0, bottom: dy !== 0 };
+			setActiveCrop(resizeActive(activeCrop, edges, dx * CROP_STEP, dy * CROP_STEP));
 			return;
 		}
-		setCrop(moveCrop(crop, dx * CROP_STEP, dy * CROP_STEP));
+		setActiveCrop(moveCrop(activeCrop, dx * CROP_STEP, dy * CROP_STEP));
 	};
 
-	// The four printed markers place the corners; without all four the corners stay put. Their
-	// printed squares also measure the marked area, whose real proportions become the format.
+	// The markers fix the desk plane; the crop on it starts as the format's largest rectangle in
+	// the markers' frame. Without a plane they still place the four corners.
 	const detectMarkers = () => {
 		if (!image) return;
 		const area = detectMarkedArea(image);
@@ -358,13 +462,40 @@ export function CameraCalibrationModal({
 			return;
 		}
 		setCorners(copyCorners(area.corners));
-		const measured = area.size ? area.size.widthMm / area.size.heightMm : null;
-		if (measured !== null && measured >= MIN_ASPECT && measured <= MAX_ASPECT) {
-			setFormat("free");
-			setFreeAspect(String(Math.round(measured * 1000) / 1000));
+		const base = area.plane
+			? { corners: copyCorners(area.plane.corners), aspect: area.plane.aspect }
+			: null;
+		const nextView = base ? planeView(base) : null;
+		const box = nextView && base ? perspectiveToCrop(nextView, base) : null;
+		if (!base || !nextView || !box) {
+			setManual(true);
+			setMarkerResult({ kind: "noPlane" });
+			return;
 		}
-		setMarkerResult({ kind: "found", size: area.size });
+		setPlane(base);
+		setPlaneWidthMm(area.plane?.widthMm ?? null);
+		setPlaneCrop(fitCrop(nextView.aspect, planeAspect, box));
+		setManual(false);
+		setMarkerResult({ kind: "found" });
 	};
+
+	const selectPlaneFormat = (id: PlaneFormatId) => {
+		setPlaneFormat(id);
+		const target = PLANE_FORMATS.find((f) => f.id === id)?.aspect ?? null;
+		if (target !== null && view && baseBox) setPlaneCrop(fitCrop(view.aspect, target, baseBox));
+	};
+
+	// Real size of the crop, when the markers measured the plane.
+	const cropSizeCm =
+		planeMode && view && baseBox && planeWidthMm !== null
+			? (() => {
+					const widthMm = (planeCrop.width / baseBox.width) * planeWidthMm;
+					return {
+						width: Math.round(widthMm / 10),
+						height: Math.round(widthMm / cropAspectOf(view.aspect, planeCrop) / 10),
+					};
+				})()
+			: null;
 
 	const printSheet = () => {
 		// Marker ID n belongs on corner n, the handles' order.
@@ -408,7 +539,11 @@ export function CameraCalibrationModal({
 	return (
 		<ModalShell open={open} onClose={onClose} title={title} wide>
 			<p className={styles.hint} style={{ margin: "0 0 10px" }}>
-				{isPerspective ? t("cameraCalibration.perspectiveHelp") : t("cameraCalibration.cropHelp")}
+				{planeMode
+					? t("cameraCalibration.planeHelp")
+					: isPerspective
+						? t("cameraCalibration.perspectiveHelp")
+						: t("cameraCalibration.cropHelp")}
 			</p>
 			{isPerspective && hasCrop ? (
 				<p className={styles.hint} style={{ margin: "0 0 10px" }}>
@@ -418,14 +553,32 @@ export function CameraCalibrationModal({
 			<div
 				ref={frameRef}
 				data-testid="calibration-frame"
-				style={{ ...previewBoxStyle(imageAspect), touchAction: "none" }}
-				onPointerDown={isPerspective ? onFramePointerDown : undefined}
+				style={{
+					...previewBoxStyle(planeMode && view ? view.aspect : imageAspect),
+					touchAction: "none",
+				}}
+				onPointerDown={isPerspective && !planeMode ? onFramePointerDown : undefined}
 			>
+				{/* Hidden on the desk, but still the loupe's source. */}
 				<canvas
 					ref={stillRef}
 					aria-hidden
-					style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+					style={{
+						position: "absolute",
+						inset: 0,
+						width: "100%",
+						height: "100%",
+						display: planeMode ? "none" : undefined,
+					}}
 				/>
+				{planeMode ? (
+					<canvas
+						ref={planeRef}
+						data-testid="calibration-plane"
+						aria-hidden
+						style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+					/>
+				) : null}
 				{image === null ? (
 					<p
 						className={styles.hint}
@@ -434,7 +587,7 @@ export function CameraCalibrationModal({
 						{loadFailed ? t("cameraCalibration.loadFailed") : t("cameraCalibration.loading")}
 					</p>
 				) : null}
-				{isPerspective ? (
+				{isPerspective && !planeMode ? (
 					<>
 						<svg
 							aria-hidden
@@ -506,18 +659,18 @@ export function CameraCalibrationModal({
 						aria-label={t("cameraCalibration.cropArea")}
 						aria-valuemin={0}
 						aria-valuemax={100}
-						aria-valuenow={Math.round(crop.width * 100)}
-						aria-valuetext={`${Math.round(crop.x * 100)}%, ${Math.round(crop.y * 100)}%, ${Math.round(crop.width * 100)}% × ${Math.round(crop.height * 100)}%`}
+						aria-valuenow={Math.round(activeCrop.width * 100)}
+						aria-valuetext={`${Math.round(activeCrop.x * 100)}%, ${Math.round(activeCrop.y * 100)}%, ${Math.round(activeCrop.width * 100)}% × ${Math.round(activeCrop.height * 100)}%`}
 						aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown"
 						tabIndex={0}
 						onKeyDown={onCropKeyDown}
 						onPointerDown={startCropMove}
 						style={{
 							position: "absolute",
-							left: `${crop.x * 100}%`,
-							top: `${crop.y * 100}%`,
-							width: `${crop.width * 100}%`,
-							height: `${crop.height * 100}%`,
+							left: `${activeCrop.x * 100}%`,
+							top: `${activeCrop.y * 100}%`,
+							width: `${activeCrop.width * 100}%`,
+							height: `${activeCrop.height * 100}%`,
 							border: "1.5px solid rgb(255 255 255 / 0.9)",
 							borderRadius: 4,
 							boxShadow: "0 0 0 9999px var(--overlay-dark)",
@@ -539,19 +692,21 @@ export function CameraCalibrationModal({
 								})}
 							/>
 						))}
-						{CROP_EDGES.map((edge) => (
-							<span
-								key={edge}
-								className={styles.cropEdge}
-								data-edge={edge}
-								onPointerDown={startCropResize({
-									top: edge === "n",
-									bottom: edge === "s",
-									left: edge === "w",
-									right: edge === "e",
-								})}
-							/>
-						))}
+						{lockedAspect === null
+							? CROP_EDGES.map((edge) => (
+									<span
+										key={edge}
+										className={styles.cropEdge}
+										data-edge={edge}
+										onPointerDown={startCropResize({
+											top: edge === "n",
+											bottom: edge === "s",
+											left: edge === "w",
+											right: edge === "e",
+										})}
+									/>
+								))
+							: null}
 					</div>
 				)}
 			</div>
@@ -581,17 +736,23 @@ export function CameraCalibrationModal({
 					>
 						{t("cameraCalibration.printMarkerSheet")}
 					</button>
+					{view !== null ? (
+						<button
+							type="button"
+							className={`${styles.btn} ${styles.btnSecondary}`}
+							onClick={() => setManual((m) => !m)}
+						>
+							{manual ? t("cameraCalibration.planeMode") : t("cameraCalibration.handMode")}
+						</button>
+					) : null}
 					<p role="status" className={styles.hint} style={{ margin: 0, flex: "1 1 200px" }}>
 						{markerResult?.kind === "found"
-							? markerResult.size
-								? t("cameraCalibration.markersMeasured", {
-										width: Math.round(markerResult.size.widthMm / 10),
-										height: Math.round(markerResult.size.heightMm / 10),
-									})
-								: t("cameraCalibration.markersFound")
-							: markerResult?.kind === "notFound"
-								? t("cameraCalibration.markersNotFound")
-								: null}
+							? t("cameraCalibration.markersFound")
+							: markerResult?.kind === "noPlane"
+								? t("cameraCalibration.noPlane")
+								: markerResult?.kind === "notFound"
+									? t("cameraCalibration.markersNotFound")
+									: null}
 					</p>
 				</div>
 			) : null}
@@ -600,62 +761,92 @@ export function CameraCalibrationModal({
 				<div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
 					<div style={{ flex: "1 1 260px", display: "flex", flexDirection: "column", gap: 10 }}>
 						<span className={styles.fieldLabel}>{t("cameraCalibration.format")}</span>
-						<ChoiceRow<FormatId>
-							label={t("cameraCalibration.format")}
-							columns={3}
-							options={[
-								{ value: "a4Portrait", label: t("cameraCalibration.formats.a4Portrait") },
-								{ value: "a4Landscape", label: t("cameraCalibration.formats.a4Landscape") },
-								{ value: "wide", label: "16:9" },
-								{ value: "standard", label: "4:3" },
-								{ value: "square", label: "1:1" },
-								{ value: "free", label: t("cameraCalibration.formats.free") },
-							]}
-							value={format}
-							onChange={setFormat}
-						/>
-						{format === "free" ? (
-							<label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-								<span className={styles.label}>{t("cameraCalibration.freeRatio")}</span>
-								<input
-									type="number"
-									inputMode="decimal"
-									min={MIN_ASPECT}
-									max={MAX_ASPECT}
-									step={0.01}
-									value={freeAspect}
-									onChange={(e) => setFreeAspect(e.target.value)}
-									aria-invalid={aspect === null}
-									aria-describedby={aspect === null ? "calibration-invalid-ratio" : undefined}
-									style={{ width: 80 }}
+						{planeMode ? (
+							<>
+								<ChoiceRow<PlaneFormatId>
+									label={t("cameraCalibration.format")}
+									columns={3}
+									options={[
+										{ value: "standard", label: "4:3" },
+										{ value: "wide", label: "16:9" },
+										{ value: "tall", label: "9:16" },
+										{ value: "square", label: "1:1" },
+										{ value: "free", label: t("cameraCalibration.formats.free") },
+									]}
+									value={planeFormat}
+									onChange={selectPlaneFormat}
 								/>
-							</label>
-						) : null}
-						{format === "free" && aspect === null ? (
-							<p
-								id="calibration-invalid-ratio"
-								className={styles.hint}
-								role="alert"
-								style={{ margin: 0 }}
-							>
-								{t("cameraCalibration.invalidRatio", { min: MIN_ASPECT, max: MAX_ASPECT })}
-							</p>
-						) : null}
-						<label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-							<span className={styles.label}>{t("cameraCalibration.margin")}</span>
-							<input
-								type="range"
-								min={0}
-								max={MAX_MARGIN_PCT}
-								step={1}
-								value={marginPct}
-								onChange={(e) => setMarginPct(Number(e.target.value))}
-								style={{ flex: 1 }}
-							/>
-							<span className={styles.label} style={{ fontVariantNumeric: "tabular-nums" }}>
-								{marginPct} %
-							</span>
-						</label>
+								{cropSizeCm ? (
+									<p className={styles.hint} style={{ margin: 0 }}>
+										{t("cameraCalibration.cropSize", cropSizeCm)}
+									</p>
+								) : null}
+								{cropLeavesImage(planePerspective) ? (
+									<p className={styles.hint} style={{ margin: 0 }}>
+										{t("cameraCalibration.cropOutside")}
+									</p>
+								) : null}
+							</>
+						) : (
+							<>
+								<ChoiceRow<FormatId>
+									label={t("cameraCalibration.format")}
+									columns={3}
+									options={[
+										{ value: "a4Portrait", label: t("cameraCalibration.formats.a4Portrait") },
+										{ value: "a4Landscape", label: t("cameraCalibration.formats.a4Landscape") },
+										{ value: "wide", label: "16:9" },
+										{ value: "standard", label: "4:3" },
+										{ value: "square", label: "1:1" },
+										{ value: "free", label: t("cameraCalibration.formats.free") },
+									]}
+									value={format}
+									onChange={setFormat}
+								/>
+								{format === "free" ? (
+									<label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+										<span className={styles.label}>{t("cameraCalibration.freeRatio")}</span>
+										<input
+											type="number"
+											inputMode="decimal"
+											min={MIN_ASPECT}
+											max={MAX_ASPECT}
+											step={0.01}
+											value={freeAspect}
+											onChange={(e) => setFreeAspect(e.target.value)}
+											aria-invalid={aspect === null}
+											aria-describedby={aspect === null ? "calibration-invalid-ratio" : undefined}
+											style={{ width: 80 }}
+										/>
+									</label>
+								) : null}
+								{format === "free" && aspect === null ? (
+									<p
+										id="calibration-invalid-ratio"
+										className={styles.hint}
+										role="alert"
+										style={{ margin: 0 }}
+									>
+										{t("cameraCalibration.invalidRatio", { min: MIN_ASPECT, max: MAX_ASPECT })}
+									</p>
+								) : null}
+								<label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+									<span className={styles.label}>{t("cameraCalibration.margin")}</span>
+									<input
+										type="range"
+										min={0}
+										max={MAX_MARGIN_PCT}
+										step={1}
+										value={marginPct}
+										onChange={(e) => setMarginPct(Number(e.target.value))}
+										style={{ flex: 1 }}
+									/>
+									<span className={styles.label} style={{ fontVariantNumeric: "tabular-nums" }}>
+										{marginPct} %
+									</span>
+								</label>
+							</>
+						)}
 					</div>
 					<div style={{ flex: "none", display: "flex", flexDirection: "column", gap: 6 }}>
 						<span className={styles.fieldLabel}>{t("cameraCalibration.preview")}</span>
@@ -676,7 +867,7 @@ export function CameraCalibrationModal({
 				</div>
 			) : null}
 
-			{isPerspective && !quadValid ? (
+			{isPerspective && !planeMode && !quadValid ? (
 				<p id="calibration-invalid" className={styles.hint} role="alert" style={{ marginTop: 10 }}>
 					{t("cameraCalibration.invalidQuad")}
 				</p>
@@ -714,7 +905,7 @@ export function CameraCalibrationModal({
 						onClick={apply}
 						disabled={!canApply}
 						aria-describedby={
-							isPerspective && !quadValid
+							isPerspective && !planeMode && !quadValid
 								? "calibration-invalid"
 								: isPerspective && aspect === null
 									? "calibration-invalid-ratio"

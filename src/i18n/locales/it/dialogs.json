@@ -121,7 +121,12 @@
 		"detectMarkers": "Rileva marcatori",
 		"printMarkerSheet": "Stampa foglio marcatori",
 		"markersFound": "Trovati tutti e quattro i marcatori; gli angoli sono stati posizionati su di essi.",
-		"markersMeasured": "Trovati tutti e quattro i marcatori; gli angoli sono stati posizionati su di essi. Misurato: circa {{width}} × {{height}} cm; il formato è stato adeguato.",
+		"planeHelp": "Trascina il ritaglio sulla scrivania raddrizzata. Le maniglie agli angoli ne cambiano le dimensioni.",
+		"handMode": "Quattro angoli a mano",
+		"planeMode": "Ritaglio sulla scrivania raddrizzata",
+		"noPlane": "Trovati tutti e quattro i marcatori, ma non è stato possibile determinare il piano della scrivania; gli angoli sono stati posizionati su di essi.",
+		"cropSize": "Ritaglio: circa {{width}} × {{height}} cm",
+		"cropOutside": "Il ritaglio va oltre l'immagine della fotocamera; quella parte resta nera.",
 		"markersNotFound": "Non sono stati trovati tutti e quattro i marcatori (0–3). Assicurati che siano interamente nell’immagine, piatti e illuminati in modo uniforme. Gli angoli non sono stati modificati.",
 		"markerSheetInstruction": "Ritaglia lungo le linee. Metti l’angolo interno di ogni marcatore sul suo angolo."
 	}

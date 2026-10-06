@@ -20,11 +20,6 @@ interface CVec {
 	im: [number, number, number];
 }
 
-export interface PlaneSize {
-	widthMm: number;
-	heightMm: number;
-}
-
 function conj(v: CVec): CVec {
 	return { re: v.re, im: [-v.im[0], -v.im[1], -v.im[2]] };
 }
@@ -145,33 +140,6 @@ function mmPerUnitOf(toPlane: number[], squares: Corners[], sideMm: number): num
 		sideCount += 4;
 	}
 	return sideCount > 0 && sideSum > 0 ? sideMm / (sideSum / sideCount) : null;
-}
-
-/**
- * The size of `quad` (TL, TR, BR, BL; width = mean of top and bottom, height = mean of the
- * sides) on the plane that holds `squares`, each a square `sideMm` wide given by its four image
- * corners in a consistent winding. All points in one image coordinate system. Null when the
- * squares do not pin the plane down (degenerate corners, a singular rectification).
- */
-export function measureOnPlane(
-	squares: Corners[],
-	sideMm: number,
-	quad: Corners,
-): PlaneSize | null {
-	const cx = quad.reduce((s, p) => s + p.x, 0) / 4;
-	const cy = quad.reduce((s, p) => s + p.y, 0) / 4;
-	const toPlane = rectifyingHomography(squares, { x: cx, y: cy });
-	if (!toPlane) return null;
-
-	const rectify = (pts: readonly Pt[]) => pts.map((p) => apply(toPlane, p));
-	const mmPerUnit = mmPerUnitOf(toPlane, squares, sideMm);
-	const corners = rectify(quad);
-	if (mmPerUnit === null || corners.some((p) => p === null)) return null;
-	const [tl, tr, br, bl] = corners as Pt[];
-	const widthMm = ((length(tl, tr) + length(bl, br)) / 2) * mmPerUnit;
-	const heightMm = ((length(tl, bl) + length(tr, br)) / 2) * mmPerUnit;
-	if (!(widthMm > 0 && heightMm > 0 && Number.isFinite(widthMm + heightMm))) return null;
-	return { widthMm, heightMm };
 }
 
 /** A true rectangle on the plane, as the image sees it. */

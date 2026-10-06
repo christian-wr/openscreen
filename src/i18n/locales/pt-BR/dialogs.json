@@ -121,7 +121,12 @@
 		"detectMarkers": "Detectar marcadores",
 		"printMarkerSheet": "Imprimir folha de marcadores",
 		"markersFound": "Os quatro marcadores foram encontrados; os cantos foram posicionados sobre eles.",
-		"markersMeasured": "Os quatro marcadores foram encontrados; os cantos foram posicionados sobre eles. Medido: cerca de {{width}} × {{height}} cm; o formato foi ajustado a isso.",
+		"planeHelp": "Arraste o recorte sobre a mesa endireitada. As alças dos cantos mudam o tamanho.",
+		"handMode": "Quatro cantos à mão",
+		"planeMode": "Recorte na mesa endireitada",
+		"noPlane": "Os quatro marcadores foram encontrados, mas não foi possível determinar o plano da mesa; os cantos foram posicionados sobre eles.",
+		"cropSize": "Recorte: cerca de {{width}} × {{height}} cm",
+		"cropOutside": "O recorte ultrapassa a imagem da câmera; essa parte fica preta.",
 		"markersNotFound": "Nem todos os quatro marcadores (0–3) foram encontrados. Verifique se estão inteiros na imagem, planos e com iluminação uniforme. Os cantos não foram alterados.",
 		"markerSheetInstruction": "Recorte nas linhas. Ponha o canto interno de cada marcador no seu canto."
 	}

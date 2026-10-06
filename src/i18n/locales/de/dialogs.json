@@ -121,7 +121,12 @@
 		"detectMarkers": "Marker erkennen",
 		"printMarkerSheet": "Markerblatt drucken",
 		"markersFound": "Alle vier Marker gefunden; die Ecken wurden auf sie gesetzt.",
-		"markersMeasured": "Alle vier Marker gefunden; die Ecken wurden auf sie gesetzt. Gemessen: ca. {{width}} × {{height}} cm, das Format ist darauf eingestellt.",
+		"planeHelp": "Ziehe den Ausschnitt auf dem entzerrten Tisch. Die Eckgriffe ändern die Größe.",
+		"handMode": "Vier Ecken von Hand",
+		"planeMode": "Ausschnitt auf entzerrtem Tisch",
+		"noPlane": "Alle vier Marker gefunden, aber die Tischebene ließ sich nicht bestimmen; die Ecken wurden auf sie gesetzt.",
+		"cropSize": "Ausschnitt: ca. {{width}} × {{height}} cm",
+		"cropOutside": "Der Ausschnitt reicht über das Kamerabild hinaus; dort bleibt das Bild schwarz.",
 		"markersNotFound": "Nicht alle vier Marker (0–3) gefunden. Achte darauf, dass sie ganz im Bild, flach und gleichmäßig beleuchtet sind. Die Ecken bleiben unverändert.",
 		"markerSheetInstruction": "An den gestrichelten Linien ausschneiden. Innere Ecke jedes Markers auf seine Ecke legen."
 	}

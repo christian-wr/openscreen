@@ -7,7 +7,7 @@ import aruco, { type ArucoDetector, type ArucoDictionary, type ArucoMarker } fro
 // Registers ARUCO_4X4_1000 in `AR.DICTIONARIES` (side effect).
 import "js-aruco2/src/dictionaries/aruco_4x4_1000.js";
 import type { CameraPoint } from "@/components/video-editor/types";
-import { markerPlaneRect, measureOnPlane, type PlaneRect, type PlaneSize } from "./planeMeasure";
+import { markerPlaneRect, type PlaneRect } from "./planeMeasure";
 
 /** The four inner corners, normalized 0..1: TL (id 0), TR (1), BR (2), BL (3). */
 export type MarkerCorners = [CameraPoint, CameraPoint, CameraPoint, CameraPoint];
@@ -33,10 +33,9 @@ const MAX_HAMMING_DISTANCE = 2;
  */
 export const MARKER_SIZE_MM = 40;
 
-/** The four inner corners, the marked area's real size, and a frame that is rectangular on the desk. */
+/** The four inner corners and a frame that is rectangular on the desk. */
 export interface MarkedArea {
 	corners: MarkerCorners;
-	size: PlaneSize | null;
 	/** Corners normalized 0..1 of the image; null when the markers cannot fix the plane. */
 	plane: PlaneRect | null;
 }
@@ -121,9 +120,10 @@ export function detectCornerMarkers(image: RgbaImage): MarkerCorners | null {
 }
 
 /**
- * `detectCornerMarkers` plus the real size of the rectangle between the inner corners, measured
- * from the four printed squares themselves (see `planeMeasure.ts`). Null unless all four
- * markers are found; `size` is null when they cannot fix the plane.
+ * `detectCornerMarkers` plus a true rectangle on the desk that holds the inner corners, with its
+ * real proportions and width, measured from the four printed squares themselves (see
+ * `planeMeasure.ts`). Null unless all four markers are found; `plane` is null when they cannot
+ * fix the plane.
  */
 export function detectMarkedArea(image: RgbaImage): MarkedArea | null {
 	if (image.width <= 0 || image.height <= 0) return null;
@@ -160,12 +160,10 @@ export function detectMarkedArea(image: RgbaImage): MarkedArea | null {
 	});
 	const toCorners = (p: CameraPoint[]): MarkerCorners => [p[0], p[1], p[2], p[3]];
 	const squares = all.map((m) => toCorners(m.corners));
-	const size = measureOnPlane(squares, MARKER_SIZE_MM, toCorners(inner));
 	const rect = markerPlaneRect(squares, MARKER_SIZE_MM, toCorners(inner));
 	const normalize = (p: CameraPoint) => ({ x: p.x / image.width, y: p.y / image.height });
 	return {
 		corners: toCorners(inner.map(normalize)),
-		size,
 		plane: rect ? { ...rect, corners: toCorners(rect.corners.map(normalize)) } : null,
 	};
 }

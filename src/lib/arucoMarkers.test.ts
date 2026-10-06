@@ -201,9 +201,10 @@ function expectWithin(actual: number, expected: number, fraction: number) {
 describe("detectMarkedArea", () => {
 	it("measures the marked rectangle's real size through the perspective", () => {
 		const area = detectMarkedArea(photograph(W, H, TILTED, [0, 1, 2, 3]).image);
-		expect(area?.size).toBeTruthy();
-		expectWithin(area?.size?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
-		expectWithin(area?.size?.heightMm ?? 0, AREA_H * MM_PER_UNIT, 0.03);
+		expect(area?.plane).toBeTruthy();
+		const plane = area?.plane;
+		expectWithin(plane?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
+		expectWithin((plane?.widthMm ?? 0) / (plane?.aspect ?? 1), AREA_H * MM_PER_UNIT, 0.03);
 	});
 
 	it("measures under a steep keystone, where the picture's own proportions are far off", () => {
@@ -215,8 +216,7 @@ describe("detectMarkedArea", () => {
 			{ x: 20, y: 440 },
 		];
 		const area = detectMarkedArea(photograph(W, H, steep, [0, 1, 2, 3]).image);
-		const aspect = (area?.size?.widthMm ?? 0) / (area?.size?.heightMm ?? 1);
-		expectWithin(aspect, AREA_W / AREA_H, 0.04);
+		expectWithin(area?.plane?.aspect ?? 0, AREA_W / AREA_H, 0.04);
 	});
 
 	it("measures a rotated sheet in its own orientation", () => {
@@ -227,8 +227,9 @@ describe("detectMarkedArea", () => {
 			{ x: 220, y: 60 },
 		];
 		const area = detectMarkedArea(photograph(W, H, rotated, [0, 1, 2, 3]).image);
-		expectWithin(area?.size?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
-		expectWithin(area?.size?.heightMm ?? 0, AREA_H * MM_PER_UNIT, 0.03);
+		const plane = area?.plane;
+		expectWithin(plane?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
+		expectWithin((plane?.widthMm ?? 0) / (plane?.aspect ?? 1), AREA_H * MM_PER_UNIT, 0.03);
 	});
 
 	it("returns the same corners as detectCornerMarkers", () => {

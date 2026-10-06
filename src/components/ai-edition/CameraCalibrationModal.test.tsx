@@ -3,6 +3,12 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CameraSettings } from "@/components/video-editor/types";
+import {
+	cropToPerspective,
+	fitCrop,
+	perspectiveToCrop,
+	planeView,
+} from "@/lib/ai-edition/timeline/planeCrop";
 
 vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: (scope: string) => (key: string) => `${scope}.${key}`,
@@ -193,49 +199,119 @@ describe("CameraCalibrationModal", () => {
 		expect(stillAttached(from)).toBe(0);
 	});
 
-	it("detect fills the handles", async () => {
-		const found = [
-			{ x: 0.2, y: 0.25 },
+	const FOUND = [
+		{ x: 0.2, y: 0.25 },
+		{ x: 0.8, y: 0.2 },
+		{ x: 0.85, y: 0.9 },
+		{ x: 0.1, y: 0.8 },
+	];
+	// A desk frame seen straight on: 0.6 x 0.6 of the image, 2:1 and 1 m wide in reality.
+	const PLANE = {
+		corners: [
+			{ x: 0.2, y: 0.2 },
 			{ x: 0.8, y: 0.2 },
-			{ x: 0.85, y: 0.9 },
-			{ x: 0.1, y: 0.8 },
-		];
-		detectMarkedArea.mockReturnValueOnce({ corners: found, size: null });
-		const { onApply } = renderModal("perspective", null);
-		await stillLoaded();
+			{ x: 0.8, y: 0.8 },
+			{ x: 0.2, y: 0.8 },
+		] as [
+			{ x: number; y: number },
+			{ x: number; y: number },
+			{ x: number; y: number },
+			{ x: number; y: number },
+		],
+		aspect: 2,
+		widthMm: 1000,
+	};
+	const detect = () =>
 		fireEvent.click(
 			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
 		);
+
+	function expectedPerspective(aspect: number) {
+		const base = { corners: PLANE.corners, aspect: PLANE.aspect };
+		const view = planeView(base);
+		const box = view && perspectiveToCrop(view, base);
+		if (!view || !box) throw new Error("test plane must be usable");
+		return cropToPerspective(view, fitCrop(view.aspect, aspect, box));
+	}
+
+	it("detect without a plane puts the handles on the markers", async () => {
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: null });
+		const { onApply } = renderModal("perspective", null);
+		await stillLoaded();
+		detect();
 		expect(detectMarkedArea).toHaveBeenCalledWith(IMAGE);
-		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.markersFound");
+		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.noPlane");
+		expect(screen.getByTestId("calibration-handle-0")).toBeInTheDocument();
 		fireEvent.click(apply());
-		expect(onApply.mock.calls[0][0].perspective.corners).toEqual(found);
-		// Nothing measured: the format stays where it was (A4 landscape by default).
-		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(297 / 210);
+		expect(onApply.mock.calls[0][0].perspective.corners).toEqual(FOUND);
 	});
 
-	it("a measured area sets the format to its real proportions", async () => {
-		const found = [
-			{ x: 0.2, y: 0.25 },
-			{ x: 0.8, y: 0.2 },
-			{ x: 0.85, y: 0.9 },
-			{ x: 0.1, y: 0.8 },
-		];
-		detectMarkedArea.mockReturnValueOnce({
-			corners: found,
-			size: { widthMm: 940, heightMm: 580 },
-		});
+	it("detect shows the rectified desk with a 16:9 crop", async () => {
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
 		const { onApply } = renderModal("perspective", null);
 		await stillLoaded();
-		fireEvent.click(
-			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
-		);
-		expect(screen.getByRole("status")).toHaveTextContent(
-			"dialogs.cameraCalibration.markersMeasured",
-		);
-		expect(screen.getByRole("spinbutton")).toHaveValue(1.621);
+		detect();
+		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.markersFound");
+		expect(screen.getByTestId("calibration-plane")).toBeInTheDocument();
+		expect(screen.queryByTestId("calibration-handle-0")).toBeNull();
 		fireEvent.click(apply());
-		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(940 / 580, 3);
+		const stored = onApply.mock.calls[0][0].perspective;
+		const expected = expectedPerspective(16 / 9);
+		expect(stored.aspect).toBeCloseTo(16 / 9, 9);
+		expect(stored.margin).toBeUndefined();
+		stored.corners.forEach((c: { x: number; y: number }, i: number) => {
+			expect(c.x).toBeCloseTo(expected?.corners[i].x ?? Number.NaN, 9);
+			expect(c.y).toBeCloseTo(expected?.corners[i].y ?? Number.NaN, 9);
+		});
+	});
+
+	it("a format refits the crop on the desk", async () => {
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
+		const { onApply } = renderModal("perspective", null);
+		await stillLoaded();
+		detect();
+		fireEvent.click(screen.getByRole("button", { name: "9:16" }));
+		fireEvent.click(apply());
+		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(9 / 16, 9);
+	});
+
+	it("shows the crop's real size after detection", async () => {
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
+		renderModal("perspective", null);
+		await stillLoaded();
+		detect();
+		expect(screen.getByText("dialogs.cameraCalibration.cropSize")).toBeInTheDocument();
+	});
+
+	it("hand mode brings back the four handles", async () => {
+		detectMarkedArea.mockReturnValueOnce({ corners: FOUND, plane: PLANE });
+		renderModal("perspective", null);
+		await stillLoaded();
+		detect();
+		fireEvent.click(screen.getByRole("button", { name: "dialogs.cameraCalibration.handMode" }));
+		expect(screen.getByTestId("calibration-handle-0")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "dialogs.cameraCalibration.planeMode" }));
+		expect(screen.getByTestId("calibration-plane")).toBeInTheDocument();
+	});
+
+	it("a stored correction reopens on the desk and applies unchanged", async () => {
+		const stored = { corners: PLANE.corners, aspect: 2 };
+		const { onApply } = renderModal("perspective", { perspective: stored });
+		await stillLoaded();
+		expect(screen.getByTestId("calibration-plane")).toBeInTheDocument();
+		fireEvent.click(apply());
+		const out = onApply.mock.calls[0][0].perspective;
+		expect(out.aspect).toBeCloseTo(2, 9);
+		out.corners.forEach((c: { x: number; y: number }, i: number) => {
+			expect(c.x).toBeCloseTo(stored.corners[i].x, 9);
+			expect(c.y).toBeCloseTo(stored.corners[i].y, 9);
+		});
+	});
+
+	it("a stored correction with a margin still opens with the four handles", async () => {
+		renderModal("perspective", { perspective: { corners: PLANE.corners, aspect: 2, margin: 0.1 } });
+		await stillLoaded();
+		expect(screen.getByTestId("calibration-handle-0")).toBeInTheDocument();
 	});
 
 	it("detect without four markers shows the message and keeps the handles", async () => {

@@ -121,7 +121,12 @@
 		"detectMarkers": "Rozpoznat značky",
 		"printMarkerSheet": "Vytisknout list se značkami",
 		"markersFound": "Všechny čtyři značky nalezeny; rohy byly umístěny na ně.",
-		"markersMeasured": "Všechny čtyři značky nalezeny; rohy byly umístěny na ně. Naměřeno přibližně {{width}} × {{height}} cm; formát byl podle toho nastaven.",
+		"planeHelp": "Přetáhněte výřez na narovnaném stole. Rohové úchyty mění jeho velikost.",
+		"handMode": "Čtyři rohy ručně",
+		"planeMode": "Výřez na narovnaném stole",
+		"noPlane": "Všechny čtyři značky nalezeny, ale rovinu stolu se nepodařilo určit; rohy byly umístěny na ně.",
+		"cropSize": "Výřez: přibližně {{width}} × {{height}} cm",
+		"cropOutside": "Výřez přesahuje obraz kamery; tato část zůstane černá.",
 		"markersNotFound": "Nebyly nalezeny všechny čtyři značky (0–3). Zkontrolujte, že jsou celé v záběru, rovné a rovnoměrně osvětlené. Rohy zůstaly beze změny.",
 		"markerSheetInstruction": "Vystřihněte podél čar. Vnitřní roh každé značky položte na roh podle popisku."
 	}

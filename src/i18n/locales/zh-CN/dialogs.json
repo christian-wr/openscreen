@@ -121,7 +121,12 @@
 		"detectMarkers": "检测标记",
 		"printMarkerSheet": "打印标记纸",
 		"markersFound": "已找到全部四个标记，角点已放到标记上。",
-		"markersMeasured": "已找到全部四个标记，角点已放到标记上。测得约 {{width}} × {{height}} 厘米，格式已据此调整。",
+		"planeHelp": "在校正后的桌面上拖动裁剪区域。拖动角上的手柄可调整大小。",
+		"handMode": "手动设置四个角",
+		"planeMode": "在校正后的桌面上裁剪",
+		"noPlane": "已找到全部四个标记，但无法确定桌面平面；角点已放到标记上。",
+		"cropSize": "裁剪区域：约 {{width}} × {{height}} 厘米",
+		"cropOutside": "裁剪区域超出了摄像头画面；超出部分将显示为黑色。",
 		"markersNotFound": "未找到全部四个标记（0–3）。请确保它们完整地位于画面中、平整且光照均匀。角点保持不变。",
 		"markerSheetInstruction": "沿虚线剪下，将每个标记的内侧角对准其标注的角。"
 	}

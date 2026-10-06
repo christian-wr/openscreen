@@ -121,7 +121,12 @@
 		"detectMarkers": "İşaretçileri algıla",
 		"printMarkerSheet": "İşaretçi sayfasını yazdır",
 		"markersFound": "Dört işaretçinin tümü bulundu; köşeler bunların üzerine yerleştirildi.",
-		"markersMeasured": "Dört işaretçinin tümü bulundu; köşeler bunların üzerine yerleştirildi. Ölçülen: yaklaşık {{width}} × {{height}} cm; biçim buna göre ayarlandı.",
+		"planeHelp": "Kırpma alanını düzeltilmiş masa üzerinde sürükleyin. Köşe tutamaçları boyutunu değiştirir.",
+		"handMode": "Dört köşe elle",
+		"planeMode": "Düzeltilmiş masada kırpma",
+		"noPlane": "Dört işaretçinin tümü bulundu, ancak masa düzlemi belirlenemedi; köşeler bunların üzerine yerleştirildi.",
+		"cropSize": "Kırpma: yaklaşık {{width}} × {{height}} cm",
+		"cropOutside": "Kırpma alanı kamera görüntüsünün dışına taşıyor; o kısım siyah kalır.",
 		"markersNotFound": "Dört işaretçinin (0–3) tümü bulunamadı. Tamamen görüntüde, düz ve eşit aydınlatılmış olduklarından emin olun. Köşeler değiştirilmedi.",
 		"markerSheetInstruction": "Kesikli çizgilerden kesin. Her işaretçinin iç köşesini kendi köşesine koyun."
 	}

@@ -121,7 +121,12 @@
 		"detectMarkers": "偵測標記",
 		"printMarkerSheet": "列印標記紙",
 		"markersFound": "已找到全部四個標記，角點已放到標記上。",
-		"markersMeasured": "已找到全部四個標記，角點已放到標記上。測得約 {{width}} × {{height}} 公分，格式已據此調整。",
+		"planeHelp": "在校正後的桌面上拖曳裁切範圍。拖曳角落的控點可調整大小。",
+		"handMode": "手動設定四個角",
+		"planeMode": "在校正後的桌面上裁切",
+		"noPlane": "已找到全部四個標記，但無法確定桌面平面；角點已放到標記上。",
+		"cropSize": "裁切範圍：約 {{width}} × {{height}} 公分",
+		"cropOutside": "裁切範圍超出了攝影機畫面；超出部分將顯示為黑色。",
 		"markersNotFound": "未找到全部四個標記（0–3）。請確認它們完整位於畫面中、平整且光線均勻。角點維持不變。",
 		"markerSheetInstruction": "沿虛線剪下，將每個標記的內側角對準其標示的角。"
 	}

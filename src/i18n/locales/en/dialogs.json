@@ -121,7 +121,12 @@
 		"detectMarkers": "Detect markers",
 		"printMarkerSheet": "Print marker sheet",
 		"markersFound": "All four markers found; the corners were placed on them.",
-		"markersMeasured": "All four markers found; the corners were placed on them. Measured about {{width}} × {{height}} cm; the format now matches it.",
+		"planeHelp": "Drag the crop on the straightened desk. The corner handles resize it.",
+		"handMode": "Four corners by hand",
+		"planeMode": "Crop on the straightened desk",
+		"noPlane": "All four markers found, but the desk plane could not be determined; the corners were placed on them.",
+		"cropSize": "Crop: about {{width}} × {{height}} cm",
+		"cropOutside": "The crop reaches past the camera picture; that part stays black.",
 		"markersNotFound": "Not all four markers (0–3) were found. Make sure they are fully in the picture, flat and evenly lit. The corners were left as they were.",
 		"markerSheetInstruction": "Cut along the dashed lines. Put each marker's inner corner on its labelled corner."
 	}
