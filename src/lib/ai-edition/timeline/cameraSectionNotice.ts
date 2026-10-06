@@ -1,10 +1,15 @@
-// What the user is told when adding a Full Camera or layout section does not happen.
+// What the user is told when adding a Full Camera, layout or desk section does not happen.
 
 import { toast } from "sonner";
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 
-export type CameraSectionOutcome = "added" | "occupied" | "no-camera" | "too-few-cameras";
+export type CameraSectionOutcome =
+	| "added"
+	| "occupied"
+	| "no-camera"
+	| "too-few-cameras"
+	| "no-desk-camera";
 
 /** The notice for an outcome, or `null` when the section was added. */
 export function cameraSectionNotice(
@@ -25,6 +30,8 @@ export function cameraSectionNotice(
 			return { title: t("errors.tooFewCameras") };
 		case "no-camera":
 			return { title: t("errors.noCamera") };
+		case "no-desk-camera":
+			return { title: t("errors.noDeskCamera") };
 	}
 }
 

@@ -63,7 +63,8 @@
 		"tooFewCameras": "Cette disposition nécessite plus de caméras que celles disponibles ici",
 		"cannotPlaceCameraSection": "Impossible de placer une section caméra ici",
 		"cameraSectionExistsAtLocation": "Une section caméra se trouve déjà ici.",
-		"noCamera": "Ce projet n'a pas de caméra"
+		"noCamera": "Ce projet n'a pas de caméra",
+		"noDeskCamera": "Aucune caméra de bureau — choisissez-en une dans la section Caméras"
 	},
 	"success": {
 		"addedZoomSuggestions": "{{count}} suggestion de zoom basée sur le curseur ajoutée",

@@ -63,7 +63,8 @@
 		"tooFewCameras": "Bu düzen, burada bulunandan daha fazla kamera gerektirir",
 		"cannotPlaceCameraSection": "Buraya kamera bölümü yerleştirilemez",
 		"cameraSectionExistsAtLocation": "Burada zaten bir kamera bölümü var.",
-		"noCamera": "Bu projede kamera yok"
+		"noCamera": "Bu projede kamera yok",
+		"noDeskCamera": "Masa kamerası yok — Kameralar bölümünde bir tane seçin"
 	},
 	"success": {
 		"addedZoomSuggestions": "{{count}} imleç tabanlı yakınlaştırma önerisi eklendi",

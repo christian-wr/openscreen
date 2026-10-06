@@ -63,7 +63,8 @@
 		"tooFewCameras": "このレイアウトには、ここで利用できる数より多くのカメラが必要です",
 		"cannotPlaceCameraSection": "ここにはカメラ区間を配置できません",
 		"cameraSectionExistsAtLocation": "ここにはすでにカメラ区間があります。",
-		"noCamera": "このプロジェクトにはカメラがありません"
+		"noCamera": "このプロジェクトにはカメラがありません",
+		"noDeskCamera": "デスクカメラがありません — 「カメラ」セクションで選択してください"
 	},
 	"success": {
 		"addedZoomSuggestions": "カーソルに基づくズーム提案を {{count}} 件追加しました",

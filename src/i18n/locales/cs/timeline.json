@@ -63,7 +63,8 @@
 		"tooFewCameras": "Toto rozvržení vyžaduje více kamer, než je zde k dispozici",
 		"cannotPlaceCameraSection": "Sem nelze umístit úsek kamery",
 		"cameraSectionExistsAtLocation": "Zde už je úsek kamery.",
-		"noCamera": "Tento projekt nemá kameru"
+		"noCamera": "Tento projekt nemá kameru",
+		"noDeskCamera": "Žádná stolní kamera — vyberte ji v části Kamery"
 	},
 	"success": {
 		"addedZoomSuggestions": "Přidán {{count}} návrh přiblížení na základě kurzoru",

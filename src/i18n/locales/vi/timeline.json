@@ -63,7 +63,8 @@
 		"tooFewCameras": "Bố cục này cần nhiều camera hơn số hiện có",
 		"cannotPlaceCameraSection": "Không thể đặt đoạn camera tại đây",
 		"cameraSectionExistsAtLocation": "Đã có một đoạn camera tại đây.",
-		"noCamera": "Dự án này không có camera"
+		"noCamera": "Dự án này không có camera",
+		"noDeskCamera": "Không có camera bàn — hãy chọn một camera trong mục Camera"
 	},
 	"success": {
 		"addedZoomSuggestions": "Đã thêm {{count}} đề xuất thu phóng dựa trên con trỏ",

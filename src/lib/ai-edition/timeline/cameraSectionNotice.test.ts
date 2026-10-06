@@ -19,4 +19,8 @@ describe("cameraSectionNotice", () => {
 		expect(cameraSectionNotice("no-camera", t)?.title).toBe("errors.noCamera");
 		expect(cameraSectionNotice("too-few-cameras", t)?.title).toBe("errors.tooFewCameras");
 	});
+
+	it("points to the Cameras section when there is no desk camera", () => {
+		expect(cameraSectionNotice("no-desk-camera", t)).toEqual({ title: "errors.noDeskCamera" });
+	});
 });

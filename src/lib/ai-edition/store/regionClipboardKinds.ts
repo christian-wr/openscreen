@@ -12,7 +12,8 @@ export type CopySourceKey =
 	| "annotationRegions"
 	| "speedRegions"
 	| "cameraFullscreenRegions"
-	| "cameraLayoutRegions";
+	| "cameraLayoutRegions"
+	| "deskRegions";
 
 export function copySourceKey(kind: RegionKindName): CopySourceKey | null {
 	switch (kind) {
@@ -26,18 +27,23 @@ export function copySourceKey(kind: RegionKindName): CopySourceKey | null {
 			return "cameraFullscreenRegions";
 		case "cameraLayout":
 			return "cameraLayoutRegions";
+		case "desk":
+			return "deskRegions";
 		case "trim":
 		case "audio":
 			return null;
 	}
 }
 
+/** The three lists of camera sections, which never overlap one another. */
+type CameraSectionKey = "cameraFullscreenRegions" | "cameraLayoutRegions" | "deskRegions";
+
 /** Where a pasted region is appended: a top-level document array, or a legacyEditor list. */
 export type PasteTarget =
 	| { store: "document"; key: "zoomRanges" | "annotations" }
 	| {
 			store: "legacy";
-			key: "speedRegions" | "cameraFullscreenRegions" | "cameraLayoutRegions";
+			key: "speedRegions" | CameraSectionKey;
 	  };
 
 export function pasteTarget(kind: RegionKindName): PasteTarget | null {
@@ -52,6 +58,8 @@ export function pasteTarget(kind: RegionKindName): PasteTarget | null {
 			return { store: "legacy", key: "cameraFullscreenRegions" };
 		case "cameraLayout":
 			return { store: "legacy", key: "cameraLayoutRegions" };
+		case "desk":
+			return { store: "legacy", key: "deskRegions" };
 		case "trim":
 		case "audio":
 			return null;
@@ -68,20 +76,20 @@ export function pasteIdPrefix(kind: RegionKindName): string {
 type Span = Array<{ startMs: number; endMs: number }>;
 
 /**
- * Whether a pasted camera section lands on one it may not share the lane with. Layout sections
- * and Full Camera regions share one lane, so a layout paste is refused over either list. A Full
- * Camera paste is refused over layout sections only: over another Full Camera it merges, as an
- * add does.
+ * Whether a pasted camera section lands on one it may not share the timeline with. Full Camera,
+ * layout and desk sections never overlap, so a paste is refused over any of the three lists,
+ * with one exception: a Full Camera paste over another Full Camera merges, as an add does.
  */
 export function pasteHitsCameraSection(
 	legacy: Record<string, unknown>,
-	key: "cameraFullscreenRegions" | "cameraLayoutRegions",
+	key: CameraSectionKey,
 	startMs: number,
 	endMs: number,
 ): boolean {
 	const rows = [
 		...((legacy.cameraLayoutRegions as Span | undefined) ?? []),
-		...(key === "cameraLayoutRegions"
+		...((legacy.deskRegions as Span | undefined) ?? []),
+		...(key !== "cameraFullscreenRegions"
 			? ((legacy.cameraFullscreenRegions as Span | undefined) ?? [])
 			: []),
 	];

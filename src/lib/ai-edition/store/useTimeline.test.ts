@@ -755,6 +755,11 @@ describe("useTimeline.clearTimeline", () => {
 			useProjectStore.setState({ currentTimeSec: 5 });
 			return tl.addCameraLayout("screen-pip", [0]);
 		},
+		// No camera section overlaps another, so the desk section goes after both.
+		desk: (tl) => {
+			useProjectStore.setState({ currentTimeSec: 8 });
+			return tl.addDeskSection();
+		},
 	};
 	const editKinds = Object.keys(addOf) as EditKind[];
 
@@ -762,6 +767,7 @@ describe("useTimeline.clearTimeline", () => {
 		const legacy = (doc?.legacyEditor ?? {}) as {
 			cameraFullscreenRegions?: unknown[];
 			cameraLayoutRegions?: unknown[];
+			deskRegions?: unknown[];
 		};
 		return {
 			zoom: doc?.zoomRanges.length ?? 0,
@@ -770,6 +776,7 @@ describe("useTimeline.clearTimeline", () => {
 			speed: doc ? readSpeedRegions(doc).length : 0,
 			cameraFullscreen: legacy.cameraFullscreenRegions?.length ?? 0,
 			cameraLayout: legacy.cameraLayoutRegions?.length ?? 0,
+			desk: legacy.deskRegions?.length ?? 0,
 		};
 	};
 	const noRegions: Record<EditKind, number> = {
@@ -779,9 +786,10 @@ describe("useTimeline.clearTimeline", () => {
 		speed: 0,
 		cameraFullscreen: 0,
 		cameraLayout: 0,
+		desk: 0,
 	};
 
-	// A project holding everything that is NOT an edit: two clips, a webcam, an imported
+	// A project holding everything that is NOT an edit: two clips, two webcams, an imported
 	// audio track, a transcript, captions, a pause, and settings in the legacy envelope.
 	const clipA = sampleDoc.timeline.clips[0];
 	const contentDoc: AxcutDocument = {
@@ -798,6 +806,18 @@ describe("useTimeline.clearTimeline", () => {
 					width: 1280,
 					height: 720,
 				},
+				// A second camera, so the project has a desk camera.
+				additionalCameraTracks: [
+					{
+						sourcePath: "/tmp/camera2.webm",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1280,
+						height: 720,
+						label: "",
+					},
+				],
 			},
 			{
 				id: "audio_1",
@@ -939,6 +959,7 @@ describe("useTimeline.clearTimeline", () => {
 			speed: 1,
 			cameraFullscreen: 1,
 			cameraLayout: 1,
+			desk: 1,
 		});
 
 		await act(async () => {
@@ -979,6 +1000,7 @@ describe("useTimeline.clearTimeline", () => {
 			speed: 1,
 			cameraFullscreen: 1,
 			cameraLayout: 1,
+			desk: 1,
 		});
 
 		act(() => {
@@ -3068,6 +3090,224 @@ describe("useTimeline camera layouts", () => {
 		});
 		expect(legacyNow().cameraLayoutRegions).toEqual([]);
 		expect(legacyNow().cameraFullscreenRegions).toEqual([]);
+	});
+});
+
+describe("useTimeline desk sections", () => {
+	const track = {
+		sourcePath: "/tmp/camera.webm",
+		startMs: 0,
+		offsetMs: 0,
+		visible: true,
+		width: 1280,
+		height: 720,
+	};
+	const extra = (sourcePath: string) => ({ ...track, sourcePath, label: "" });
+	const oneCamAsset = { ...sampleDoc.assets[0], cameraTrack: track };
+	const threeCamAsset = {
+		...oneCamAsset,
+		additionalCameraTracks: [extra("/tmp/cam2.webm"), extra("/tmp/cam3.webm")],
+	};
+	const clipA = sampleDoc.timeline.clips[0];
+	const row = (id: string, startMs: number, endMs: number) => ({
+		id,
+		startMs,
+		endMs,
+		clipId: clipA.id,
+		assetId: clipA.assetId,
+		sourceStartSec: startMs / 1000,
+		sourceEndSec: endMs / 1000,
+	});
+	const layoutRow = (id: string, startMs: number, endMs: number) => ({
+		...row(id, startMs, endMs),
+		template: "screen-pip",
+		slots: [{ camera: 0 }],
+	});
+
+	const seed = (
+		legacy: Record<string, unknown> | null,
+		asset: AxcutDocument["assets"][number] = threeCamAsset,
+	) => {
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: { ...sampleDoc, assets: [asset], legacyEditor: legacy },
+			currentTimeSec: 1,
+			revision: 1,
+			status: "ready",
+			error: null,
+		});
+	};
+	const legacyNow = () =>
+		(useProjectStore.getState().document?.legacyEditor ?? {}) as {
+			deskCamera?: number;
+			deskRegions?: Array<Record<string, unknown>>;
+			cameraFullscreenRegions?: Array<Record<string, unknown>>;
+			cameraLayoutRegions?: Array<Record<string, unknown>>;
+		};
+
+	beforeEach(() => {
+		useProjectStore.getState().clear();
+		clearHistory();
+		for (const mock of Object.values(bridgeMocks)) mock.mockReset();
+		bridgeMocks.save.mockImplementation(async (doc: typeof sampleDoc) => ({
+			success: true,
+			document: doc,
+		}));
+	});
+
+	afterEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("adds a desk section at the playhead in one undo step; the list appears only then", async () => {
+		seed({ other: 1 });
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.addCameraFullscreen();
+		});
+		expect(legacyNow()).not.toHaveProperty("deskRegions");
+		clearHistory();
+		act(() => seed({ other: 1 }));
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addDeskSection();
+		});
+		expect(outcome).toBe("added");
+		expect(past).toHaveLength(1);
+		expect(legacyNow().deskRegions).toHaveLength(1);
+		expect(result.current.deskRegions).toHaveLength(1);
+		expect(result.current.deskRegions[0]).toMatchObject({
+			startMs: 1000,
+			endMs: 3000,
+			clipId: "clip_a",
+		});
+		expect(result.current.deskRegions[0].id.startsWith("desk")).toBe(true);
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(legacyNow()).toEqual({ other: 1 });
+	});
+
+	it("refuses a desk section over a full camera or a layout section, and allows touching", async () => {
+		seed({ cameraFullscreenRegions: [row("camfull_1", 2000, 4000)] });
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addDeskSection();
+		});
+		expect(outcome).toBe("occupied");
+		act(() => seed({ cameraLayoutRegions: [layoutRow("camlayout_1", 2000, 4000)] }));
+		await act(async () => {
+			outcome = await result.current.addDeskSection();
+		});
+		expect(outcome).toBe("occupied");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		act(() => seed({ cameraFullscreenRegions: [row("camfull_1", 0, 1000)] }));
+		await act(async () => {
+			outcome = await result.current.addDeskSection();
+		});
+		expect(outcome).toBe("added");
+		expect(legacyNow().deskRegions?.[0]).toMatchObject({ startMs: 1000, endMs: 3000 });
+	});
+
+	it("refuses a full camera or layout section over a desk section", async () => {
+		seed({ deskRegions: [row("desk_1", 2000, 4000)] });
+		const { result } = renderTimeline();
+		let full: string | undefined;
+		let layout: string | undefined;
+		await act(async () => {
+			full = await result.current.addCameraFullscreen();
+			layout = await result.current.addCameraLayout("screen-pip", [0]);
+		});
+		expect(full).toBe("occupied");
+		expect(layout).toBe("occupied");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+	});
+
+	it("refuses a desk section without a desk camera and leaves the document alone", async () => {
+		seed(null, oneCamAsset);
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		expect(result.current.deskCamera).toBeNull();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.addDeskSection();
+		});
+		expect(outcome).toBe("no-desk-camera");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		expect(useProjectStore.getState().document).toBe(before);
+	});
+
+	it("moving a desk section clamps at a full camera neighbour, and the other way round", async () => {
+		seed({
+			cameraFullscreenRegions: [row("camfull_1", 5000, 7000)],
+			deskRegions: [row("desk_1", 1000, 3000)],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.updateDeskSpan("desk_1", 1000, 6000);
+		});
+		expect(result.current.deskRegions).toHaveLength(1);
+		expect(result.current.deskRegions[0]).toMatchObject({ startMs: 1000, endMs: 5000 });
+
+		act(() =>
+			seed({
+				cameraFullscreenRegions: [row("camfull_1", 1000, 3000)],
+				deskRegions: [row("desk_1", 5000, 7000)],
+			}),
+		);
+		await act(async () => {
+			await result.current.updateCameraFullscreenSpan("camfull_1", 1000, 6000);
+		});
+		expect(result.current.cameraFullscreenRegions[0]).toMatchObject({
+			startMs: 1000,
+			endMs: 5000,
+		});
+	});
+
+	it("removes a desk section in one undo step", async () => {
+		seed({ deskRegions: [row("desk_1", 1000, 3000)] });
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.removeRegions([{ kind: "desk", id: "desk_1" }]);
+		});
+		expect(legacyNow().deskRegions).toEqual([]);
+		expect(past).toHaveLength(1);
+	});
+
+	it("sets and clears the desk camera; the resolved camera follows", async () => {
+		seed({ other: 1 });
+		const { result } = renderTimeline();
+		// Nothing chosen and no perspective: camera 2.
+		expect(result.current.deskCamera).toBe(1);
+		expect(result.current.deskCameraChosen).toBeNull();
+		await act(async () => {
+			await result.current.setDeskCamera(2);
+		});
+		expect(legacyNow().deskCamera).toBe(2);
+		expect(result.current.deskCamera).toBe(2);
+		expect(result.current.deskCameraChosen).toBe(2);
+		expect(past).toHaveLength(1);
+		await act(async () => {
+			await result.current.setDeskCamera(null);
+		});
+		expect(legacyNow()).toEqual({ other: 1 });
+		expect(result.current.deskCamera).toBe(1);
+		expect(result.current.deskCameraChosen).toBeNull();
+		expect(past).toHaveLength(2);
+	});
+
+	it("hides and shows a desk section's label", async () => {
+		seed({ deskRegions: [row("desk_1", 1000, 3000)] });
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.updateDeskLabel("desk_1", false);
+		});
+		expect(legacyNow().deskRegions?.[0]).toMatchObject({ deskLabel: false });
+		await act(async () => {
+			await result.current.updateDeskLabel("desk_1", true);
+		});
+		expect(legacyNow().deskRegions?.[0]).not.toHaveProperty("deskLabel");
 	});
 });
 

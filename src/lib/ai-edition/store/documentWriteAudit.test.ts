@@ -250,6 +250,7 @@ const DECLARED: WritePath[] = [
 	w("src/lib/ai-edition/store/useTimeline.ts", "addAnnotation", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addCameraFullscreen", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addCameraLayout", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "addDeskSection", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addSpeed", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addTrim", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addZoom", "save", "gesture"),
@@ -310,6 +311,8 @@ const DECLARED: WritePath[] = [
 		"gesture",
 	),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setCameraSettings", "save", "gesture"),
+	// The project's desk camera: choose one or go back to automatic, one undo step each.
+	w("src/lib/ai-edition/store/useTimeline.ts", "setDeskCamera", "save", "gesture"),
 	w(
 		"src/lib/ai-edition/store/useTimeline.ts",
 		"updateCameraFullscreenDeskLabel",
@@ -318,6 +321,8 @@ const DECLARED: WritePath[] = [
 	),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateCameraFullscreenSpan", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateCameraLayoutSpan", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "updateDeskLabel", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "updateDeskSpan", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateLayoutSlotRectLive", "set", "automatic"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateSpeedSpan", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateSpeedValue", "save", "gesture"),

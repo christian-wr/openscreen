@@ -63,7 +63,8 @@
 		"tooFewCameras": "Questo layout richiede più fotocamere di quelle disponibili qui",
 		"cannotPlaceCameraSection": "Impossibile inserire qui una sezione videocamera",
 		"cameraSectionExistsAtLocation": "Qui c'è già una sezione videocamera.",
-		"noCamera": "Questo progetto non ha una fotocamera"
+		"noCamera": "Questo progetto non ha una fotocamera",
+		"noDeskCamera": "Nessuna fotocamera da scrivania — scegline una nella sezione Fotocamere"
 	},
 	"success": {
 		"addedZoomSuggestions": "Aggiunto {{count}} suggerimento zoom basato sul cursore",

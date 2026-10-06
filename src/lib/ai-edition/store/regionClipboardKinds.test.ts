@@ -59,4 +59,30 @@ describe("regionClipboardKinds", () => {
 			expect(pasteHitsCameraSection(legacy, "cameraLayoutRegions", 3000, 4000)).toBe(false);
 		});
 	});
+
+	describe("desk sections", () => {
+		const legacy = {
+			cameraFullscreenRegions: [{ startMs: 0, endMs: 1000 }],
+			cameraLayoutRegions: [{ startMs: 2000, endMs: 3000 }],
+			deskRegions: [{ startMs: 4000, endMs: 5000 }],
+		};
+
+		it("copies and pastes a desk section through its own list", () => {
+			expect(copySourceKey("desk")).toBe("deskRegions");
+			expect(pasteTarget("desk")).toEqual({ store: "legacy", key: "deskRegions" });
+			expect(pasteIdPrefix("desk")).toBe("desk");
+		});
+
+		it("refuses a Full Camera or layout paste over a desk section", () => {
+			expect(pasteHitsCameraSection(legacy, "cameraFullscreenRegions", 4500, 5500)).toBe(true);
+			expect(pasteHitsCameraSection(legacy, "cameraLayoutRegions", 4500, 5500)).toBe(true);
+		});
+
+		it("refuses a desk paste over any camera section, and places it on a free spot", () => {
+			expect(pasteHitsCameraSection(legacy, "deskRegions", 500, 1500)).toBe(true);
+			expect(pasteHitsCameraSection(legacy, "deskRegions", 2500, 3500)).toBe(true);
+			expect(pasteHitsCameraSection(legacy, "deskRegions", 4500, 5500)).toBe(true);
+			expect(pasteHitsCameraSection(legacy, "deskRegions", 5000, 6000)).toBe(false);
+		});
+	});
 });

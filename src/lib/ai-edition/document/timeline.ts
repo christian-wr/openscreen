@@ -34,7 +34,7 @@ import { createId } from "./ids";
 
 /** The region families a delete can target by id. Shared with the store so "which kinds
  *  exist" has exactly one definition. `trim` is a source-time cut; the rest are pill-merged
- *  effects (zoom / speed / annotation / camera-fullscreen / camera-layout). Clips are removed
+ *  effects (zoom / speed / annotation / camera-fullscreen / camera-layout / desk). Clips are removed
  *  via {@link removeClip}, not here — deleting a clip reflows the whole timeline. */
 export type RegionKind =
 	| "zoom"
@@ -43,6 +43,7 @@ export type RegionKind =
 	| "speed"
 	| "cameraFullscreen"
 	| "cameraLayout"
+	| "desk"
 	| "audio";
 
 /** Length a clip is given before its media has been probed. Lives here, in the pure
@@ -380,6 +381,9 @@ function mapAllRegionCollections(
 	const cameraLayoutRegions = Array.isArray(legacy?.cameraLayoutRegions)
 		? (legacy?.cameraLayoutRegions as StoredRegion[])
 		: undefined;
+	const deskRegions = Array.isArray(legacy?.deskRegions)
+		? (legacy?.deskRegions as StoredRegion[])
+		: undefined;
 
 	return {
 		...document,
@@ -414,7 +418,7 @@ function mapAllRegionCollections(
 			),
 		),
 		legacyEditor:
-			legacy && (speedRegions || cameraFullscreenRegions || cameraLayoutRegions)
+			legacy && (speedRegions || cameraFullscreenRegions || cameraLayoutRegions || deskRegions)
 				? {
 						...legacy,
 						...(speedRegions ? { speedRegions: fn(speedRegions, "speed") } : {}),
@@ -424,6 +428,7 @@ function mapAllRegionCollections(
 						...(cameraLayoutRegions
 							? { cameraLayoutRegions: fn(cameraLayoutRegions, "camlayout") }
 							: {}),
+						...(deskRegions ? { deskRegions: fn(deskRegions, "desk") } : {}),
 					}
 				: document.legacyEditor,
 	};
@@ -741,6 +746,7 @@ function anchoredRegionsOf(document: AxcutDocument): Array<{ id: string; clipId:
 		(legacy?.speedRegions as StoredRegion[] | undefined) ?? [],
 		(legacy?.cameraFullscreenRegions as StoredRegion[] | undefined) ?? [],
 		(legacy?.cameraLayoutRegions as StoredRegion[] | undefined) ?? [],
+		(legacy?.deskRegions as StoredRegion[] | undefined) ?? [],
 	];
 	return collections
 		.flat()
@@ -1142,6 +1148,14 @@ export function removeRegion(document: AxcutDocument, kind: RegionKind, id: stri
 			);
 			return { ...document, legacyEditor: { ...legacy, cameraLayoutRegions: prev } };
 		}
+		case "desk": {
+			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
+			const prev = dropPillById(
+				(legacy.deskRegions as Array<{ id: string; startMs: number; endMs: number }>) ?? [],
+				id,
+			);
+			return { ...document, legacyEditor: { ...legacy, deskRegions: prev } };
+		}
 		default: {
 			// ponytail: exhaustive — TS errors here if a new RegionKind is added.
 			const exhaustive: never = kind;
@@ -1189,6 +1203,12 @@ const EDIT_REGIONS: Record<
 	cameraLayout: {
 		count: (d) => legacyRegionCount(d, "cameraLayoutRegions"),
 		clear: (d) => withLegacyRegionsCleared(d, "cameraLayoutRegions"),
+	},
+	// Cleared only where stored: a project that never had a desk section keeps no empty list.
+	desk: {
+		count: (d) => legacyRegionCount(d, "deskRegions"),
+		clear: (d) =>
+			legacyRegionCount(d, "deskRegions") > 0 ? withLegacyRegionsCleared(d, "deskRegions") : d,
 	},
 };
 

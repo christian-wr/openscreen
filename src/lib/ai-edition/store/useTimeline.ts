@@ -33,6 +33,11 @@ import {
 	normalizeCameraMirror,
 	normalizeCameraRotation,
 } from "@/lib/cameraOrientation";
+import {
+	type AnchoredDeskRegion,
+	normalizeDeskRegions,
+	resolveDeskCamera,
+} from "@/lib/deskSections";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
 import { fitTextBox } from "../annotations/placement";
 import {
@@ -61,6 +66,7 @@ import {
 import type { AxcutAudioTrack, AxcutClipCropRegion, AxcutDocument } from "../schema";
 import { appendAutoZoomSuggestions } from "../timeline/apply-auto-zooms";
 import { hasAnyClipWithCamera } from "../timeline/camera";
+import { projectCameraCount } from "../timeline/cameraList";
 import { probeAudioDuration, probeVideoDimensions, probeVideoDuration } from "../timeline/duration";
 import {
 	anchorRegionsWithDerivedMs,
@@ -122,8 +128,9 @@ function patchPillById<T extends { id: string; startMs: number; endMs: number }>
 // --- Camera sections ---------------------------------------------------------------
 // Full Camera regions and layout sections share one timeline lane but live in two lists:
 // a `camera-full` section of camera 1 is a Full Camera region, everything else a layout
-// row (see `isFullCameraLayout`). The helpers below keep the two lists disjoint in time
-// and move a section between them when its template changes.
+// row (see `isFullCameraLayout`). Desk sections have a lane and a list of their own. The
+// helpers below keep the three lists disjoint in time and move a section between the first
+// two when its template changes.
 
 /** The anchor and derived span every stored row of both lists carries. */
 interface AnchoredRow {
@@ -144,20 +151,31 @@ export interface CameraSectionHandle {
 	id: string;
 }
 
-/** `too-few-cameras`: the project has a camera, but the template needs more than were given. */
-export type AddCameraSectionOutcome = "added" | "occupied" | "no-camera" | "too-few-cameras";
+/**
+ * `too-few-cameras`: the project has a camera, but the template needs more than were given.
+ * `no-desk-camera`: a desk section was asked for, but no desk camera resolves.
+ * The same union as `CameraSectionOutcome` (cameraSectionNotice), which tells the user.
+ */
+export type AddCameraSectionOutcome =
+	| "added"
+	| "occupied"
+	| "no-camera"
+	| "too-few-cameras"
+	| "no-desk-camera";
 
 interface CameraLanes {
 	legacy: Record<string, unknown>;
 	full: FullCameraRow[];
 	layout: AnchoredCameraLayoutRegion[];
+	desk: AnchoredDeskRegion[];
 }
 
 function cameraLanes(doc: AxcutDocument): CameraLanes {
 	const legacy = (doc.legacyEditor as Record<string, unknown>) ?? {};
 	const full = (legacy.cameraFullscreenRegions as FullCameraRow[] | undefined) ?? [];
 	const layout = (legacy.cameraLayoutRegions as AnchoredCameraLayoutRegion[] | undefined) ?? [];
-	return { legacy, full, layout };
+	const desk = (legacy.deskRegions as AnchoredDeskRegion[] | undefined) ?? [];
+	return { legacy, full, layout, desk };
 }
 
 function withCameraLanes(
@@ -165,9 +183,10 @@ function withCameraLanes(
 	lanes: CameraLanes,
 	full: FullCameraRow[],
 	layout: AnchoredCameraLayoutRegion[],
+	desk: AnchoredDeskRegion[] = lanes.desk,
 ): AxcutDocument {
 	// A list that was never stored and is still empty stays absent, so a project that never
-	// used layout sections keeps its legacy envelope unchanged.
+	// used layout or desk sections keeps its legacy envelope unchanged.
 	const keep = (key: string, rows: unknown[]) =>
 		rows.length > 0 || key in lanes.legacy ? { [key]: rows } : {};
 	return {
@@ -176,26 +195,27 @@ function withCameraLanes(
 			...lanes.legacy,
 			...keep("cameraFullscreenRegions", full),
 			...keep("cameraLayoutRegions", layout),
+			...keep("deskRegions", desk),
 		},
 	};
 }
 
-/** Whether the span `[startMs, endMs)` overlaps any row of either list. */
-function cameraLaneOccupied(lanes: CameraLanes, startMs: number, endMs: number): boolean {
-	return cameraSectionsOverlapping([...lanes.full, ...lanes.layout], startMs, endMs).length > 0;
+/** Whether the span `[startMs, endMs)` overlaps any row of the given lists. */
+function cameraLaneOccupied(lists: AnchoredRow[][], startMs: number, endMs: number): boolean {
+	return cameraSectionsOverlapping(lists.flat(), startMs, endMs).length > 0;
 }
 
-// An identity no stored region can have, so a pill of the other list is always a wall.
+// An identity no stored region can have, so a pill of another list is always a wall.
 const OTHER_CAMERA_LIST = "\u0000other-camera-list";
 
 /**
- * The span the pill holding `id` may take on the shared lane: clamped against the other
- * pills of its own list (by the usual identity rule) and against every pill of the other
- * list. `replacePillSpan` then applies the same-list clamp again, which is a no-op.
+ * The span the pill holding `id` may take: clamped against the other pills of its own list
+ * (by the usual identity rule) and against every pill of the other camera-section lists.
+ * `replacePillSpan` then applies the same-list clamp again, which is a no-op.
  */
 function clampCameraSpan(
 	own: AnchoredRow[],
-	other: AnchoredRow[],
+	others: AnchoredRow[][],
 	id: string,
 	startMs: number,
 	endMs: number,
@@ -207,12 +227,14 @@ function clampCameraSpan(
 		...pills
 			.filter((p) => p !== pill)
 			.map((p) => ({ id: p.ids[0], start: p.start, end: p.end, identity: p.identity })),
-		...coalesceRegionsForRuler(other).map((p) => ({
-			id: p.ids[0],
-			start: p.start,
-			end: p.end,
-			identity: OTHER_CAMERA_LIST,
-		})),
+		...others.flatMap((other) =>
+			coalesceRegionsForRuler(other).map((p) => ({
+				id: p.ids[0],
+				start: p.start,
+				end: p.end,
+				identity: OTHER_CAMERA_LIST,
+			})),
+		),
 	];
 	const clamped = clampSpanAgainstNeighbours(
 		{ start: startMs / 1000, end: endMs / 1000 },
@@ -312,6 +334,22 @@ function layoutPillToFullCamera(
 		doc: withCameraLanes(doc, lanes, [...lanes.full, ...move.moved], move.remaining),
 		handle: { kind: "cameraFullscreen", id: move.newId },
 	};
+}
+
+/** The desk camera the user chose (`legacyEditor.deskCamera`), or `null` when none is stored. */
+function chosenDeskCamera(legacy: Record<string, unknown>): number | null {
+	const value = legacy.deskCamera;
+	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** The project's desk camera as `resolveDeskCamera` settles it (0 = camera 1), or `null`. */
+function deskCameraOf(doc: AxcutDocument): number | null {
+	const legacy = (doc.legacyEditor as Record<string, unknown> | null) ?? {};
+	return resolveDeskCamera({
+		deskCamera: legacy.deskCamera,
+		cameraCount: projectCameraCount(doc.assets),
+		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
+	});
 }
 
 /**
@@ -761,9 +799,9 @@ export function useTimeline() {
 	// by construction. `hasAnyClipWithCamera` is the consolidated answer to "does this
 	// project have a camera at all", used the same way by the Layout pane.
 	//
-	// The lane is shared with layout sections, and those two lists never overlap: a span
-	// that would land on a layout section is refused ("occupied") and nothing is written.
-	// Over another Full Camera region it still writes, and the two merge on display.
+	// The lane is shared with layout sections, and neither list overlaps the desk sections: a
+	// span that would land on a layout or desk section is refused ("occupied") and nothing is
+	// written. Over another Full Camera region it still writes, and the two merge on display.
 	const addCameraFullscreen = useCallback(
 		async (durationSec = DEFAULT_NEW_REGION_SEC): Promise<AddCameraSectionOutcome> => {
 			if (!document) return "no-camera";
@@ -771,7 +809,7 @@ export function useTimeline() {
 			const timeMs = Math.round(playheadSec() * 1000);
 			const endMs = timeMs + Math.round(durationSec * 1000);
 			const lanes = cameraLanes(document);
-			if (cameraSectionsOverlapping(lanes.layout, timeMs, endMs).length > 0) return "occupied";
+			if (cameraLaneOccupied([lanes.layout, lanes.desk], timeMs, endMs)) return "occupied";
 			const prev = (lanes.legacy.cameraFullscreenRegions as unknown[]) ?? [];
 			const next: AxcutDocument = {
 				...document,
@@ -811,7 +849,9 @@ export function useTimeline() {
 			const timeMs = Math.round(playheadSec() * 1000);
 			const endMs = timeMs + Math.round(durationSec * 1000);
 			const lanes = cameraLanes(document);
-			if (cameraLaneOccupied(lanes, timeMs, endMs)) return "occupied";
+			if (cameraLaneOccupied([lanes.full, lanes.layout, lanes.desk], timeMs, endMs)) {
+				return "occupied";
+			}
 			if (isFullCameraLayout({ template, slots })) return addCameraFullscreen(durationSec);
 			const added = anchorRegionsWithDerivedMs<AnchoredCameraLayoutRegion>(
 				[{ id: createId("camlayout"), startMs: timeMs, endMs, template, slots }],
@@ -823,6 +863,33 @@ export function useTimeline() {
 			return "added";
 		},
 		[addCameraFullscreen, document, saveDocument],
+	);
+
+	// A desk section at the playhead: the project's desk camera fills the frame. Refused
+	// without a desk camera, and over any camera section — Full Camera, layout or desk — so the
+	// caller can tell the user why. Touching one is allowed.
+	const addDeskSection = useCallback(
+		async (durationSec = DEFAULT_NEW_REGION_SEC): Promise<AddCameraSectionOutcome> => {
+			if (!document || deskCameraOf(document) === null) return "no-desk-camera";
+			const timeMs = Math.round(playheadSec() * 1000);
+			const endMs = timeMs + Math.round(durationSec * 1000);
+			const lanes = cameraLanes(document);
+			if (cameraLaneOccupied([lanes.full, lanes.layout, lanes.desk], timeMs, endMs)) {
+				return "occupied";
+			}
+			const added = anchorRegionsWithDerivedMs<AnchoredDeskRegion>(
+				[{ id: createId("desk"), startMs: timeMs, endMs }],
+				document.timeline.clips,
+				() => createId("desk"),
+			);
+			const next = withCameraLanes(document, lanes, lanes.full, lanes.layout, [
+				...lanes.desk,
+				...added,
+			]);
+			await saveDocument(next, { history: true });
+			return "added";
+		},
+		[document, saveDocument],
 	);
 
 	// Like updateTrimRange but also re-attaches the trim to a (possibly different) CLIP —
@@ -1283,14 +1350,20 @@ export function useTimeline() {
 		[document, saveDocument],
 	);
 
-	// Move/resize on the shared camera lane: clamped at the pills of both lists.
+	// Move/resize on the camera lanes: clamped at the pills of all three lists.
 	const updateCameraFullscreenSpan = useCallback(
 		async (id: string, startMs: number, endMs: number) => {
 			if (!document) return;
 			const s = finiteMs(startMs);
 			const e = finiteMs(endMs);
 			const lanes = cameraLanes(document);
-			const span = clampCameraSpan(lanes.full, lanes.layout, id, Math.min(s, e), Math.max(s, e));
+			const span = clampCameraSpan(
+				lanes.full,
+				[lanes.layout, lanes.desk],
+				id,
+				Math.min(s, e),
+				Math.max(s, e),
+			);
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: {
@@ -1316,7 +1389,13 @@ export function useTimeline() {
 			const s = finiteMs(startMs);
 			const e = finiteMs(endMs);
 			const lanes = cameraLanes(document);
-			const span = clampCameraSpan(lanes.layout, lanes.full, id, Math.min(s, e), Math.max(s, e));
+			const span = clampCameraSpan(
+				lanes.layout,
+				[lanes.full, lanes.desk],
+				id,
+				Math.min(s, e),
+				Math.max(s, e),
+			);
 			const layout = replacePillSpan(
 				lanes.layout,
 				id,
@@ -1326,6 +1405,34 @@ export function useTimeline() {
 				() => createId("camlayout"),
 			);
 			await saveDocument(withCameraLanes(document, lanes, lanes.full, layout), { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	const updateDeskSpan = useCallback(
+		async (id: string, startMs: number, endMs: number) => {
+			if (!document) return;
+			const s = finiteMs(startMs);
+			const e = finiteMs(endMs);
+			const lanes = cameraLanes(document);
+			const span = clampCameraSpan(
+				lanes.desk,
+				[lanes.full, lanes.layout],
+				id,
+				Math.min(s, e),
+				Math.max(s, e),
+			);
+			const desk = replacePillSpan(
+				lanes.desk,
+				id,
+				span.startMs,
+				span.endMs,
+				document.timeline.clips,
+				() => createId("desk"),
+			);
+			await saveDocument(withCameraLanes(document, lanes, lanes.full, lanes.layout, desk), {
+				history: true,
+			});
 		},
 		[document, saveDocument],
 	);
@@ -1423,6 +1530,46 @@ export function useTimeline() {
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: { ...legacy, cameraFullscreenRegions: patched },
+			};
+			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	// Only `deskLabel: false` is stored; showing the label again removes the field.
+	const updateDeskLabel = useCallback(
+		async (id: string, show: boolean) => {
+			if (!document) return;
+			const lanes = cameraLanes(document);
+			// patchPillById copies exactly the pill's rows; untouched rows keep their identity.
+			const desk = patchPillById(lanes.desk, id, {}).map((r, i) => {
+				if (r === lanes.desk[i]) return r;
+				const { deskLabel: _d, ...rest } = r;
+				return show ? rest : { ...rest, deskLabel: false as const };
+			});
+			await saveDocument(withCameraLanes(document, lanes, lanes.full, lanes.layout, desk), {
+				history: true,
+			});
+		},
+		[document, saveDocument],
+	);
+
+	// The desk camera the user chose (`legacyEditor.deskCamera`, 0 = camera 1), or `null` to
+	// remove the choice and let `resolveDeskCamera` pick. One write, one undo step; a choice
+	// that changes nothing writes nothing. Read at write time, like `setCameraSettings`.
+	const setDeskCamera = useCallback(
+		async (index: number | null) => {
+			const current = useProjectStore.getState().document ?? document;
+			if (!current) return;
+			if (index !== null && (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS)) {
+				return;
+			}
+			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
+			if (chosenDeskCamera(legacy) === index) return;
+			const { deskCamera: _prev, ...rest } = legacy;
+			const next: AxcutDocument = {
+				...current,
+				legacyEditor: index === null ? rest : { ...rest, deskCamera: index },
 			};
 			await saveDocument(next, { history: true });
 		},
@@ -1606,6 +1753,7 @@ export function useTimeline() {
 			const cameraLayoutIds = new Set(
 				handles.filter((h) => h.kind === "cameraLayout").map((h) => h.id),
 			);
+			const deskIds = new Set(handles.filter((h) => h.kind === "desk").map((h) => h.id));
 			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 			const prevSpeed = dropPillsByIds(
 				(legacy.speedRegions as Array<{ id: string; startMs: number; endMs: number }>) ?? [],
@@ -1632,7 +1780,10 @@ export function useTimeline() {
 					),
 				},
 				legacyEditor:
-					speedIds.size > 0 || cameraFullscreenIds.size > 0 || cameraLayoutIds.size > 0
+					speedIds.size > 0 ||
+					cameraFullscreenIds.size > 0 ||
+					cameraLayoutIds.size > 0 ||
+					deskIds.size > 0
 						? {
 								...legacy,
 								speedRegions: prevSpeed,
@@ -1642,6 +1793,14 @@ export function useTimeline() {
 											cameraLayoutRegions: dropPillsByIds(
 												(legacy.cameraLayoutRegions as AnchoredCameraLayoutRegion[]) ?? [],
 												cameraLayoutIds,
+											),
+										}
+									: {}),
+								...(deskIds.size > 0
+									? {
+											deskRegions: dropPillsByIds(
+												(legacy.deskRegions as AnchoredDeskRegion[]) ?? [],
+												deskIds,
 											),
 										}
 									: {}),
@@ -2157,6 +2316,17 @@ export function useTimeline() {
 		[document?.legacyEditor],
 	);
 
+	// Desk sections, read through the normaliser and memoised like the layout rows.
+	const storedDeskRegions = (document?.legacyEditor as Record<string, unknown> | null)?.deskRegions;
+	const deskRegions = useMemo(
+		() => (hasDoc ? normalizeDeskRegions(storedDeskRegions) : []),
+		[hasDoc, storedDeskRegions],
+	);
+	const deskCamera = document ? deskCameraOf(document) : null;
+	const deskCameraChosen = chosenDeskCamera(
+		(document?.legacyEditor as Record<string, unknown> | null) ?? {},
+	);
+
 	return {
 		zoomRegions: document?.zoomRanges ?? [],
 		trimRanges: document?.timeline.trimRanges ?? [],
@@ -2167,6 +2337,9 @@ export function useTimeline() {
 		speedRegions,
 		cameraFullscreenRegions,
 		cameraLayoutRegions,
+		deskRegions,
+		deskCamera,
+		deskCameraChosen,
 		clips: document?.timeline.clips ?? [],
 		assets: document?.assets ?? [],
 		// The timeline marks where the user has ADDED words — text with no audio behind it.
@@ -2184,6 +2357,7 @@ export function useTimeline() {
 		addSpeed,
 		addCameraFullscreen,
 		addCameraLayout,
+		addDeskSection,
 		removeRegion,
 		removeRegions,
 		hasEditRegions,
@@ -2226,6 +2400,9 @@ export function useTimeline() {
 		cameraSettings,
 		updateCameraFullscreenSpan,
 		updateCameraLayoutSpan,
+		updateDeskSpan,
+		updateDeskLabel,
+		setDeskCamera,
 		setLayoutTemplate,
 		setLayoutSlotCamera,
 		updateLayoutSlotRectLive,

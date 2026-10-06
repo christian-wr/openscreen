@@ -43,6 +43,21 @@ export function projectCameras(asset: AxcutAsset | undefined, t: Translate): Pro
 	return cameras;
 }
 
+/**
+ * How many cameras the project has: those of its asset with the most, camera 1 included. An
+ * extra camera keeps its index (`additionalCameraTracks[k - 1]` is camera k + 1) even when the
+ * asset has no camera 1.
+ */
+export function projectCameraCount(assets: readonly AxcutAsset[]): number {
+	let count = 0;
+	for (const asset of assets) {
+		const extra = asset.additionalCameraTracks?.length ?? 0;
+		const own = extra > 0 ? extra + 1 : asset.cameraTrack ? 1 : 0;
+		count = Math.max(count, Math.min(own, MAX_CAMERAS));
+	}
+	return count;
+}
+
 /** The cameras of the asset whose clip is under the playhead (empty without a clip). */
 export function camerasForClipAt(
 	document: AxcutDocument,

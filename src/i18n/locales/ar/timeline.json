@@ -63,7 +63,8 @@
 		"tooFewCameras": "يتطلب هذا التخطيط كاميرات أكثر من المتاحة هنا",
 		"cannotPlaceCameraSection": "لا يمكن وضع مقطع كاميرا هنا",
 		"cameraSectionExistsAtLocation": "يوجد مقطع كاميرا هنا بالفعل.",
-		"noCamera": "لا توجد كاميرا في هذا المشروع"
+		"noCamera": "لا توجد كاميرا في هذا المشروع",
+		"noDeskCamera": "لا توجد كاميرا مكتب — اختر واحدة في قسم الكاميرات"
 	},
 	"success": {
 		"addedZoomSuggestions": "تمت إضافة {{count}} اقتراح تكبير بناءً على المؤشر",

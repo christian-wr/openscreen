@@ -63,7 +63,8 @@
 		"tooFewCameras": "此版面所需的攝影機多於目前可用的數量",
 		"cannotPlaceCameraSection": "無法在此處放置攝影機片段",
 		"cameraSectionExistsAtLocation": "此處已有攝影機片段。",
-		"noCamera": "此專案沒有攝影機"
+		"noCamera": "此專案沒有攝影機",
+		"noDeskCamera": "沒有桌面攝影機 — 請在「攝影機」區段中選擇一個"
 	},
 	"success": {
 		"addedZoomSuggestions": "已新增 {{count}} 個基於游標的縮放建議",

@@ -63,7 +63,8 @@
 		"tooFewCameras": "This layout needs more cameras than are available here",
 		"cannotPlaceCameraSection": "Cannot place a camera section here",
 		"cameraSectionExistsAtLocation": "A camera section is already here.",
-		"noCamera": "This project has no camera"
+		"noCamera": "This project has no camera",
+		"noDeskCamera": "No desk camera — choose one in the Cameras section"
 	},
 	"success": {
 		"addedZoomSuggestions": "Added {{count}} cursor-based zoom suggestion",

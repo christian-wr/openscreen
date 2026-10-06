@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AxcutAsset, AxcutClip, AxcutDocument } from "../schema";
-import { camerasForClipAt, camerasOfSection, projectCameras } from "./cameraList";
+import {
+	camerasForClipAt,
+	camerasOfSection,
+	projectCameraCount,
+	projectCameras,
+} from "./cameraList";
 
 const t = (key: string, vars?: Record<string, unknown>) =>
 	`${key}:${String(vars?.n ?? "")}${vars?.label ? `:${String(vars.label)}` : ""}`;
@@ -97,5 +102,14 @@ describe("camerasOfSection", () => {
 
 	it("falls back to the clip under the middle for a row without an anchor", () => {
 		expect(camerasOfSection(doc, { startMs: 4000, endMs: 10000 }, t)).toHaveLength(1);
+	});
+});
+
+describe("projectCameraCount", () => {
+	it("counts the cameras of the asset with the most, camera 1 included", () => {
+		const screenOnly = asset({ id: "a0", cameraTrack: null, additionalCameraTracks: [] });
+		expect(projectCameraCount([screenOnly])).toBe(0);
+		expect(projectCameraCount([asset({ additionalCameraTracks: [] })])).toBe(1);
+		expect(projectCameraCount([screenOnly, asset()])).toBe(3);
 	});
 });

@@ -1162,9 +1162,9 @@ export function NewEditorShell() {
 			await saveDocument({ ...doc, [target.key]: [...rows, ...anchored] }, { history: true });
 		} else {
 			const legacy = (doc.legacyEditor as Record<string, unknown>) ?? {};
-			// Full Camera and layout sections share one lane: a paste that would land on the
-			// other list is refused like an add is, instead of being dropped by the scene. A Full
-			// Camera over Full Camera is not refused: those merge, as they do on add.
+			// Full Camera, layout and desk sections never overlap: a paste that would land on
+			// another camera section is refused like an add is, instead of being dropped by the
+			// scene. A Full Camera over Full Camera is not refused: those merge, as they do on add.
 			if (
 				target.key !== "speedRegions" &&
 				pasteHitsCameraSection(legacy, target.key, pasted.startMs, pasted.endMs)
