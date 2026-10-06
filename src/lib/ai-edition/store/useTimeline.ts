@@ -125,6 +125,23 @@ function patchPillById<T extends { id: string; startMs: number; endMs: number }>
 	return regions.map((r) => (under.has(r.id) ? { ...r, ...patch } : r));
 }
 
+/**
+ * The rows with the desk label of the pill `id` shown or hidden. Only `deskLabel: false` is
+ * stored; showing the label again removes the field. Rows outside the pill keep their identity.
+ */
+function withDeskLabel<T extends { id: string; startMs: number; endMs: number; deskLabel?: false }>(
+	rows: T[],
+	id: string,
+	show: boolean,
+): T[] {
+	// patchPillById copies exactly the pill's rows; untouched rows keep their identity.
+	return patchPillById(rows, id, {}).map((r, i) => {
+		if (r === rows[i]) return r;
+		const { deskLabel: _d, ...rest } = r;
+		return (show ? rest : { ...rest, deskLabel: false as const }) as T;
+	});
+}
+
 // --- Camera sections ---------------------------------------------------------------
 // Full Camera regions and layout sections share one timeline lane but live in two lists:
 // a `camera-full` section of camera 1 is a Full Camera region, everything else a layout
@@ -1521,32 +1538,20 @@ export function useTimeline() {
 			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 			const prev = ((legacy.cameraFullscreenRegions as unknown[]) ??
 				[]) as CameraFullscreenRegion[];
-			// patchPillById copies exactly the pill's rows; untouched rows keep their identity.
-			const patched = patchPillById(prev, id, {}).map((r, i) => {
-				if (r === prev[i]) return r;
-				const { deskLabel: _d, ...rest } = r;
-				return show ? rest : { ...rest, deskLabel: false as const };
-			});
 			const next: AxcutDocument = {
 				...document,
-				legacyEditor: { ...legacy, cameraFullscreenRegions: patched },
+				legacyEditor: { ...legacy, cameraFullscreenRegions: withDeskLabel(prev, id, show) },
 			};
 			await saveDocument(next, { history: true });
 		},
 		[document, saveDocument],
 	);
 
-	// Only `deskLabel: false` is stored; showing the label again removes the field.
 	const updateDeskLabel = useCallback(
 		async (id: string, show: boolean) => {
 			if (!document) return;
 			const lanes = cameraLanes(document);
-			// patchPillById copies exactly the pill's rows; untouched rows keep their identity.
-			const desk = patchPillById(lanes.desk, id, {}).map((r, i) => {
-				if (r === lanes.desk[i]) return r;
-				const { deskLabel: _d, ...rest } = r;
-				return show ? rest : { ...rest, deskLabel: false as const };
-			});
+			const desk = withDeskLabel(lanes.desk, id, show);
 			await saveDocument(withCameraLanes(document, lanes, lanes.full, lanes.layout, desk), {
 				history: true,
 			});
