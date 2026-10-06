@@ -7,6 +7,7 @@ import aruco, { type ArucoDetector, type ArucoDictionary, type ArucoMarker } fro
 // Registers ARUCO_4X4_1000 in `AR.DICTIONARIES` (side effect).
 import "js-aruco2/src/dictionaries/aruco_4x4_1000.js";
 import type { CameraPoint } from "@/components/video-editor/types";
+import { measureOnPlane, type PlaneSize } from "./planeMeasure";
 
 /** The four inner corners, normalized 0..1: TL (id 0), TR (1), BR (2), BL (3). */
 export type MarkerCorners = [CameraPoint, CameraPoint, CameraPoint, CameraPoint];
@@ -25,6 +26,18 @@ const DICTIONARY_NAME = "OPENSCREEN_4X4_50";
 const DICTIONARY_SIZE = 50;
 /** Accepts a code at most one bit off (js-aruco2 tests `distance < maxHammingDistance`). */
 const MAX_HAMMING_DISTANCE = 2;
+
+/**
+ * Printed marker side including its black border — the square the detector's corners outline.
+ * The sheet draws at this size, and the measurement takes it as its ruler.
+ */
+export const MARKER_SIZE_MM = 40;
+
+/** The four inner corners and, when the markers pin it down, the marked area's real size. */
+export interface MarkedArea {
+	corners: MarkerCorners;
+	size: PlaneSize | null;
+}
 
 /** The marker IDs of the sheet, in handle order: top-left, top-right, bottom-right, bottom-left. */
 export const CORNER_MARKER_IDS = [0, 1, 2, 3] as const;
@@ -102,6 +115,15 @@ function perimeter(m: ArucoMarker): number {
  * closest to the centroid of the four markers, so the sheet may lie at any rotation.
  */
 export function detectCornerMarkers(image: RgbaImage): MarkerCorners | null {
+	return detectMarkedArea(image)?.corners ?? null;
+}
+
+/**
+ * `detectCornerMarkers` plus the real size of the rectangle between the inner corners, measured
+ * from the four printed squares themselves (see `planeMeasure.ts`). Null unless all four
+ * markers are found; `size` is null when they cannot fix the plane.
+ */
+export function detectMarkedArea(image: RgbaImage): MarkedArea | null {
 	if (image.width <= 0 || image.height <= 0) return null;
 	const found = new Map<number, ArucoMarker>();
 	for (const marker of getDetector().detectImage(image.width, image.height, image.data)) {
@@ -132,7 +154,16 @@ export function detectCornerMarkers(image: RgbaImage): MarkerCorners | null {
 				best = c;
 			}
 		}
-		return { x: best.x / image.width, y: best.y / image.height };
+		return best;
 	});
-	return [inner[0], inner[1], inner[2], inner[3]];
+	const toCorners = (p: CameraPoint[]): MarkerCorners => [p[0], p[1], p[2], p[3]];
+	const size = measureOnPlane(
+		all.map((m) => toCorners(m.corners)),
+		MARKER_SIZE_MM,
+		toCorners(inner),
+	);
+	return {
+		corners: toCorners(inner.map((p) => ({ x: p.x / image.width, y: p.y / image.height }))),
+		size,
+	};
 }

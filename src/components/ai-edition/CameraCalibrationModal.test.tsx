@@ -14,9 +14,9 @@ vi.mock("@/lib/ai-edition/timeline/grabFrame", () => ({
 	grabFrame: vi.fn(async () => IMAGE),
 }));
 
-const detectCornerMarkers = vi.fn();
+const detectMarkedArea = vi.fn();
 vi.mock("@/lib/arucoMarkers", () => ({
-	detectCornerMarkers: (...args: unknown[]) => detectCornerMarkers(...args),
+	detectMarkedArea: (...args: unknown[]) => detectMarkedArea(...args),
 }));
 const printMarkerSheet = vi.fn();
 vi.mock("@/lib/markerSheet", () => ({
@@ -200,20 +200,46 @@ describe("CameraCalibrationModal", () => {
 			{ x: 0.85, y: 0.9 },
 			{ x: 0.1, y: 0.8 },
 		];
-		detectCornerMarkers.mockReturnValueOnce(found);
+		detectMarkedArea.mockReturnValueOnce({ corners: found, size: null });
 		const { onApply } = renderModal("perspective", null);
 		await stillLoaded();
 		fireEvent.click(
 			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
 		);
-		expect(detectCornerMarkers).toHaveBeenCalledWith(IMAGE);
+		expect(detectMarkedArea).toHaveBeenCalledWith(IMAGE);
 		expect(screen.getByRole("status")).toHaveTextContent("dialogs.cameraCalibration.markersFound");
 		fireEvent.click(apply());
 		expect(onApply.mock.calls[0][0].perspective.corners).toEqual(found);
+		// Nothing measured: the format stays where it was (A4 landscape by default).
+		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(297 / 210);
+	});
+
+	it("a measured area sets the format to its real proportions", async () => {
+		const found = [
+			{ x: 0.2, y: 0.25 },
+			{ x: 0.8, y: 0.2 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.1, y: 0.8 },
+		];
+		detectMarkedArea.mockReturnValueOnce({
+			corners: found,
+			size: { widthMm: 940, heightMm: 580 },
+		});
+		const { onApply } = renderModal("perspective", null);
+		await stillLoaded();
+		fireEvent.click(
+			screen.getByRole("button", { name: "dialogs.cameraCalibration.detectMarkers" }),
+		);
+		expect(screen.getByRole("status")).toHaveTextContent(
+			"dialogs.cameraCalibration.markersMeasured",
+		);
+		expect(screen.getByRole("spinbutton")).toHaveValue(1.621);
+		fireEvent.click(apply());
+		expect(onApply.mock.calls[0][0].perspective.aspect).toBeCloseTo(940 / 580, 3);
 	});
 
 	it("detect without four markers shows the message and keeps the handles", async () => {
-		detectCornerMarkers.mockReturnValueOnce(null);
+		detectMarkedArea.mockReturnValueOnce(null);
 		const { onApply } = renderModal("perspective", null);
 		await stillLoaded();
 		fireEvent.click(
@@ -232,7 +258,7 @@ describe("CameraCalibrationModal", () => {
 	});
 
 	it("the marker message goes away once a handle moves", async () => {
-		detectCornerMarkers.mockReturnValueOnce(null);
+		detectMarkedArea.mockReturnValueOnce(null);
 		renderModal("perspective", null);
 		await stillLoaded();
 		const detect = () =>
@@ -247,7 +273,7 @@ describe("CameraCalibrationModal", () => {
 		expect(screen.getByRole("status")).toBeEmptyDOMElement();
 
 		// A drag that starts clears it too, before the pointer even moves.
-		detectCornerMarkers.mockReturnValueOnce(null);
+		detectMarkedArea.mockReturnValueOnce(null);
 		detect();
 		expect(screen.getByRole("status")).toHaveTextContent(
 			"dialogs.cameraCalibration.markersNotFound",

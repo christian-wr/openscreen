@@ -121,6 +121,7 @@
 		"detectMarkers": "Phát hiện điểm đánh dấu",
 		"printMarkerSheet": "In trang điểm đánh dấu",
 		"markersFound": "Đã tìm thấy cả bốn điểm đánh dấu; các góc đã được đặt lên chúng.",
+		"markersMeasured": "Đã tìm thấy cả bốn điểm đánh dấu; các góc đã được đặt lên chúng. Đo được khoảng {{width}} × {{height}} cm; định dạng đã được điều chỉnh theo đó.",
 		"markersNotFound": "Không tìm thấy đủ bốn điểm đánh dấu (0–3). Hãy đảm bảo chúng nằm trọn trong khung hình, phẳng và được chiếu sáng đều. Các góc được giữ nguyên.",
 		"markerSheetInstruction": "Cắt theo nét đứt. Đặt góc trong của mỗi điểm đánh dấu vào góc tương ứng."
 	}

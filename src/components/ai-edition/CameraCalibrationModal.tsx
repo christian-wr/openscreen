@@ -38,8 +38,9 @@ import {
 	resizeCrop,
 } from "@/lib/ai-edition/timeline/calibrationGeometry";
 import { grabFrame } from "@/lib/ai-edition/timeline/grabFrame";
-import { detectCornerMarkers } from "@/lib/arucoMarkers";
+import { detectMarkedArea } from "@/lib/arucoMarkers";
 import { printMarkerSheet } from "@/lib/markerSheet";
+import type { PlaneSize } from "@/lib/planeMeasure";
 import type { CalibrationMode } from "./CamerasSection";
 import { previewBoxStyle } from "./cropDraft";
 import { ModalShell } from "./Modals";
@@ -92,6 +93,9 @@ const LOUPE_ZOOM = 4;
 const PREVIEW_LONG_SIDE_PX = 320;
 /** One arrow press in crop mode, as a fraction of the image. */
 const CROP_STEP = 0.01;
+
+/** What "Detect markers" last reported; a measured size also set the format. */
+type MarkerResult = { kind: "found"; size: PlaneSize | null } | { kind: "notFound" };
 
 const CORNER_KEYS = ["topLeft", "topRight", "bottomRight", "bottomLeft"] as const;
 const CROP_CORNERS = ["nw", "ne", "sw", "se"] as const;
@@ -158,7 +162,7 @@ export function CameraCalibrationModal({
 	const [image, setImage] = useState<ImageData | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
 	const [activeHandle, setActiveHandle] = useState<number | null>(null);
-	const [markerResult, setMarkerResult] = useState<"found" | "notFound" | null>(null);
+	const [markerResult, setMarkerResult] = useState<MarkerResult | null>(null);
 
 	const frameRef = useRef<HTMLDivElement | null>(null);
 	const stillRef = useRef<HTMLCanvasElement | null>(null);
@@ -344,12 +348,22 @@ export function CameraCalibrationModal({
 		setCrop(moveCrop(crop, dx * CROP_STEP, dy * CROP_STEP));
 	};
 
-	// The four printed markers place the corners; without all four the corners stay put.
+	// The four printed markers place the corners; without all four the corners stay put. Their
+	// printed squares also measure the marked area, whose real proportions become the format.
 	const detectMarkers = () => {
 		if (!image) return;
-		const found = detectCornerMarkers(image);
-		if (found) setCorners(copyCorners(found));
-		setMarkerResult(found ? "found" : "notFound");
+		const area = detectMarkedArea(image);
+		if (!area) {
+			setMarkerResult({ kind: "notFound" });
+			return;
+		}
+		setCorners(copyCorners(area.corners));
+		const measured = area.size ? area.size.widthMm / area.size.heightMm : null;
+		if (measured !== null && measured >= MIN_ASPECT && measured <= MAX_ASPECT) {
+			setFormat("free");
+			setFreeAspect(String(Math.round(measured * 1000) / 1000));
+		}
+		setMarkerResult({ kind: "found", size: area.size });
 	};
 
 	const printSheet = () => {
@@ -568,9 +582,14 @@ export function CameraCalibrationModal({
 						{t("cameraCalibration.printMarkerSheet")}
 					</button>
 					<p role="status" className={styles.hint} style={{ margin: 0, flex: "1 1 200px" }}>
-						{markerResult === "found"
-							? t("cameraCalibration.markersFound")
-							: markerResult === "notFound"
+						{markerResult?.kind === "found"
+							? markerResult.size
+								? t("cameraCalibration.markersMeasured", {
+										width: Math.round(markerResult.size.widthMm / 10),
+										height: Math.round(markerResult.size.heightMm / 10),
+									})
+								: t("cameraCalibration.markersFound")
+							: markerResult?.kind === "notFound"
 								? t("cameraCalibration.markersNotFound")
 								: null}
 					</p>

@@ -3,12 +3,11 @@
 // one-line instruction. Printed through a hidden iframe and the browser's print dialog, which
 // also offers "Save as PDF" — no file IPC needed.
 
-import { CORNER_MARKER_IDS, markerBits } from "./arucoMarkers";
+import { CORNER_MARKER_IDS, MARKER_SIZE_MM, markerBits } from "./arucoMarkers";
 
 export const SHEET_WIDTH_MM = 210;
 export const SHEET_HEIGHT_MM = 297;
-/** Marker side including its black border. */
-export const MARKER_SIZE_MM = 40;
+export { MARKER_SIZE_MM };
 
 /** The texts printed on the sheet; the caller passes them translated. */
 export interface MarkerSheetText {

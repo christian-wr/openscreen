@@ -121,6 +121,7 @@
 		"detectMarkers": "Detectar marcadores",
 		"printMarkerSheet": "Imprimir hoja de marcadores",
 		"markersFound": "Se encontraron los cuatro marcadores; las esquinas se colocaron sobre ellos.",
+		"markersMeasured": "Se encontraron los cuatro marcadores; las esquinas se colocaron sobre ellos. Medido: unos {{width}} × {{height}} cm; el formato se ajustó a ello.",
 		"markersNotFound": "No se encontraron los cuatro marcadores (0–3). Asegúrate de que estén completos en la imagen, planos y con iluminación uniforme. Las esquinas no se han cambiado.",
 		"markerSheetInstruction": "Recorta por las líneas. Pon la esquina interior de cada marcador en su esquina."
 	}

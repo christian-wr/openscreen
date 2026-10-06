@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectCornerMarkers, markerBits, type RgbaImage } from "./arucoMarkers";
+import { detectCornerMarkers, detectMarkedArea, markerBits, type RgbaImage } from "./arucoMarkers";
 
 // A plain rasterizer: a white sheet with markers drawn from the dictionary bits, seen through a
 // homography (sheet units → image pixels). Every image pixel is mapped back onto the sheet and
@@ -185,5 +185,58 @@ describe("detectCornerMarkers", () => {
 	it("an empty picture finds nothing", () => {
 		const { image } = photograph(W, H, TILTED, []);
 		expect(detectCornerMarkers(image)).toBeNull();
+	});
+});
+
+// The marked rectangle on the test sheet: between the inner corners, in sheet units.
+const AREA_W = SHEET_W - 2 * (INSET + MARKER);
+const AREA_H = SHEET_H - 2 * (INSET + MARKER);
+/** A sheet unit in millimetres: the printed marker is 40 mm. */
+const MM_PER_UNIT = 40 / MARKER;
+
+function expectWithin(actual: number, expected: number, fraction: number) {
+	expect(Math.abs(actual - expected) / expected).toBeLessThanOrEqual(fraction);
+}
+
+describe("detectMarkedArea", () => {
+	it("measures the marked rectangle's real size through the perspective", () => {
+		const area = detectMarkedArea(photograph(W, H, TILTED, [0, 1, 2, 3]).image);
+		expect(area?.size).toBeTruthy();
+		expectWithin(area?.size?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
+		expectWithin(area?.size?.heightMm ?? 0, AREA_H * MM_PER_UNIT, 0.03);
+	});
+
+	it("measures under a steep keystone, where the picture's own proportions are far off", () => {
+		// The far edge at half the width of the near one, like a desk camera on an arm.
+		const steep: [Pt, Pt, Pt, Pt] = [
+			{ x: 190, y: 90 },
+			{ x: 450, y: 90 },
+			{ x: 620, y: 440 },
+			{ x: 20, y: 440 },
+		];
+		const area = detectMarkedArea(photograph(W, H, steep, [0, 1, 2, 3]).image);
+		const aspect = (area?.size?.widthMm ?? 0) / (area?.size?.heightMm ?? 1);
+		expectWithin(aspect, AREA_W / AREA_H, 0.04);
+	});
+
+	it("measures a rotated sheet in its own orientation", () => {
+		const rotated: [Pt, Pt, Pt, Pt] = [
+			{ x: 520, y: 40 },
+			{ x: 540, y: 440 },
+			{ x: 230, y: 430 },
+			{ x: 220, y: 60 },
+		];
+		const area = detectMarkedArea(photograph(W, H, rotated, [0, 1, 2, 3]).image);
+		expectWithin(area?.size?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
+		expectWithin(area?.size?.heightMm ?? 0, AREA_H * MM_PER_UNIT, 0.03);
+	});
+
+	it("returns the same corners as detectCornerMarkers", () => {
+		const { image } = photograph(W, H, TILTED, [0, 1, 2, 3]);
+		expect(detectMarkedArea(image)?.corners).toEqual(detectCornerMarkers(image));
+	});
+
+	it("finds nothing without all four markers", () => {
+		expect(detectMarkedArea(photograph(W, H, TILTED, [0, 1, 3]).image)).toBeNull();
 	});
 });

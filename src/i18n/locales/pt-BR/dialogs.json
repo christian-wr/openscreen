@@ -121,6 +121,7 @@
 		"detectMarkers": "Detectar marcadores",
 		"printMarkerSheet": "Imprimir folha de marcadores",
 		"markersFound": "Os quatro marcadores foram encontrados; os cantos foram posicionados sobre eles.",
+		"markersMeasured": "Os quatro marcadores foram encontrados; os cantos foram posicionados sobre eles. Medido: cerca de {{width}} × {{height}} cm; o formato foi ajustado a isso.",
 		"markersNotFound": "Nem todos os quatro marcadores (0–3) foram encontrados. Verifique se estão inteiros na imagem, planos e com iluminação uniforme. Os cantos não foram alterados.",
 		"markerSheetInstruction": "Recorte nas linhas. Ponha o canto interno de cada marcador no seu canto."
 	}

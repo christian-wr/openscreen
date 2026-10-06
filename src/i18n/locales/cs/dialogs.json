@@ -121,6 +121,7 @@
 		"detectMarkers": "Rozpoznat značky",
 		"printMarkerSheet": "Vytisknout list se značkami",
 		"markersFound": "Všechny čtyři značky nalezeny; rohy byly umístěny na ně.",
+		"markersMeasured": "Všechny čtyři značky nalezeny; rohy byly umístěny na ně. Naměřeno přibližně {{width}} × {{height}} cm; formát byl podle toho nastaven.",
 		"markersNotFound": "Nebyly nalezeny všechny čtyři značky (0–3). Zkontrolujte, že jsou celé v záběru, rovné a rovnoměrně osvětlené. Rohy zůstaly beze změny.",
 		"markerSheetInstruction": "Vystřihněte podél čar. Vnitřní roh každé značky položte na roh podle popisku."
 	}
