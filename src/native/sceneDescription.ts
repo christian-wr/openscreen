@@ -54,6 +54,7 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
 import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
+import { projectCameraCount } from "@/lib/ai-edition/timeline/cameraList";
 import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import { removedRawSpans } from "@/lib/ai-edition/timeline/programme-time";
 import { takeProgramme } from "@/lib/ai-edition/timeline/take-programme";
@@ -86,6 +87,7 @@ import {
 } from "@/lib/compositeLayout";
 import type { CursorKind } from "@/lib/cursor/cursorThemes";
 import { DESK_COVER_ANIMATION, DESK_LABEL_Z_INDEX } from "@/lib/deskCover";
+import { deskRowsForScene, normalizeDeskRegions, resolveDeskCamera } from "@/lib/deskSections";
 import { parseCssGradient, resolveLinearGradientAngle } from "@/lib/exporter/gradientParser";
 import type { FrameTheme, RecordingFrame, WebcamAnchor } from "@/lib/projectDefaults";
 import { resolveTextFontFamily } from "@/lib/textFonts";
@@ -958,54 +960,74 @@ function deskLabelText(): string {
 	return text === `settings.${DESK_LABEL_KEY}` ? "" : text;
 }
 
+/** A projected piece of a section, carrying the section's own id. Times already in source ms. */
+interface DeskLabelPiece {
+	sectionId: string;
+	startMs: number;
+	endMs: number;
+	clipIndex?: number;
+	underTrim?: boolean;
+}
+
 /**
- * One caption-styled text region over every projected piece of a turned Full Camera section that
- * shows its label (times already in source ms). It spans the whole piece: the compositor draws
- * it at the camera cover's strength, so it is visible exactly while the cover is. Boxes are in
- * percent of the frame, like the caption box.
+ * The desk-view label over one projected piece: caption-styled text spanning the whole piece,
+ * boxed in percent of the frame like the caption box.
  * Ids come from the section's own id (`sectionId`) and the piece's clip — never from the
  * piece's id, which the projection draws at random after the first piece — so a rebuild reuses
  * them and the native text cache (keyed by id) does not grow.
  */
-function deskLabelTextRegions(
-	pieces: (CameraFullscreenRegion & {
-		sectionId: string;
-		clipIndex?: number;
-		underTrim?: boolean;
-	})[],
-) {
+function deskLabelRegion(piece: DeskLabelPiece, label: string, animation: string) {
+	return {
+		space: "frame" as const,
+		verticalAlign: "center" as const,
+		id: `desk-${piece.sectionId}-${piece.clipIndex ?? "all"}`,
+		clipIndex: piece.clipIndex,
+		...(piece.underTrim ? { underTrim: true as const } : {}),
+		startMs: piece.startMs,
+		endMs: piece.endMs,
+		type: "text" as const,
+		content: label,
+		position: { x: 10, y: 40 },
+		size: { width: 80, height: 20 },
+		style: {
+			color: DEFAULT_CAPTION_SETTINGS.color,
+			backgroundColor: captionBackgroundCss(DEFAULT_CAPTION_SETTINGS),
+			fontSize: DEFAULT_CAPTION_SETTINGS.fontSize,
+			fontFamily: DEFAULT_CAPTION_SETTINGS.fontFamily,
+			fontWeight: DEFAULT_CAPTION_SETTINGS.fontWeight,
+			fontStyle: "normal" as const,
+			textDecoration: "none" as const,
+			textAlign: "center" as const,
+			textAnimation: animation,
+		},
+		zIndex: DESK_LABEL_Z_INDEX,
+	};
+}
+
+/**
+ * The label over every projected piece of a turned Full Camera section that shows it. The
+ * compositor draws it at the camera cover's strength, so it is visible exactly while the cover is.
+ */
+function deskLabelTextRegions(pieces: (CameraFullscreenRegion & DeskLabelPiece)[]) {
 	const label = deskLabelText();
 	if (!label) return [];
-	return pieces.flatMap((region) => {
-		if (normalizeCameraRotation(region.rotation) !== 180 || !showsDeskLabel(region)) return [];
-		return [
-			{
-				space: "frame" as const,
-				verticalAlign: "center" as const,
-				id: `desk-${region.sectionId}-${region.clipIndex ?? "all"}`,
-				clipIndex: region.clipIndex,
-				...(region.underTrim ? { underTrim: true as const } : {}),
-				startMs: region.startMs,
-				endMs: region.endMs,
-				type: "text" as const,
-				content: label,
-				position: { x: 10, y: 40 },
-				size: { width: 80, height: 20 },
-				style: {
-					color: DEFAULT_CAPTION_SETTINGS.color,
-					backgroundColor: captionBackgroundCss(DEFAULT_CAPTION_SETTINGS),
-					fontSize: DEFAULT_CAPTION_SETTINGS.fontSize,
-					fontFamily: DEFAULT_CAPTION_SETTINGS.fontFamily,
-					fontWeight: DEFAULT_CAPTION_SETTINGS.fontWeight,
-					fontStyle: "normal" as const,
-					textDecoration: "none" as const,
-					textAlign: "center" as const,
-					textAnimation: DESK_COVER_ANIMATION,
-				},
-				zIndex: DESK_LABEL_Z_INDEX,
-			},
-		];
-	});
+	return pieces.flatMap((region) =>
+		normalizeCameraRotation(region.rotation) === 180 && showsDeskLabel(region)
+			? [deskLabelRegion(region, label, DESK_COVER_ANIMATION)]
+			: [],
+	);
+}
+
+/**
+ * The label over every projected piece of a desk section that shows it. A desk section has no
+ * turning cover whose strength the label could follow, so it fades in and out on its own.
+ */
+function deskSectionLabelRegions(pieces: DeskLabelPiece[], labelledSections: ReadonlySet<string>) {
+	const label = deskLabelText();
+	if (!label) return [];
+	return pieces
+		.filter((piece) => labelledSections.has(piece.sectionId))
+		.map((piece) => deskLabelRegion(piece, label, "fade"));
 }
 
 /** Serialize a document into a {@link SceneDescription}. Pure — no per-frame math. */
@@ -1271,8 +1293,26 @@ export function buildSceneDescription(
 		captionAspect,
 	);
 	const legacyRaw = document.legacyEditor as Record<string, unknown> | null;
-	const layoutRegions = normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions);
 	const cameraSettings = normalizeCameraSettings(legacyRaw?.cameraSettings);
+	// Desk sections become rows of the two lists below: a camera-full layout of the desk camera,
+	// or a Full Camera row when the desk camera is camera 1. The desk camera is resolved exactly
+	// as the editor resolves it, so the picture and the timeline never name different cameras.
+	const deskRegions = normalizeDeskRegions(legacyRaw?.deskRegions);
+	const desk = deskRowsForScene(
+		deskRegions,
+		resolveDeskCamera({
+			deskCamera: legacyRaw?.deskCamera,
+			cameraCount: projectCameraCount(document.assets),
+			cameraSettings: cameraSettings.map((s) => s ?? {}),
+		}),
+	);
+	const labelledDeskSections = new Set(
+		deskRegions.filter((region) => showsDeskLabel(region)).map((region) => region.id),
+	);
+	const layoutRegions = [
+		...normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions),
+		...desk.layout,
+	].sort((a, b) => a.startMs - b.startMs);
 	// Two disjoint lists: camera 1's Full Camera sections live in `cameraFullscreenRegions`
 	// (they keep the desk view and its label), every other layout in `cameraLayoutRegions`.
 	// Both are clip-anchored, so `projectRegionsToSource` takes its anchored branch for both.
@@ -1290,7 +1330,7 @@ export function buildSceneDescription(
 		)
 		.map(({ template: _template, slots: _slots, ...region }): CameraFullscreenRegion => region);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
-		[...fullscreenRegions, ...handWrittenFullCamera].map((region) => ({
+		[...fullscreenRegions, ...handWrittenFullCamera, ...desk.full].map((region) => ({
 			...region,
 			sectionId: region.id,
 		})),
@@ -1299,7 +1339,7 @@ export function buildSceneDescription(
 		() => createId("camfull"),
 	);
 	const projectedLayoutRegions = projectRegionsToSource(
-		layoutRegions,
+		layoutRegions.map((region) => ({ ...region, sectionId: region.id })),
 		visibleClips,
 		document.timeline.clips,
 		() => createId("camlay"),
@@ -1322,6 +1362,17 @@ export function buildSceneDescription(
 			projectedCameraFullscreenRegions,
 		) as unknown as typeof projectedAnnotations),
 	);
+	// The desk sections' label, found again among the projected pieces of both lists by their
+	// section id. A desk section of camera 1 is an unturned Full Camera row, so the turned-only
+	// label above never doubles it.
+	if (labelledDeskSections.size > 0) {
+		projectedAnnotations.push(
+			...(deskSectionLabelRegions(
+				[...projectedLayoutRegions, ...projectedCameraFullscreenRegions],
+				labelledDeskSections,
+			) as unknown as typeof projectedAnnotations),
+		);
+	}
 	// Speed regions carry an extra `speed` field the standard `rangeSchema` does not, so we
 	// can't read from `document.timeline.speedRanges` today (see SceneDescription.speedRegions
 	// comment). The legacy web exporter reads from `legacyEditor.speedRegions`; we mirror it.

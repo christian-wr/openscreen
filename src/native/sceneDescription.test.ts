@@ -3466,3 +3466,94 @@ describe("buildSceneDescription cameras", () => {
 		);
 	});
 });
+
+describe("buildSceneDescription desk sections", () => {
+	const extra = { sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "Desk" };
+	const docWith = (cameraCount: 1 | 2, legacyEditor: Record<string, unknown> | null) => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			...(cameraCount === 2 ? { additionalCameraTracks: [extra] } : {}),
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 10,
+			timelineStartSec: 0,
+			timelineEndSec: 10,
+		});
+		return makeDoc({ assets: [asset], clips: [clip], legacyEditor });
+	};
+	const desk = { id: "d1", startMs: 1000, endMs: 3000 };
+	const deskLabels = (scene: ReturnType<typeof buildSceneDescription>) =>
+		scene.annotations.filter((a) => a.id.startsWith("desk-"));
+
+	it("draws a desk section as a camera-full layout of the desk camera, labelled with a fade", () => {
+		const scene = buildSceneDescription(docWith(2, { deskRegions: [desk] }));
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 1, endSec: 3 });
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		const labels = deskLabels(scene);
+		expect(labels).toHaveLength(1);
+		expect(labels[0]).toMatchObject({ id: "desk-d1-0", startSec: 1, endSec: 3 });
+		expect(labels[0].text?.animation).toBe("fade");
+	});
+
+	it("draws a desk section of camera 1 as an unturned Full Camera row with one label", () => {
+		const scene = buildSceneDescription(docWith(2, { deskRegions: [desk], deskCamera: 0 }));
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		expect(scene.cameraFullscreenRegions[0]).toMatchObject({ startSec: 1, endSec: 3 });
+		expect("rotation" in scene.cameraFullscreenRegions[0]).toBe(false);
+		const labels = deskLabels(scene);
+		expect(labels).toHaveLength(1);
+		expect(labels[0].text?.animation).toBe("fade");
+	});
+
+	it("draws no label for a desk section that hides it", () => {
+		const scene = buildSceneDescription(
+			docWith(2, { deskRegions: [{ ...desk, deskLabel: false }] }),
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	it("draws nothing for a desk section when the project has one camera", () => {
+		const withDesk = buildSceneDescription(docWith(1, { deskRegions: [desk] }));
+		const without = buildSceneDescription(docWith(1, {}));
+		expect(withDesk).toEqual(without);
+		expect(withDesk.cameraLayoutRegions).toBeUndefined();
+	});
+
+	it("keeps a desk section right after a Full Camera section", () => {
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }],
+				deskRegions: [{ id: "d1", startMs: 3000, endMs: 5000 }],
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 3, endSec: 5 });
+	});
+
+	it("leaves a document without desk sections as it was", () => {
+		const legacy = {
+			cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000, rotation: 180 }],
+			cameraLayoutRegions: [
+				{ id: "l1", startMs: 4000, endMs: 6000, template: "screen-pip", slots: [{ camera: 1 }] },
+			],
+		};
+		const scene = buildSceneDescription(docWith(2, legacy));
+		expect(buildSceneDescription(docWith(2, { ...legacy, deskRegions: [] }))).toEqual(scene);
+		expect(Object.keys(scene)).toEqual(
+			Object.keys(buildSceneDescription(docWith(2, { ...legacy, deskRegions: [] }))),
+		);
+		expect(scene.annotations.map((a) => a.text?.animation)).toEqual([DESK_COVER_ANIMATION]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+	});
+});
