@@ -142,6 +142,32 @@ function mmPerUnitOf(toPlane: number[], squares: Corners[], sideMm: number): num
 	return sideCount > 0 && sideSum > 0 ? sideMm / (sideSum / sideCount) : null;
 }
 
+/**
+ * The camera's horizontal on the plane at `anchor`, plus the multiple of 90° that brings it
+ * closest to `markerAngle`. Null when the plane gives no direction there.
+ */
+function levelAngle(toPlane: number[], anchor: Pt, inner: Corners, markerAngle: number) {
+	const xs = inner.map((q) => q.x);
+	const step = (Math.max(...xs) - Math.min(...xs)) / 100 || 1e-3;
+	const a = apply(toPlane, anchor);
+	const b = apply(toPlane, { x: anchor.x + step, y: anchor.y });
+	if (!a || !b || (a.x === b.x && a.y === b.y)) return null;
+	const camera = Math.atan2(b.y - a.y, b.x - a.x);
+	let best = camera;
+	let bestOff = Number.POSITIVE_INFINITY;
+	for (let k = 0; k < 4; k++) {
+		const candidate = camera + (k * Math.PI) / 2;
+		const off = Math.abs(
+			Math.atan2(Math.sin(markerAngle - candidate), Math.cos(markerAngle - candidate)),
+		);
+		if (off < bestOff) {
+			bestOff = off;
+			best = candidate;
+		}
+	}
+	return best;
+}
+
 /** A true rectangle on the plane, as the image sees it. */
 export interface PlaneRect {
 	/** Its image corners TL, TR, BR, BL, in the caller's image coordinates. */
@@ -153,8 +179,10 @@ export interface PlaneRect {
 }
 
 /**
- * The rectangle on the plane that just holds the four inner corners, its top edge parallel to
- * inner[0] -> inner[1]: a frame that is rectangular on the desk however the markers lie. Null
+ * The rectangle on the plane that just holds the four inner corners: a frame that is rectangular
+ * on the desk however the markers lie. Its top edge is level with the camera's horizontal (seen
+ * on the plane at the corners' middle), turned by the quarter turn closest to inner[0] ->
+ * inner[1], so the markers decide which side is up and marker 0 sits at the top-left. Null
  * when the squares do not pin the plane down.
  */
 export function markerPlaneRect(
@@ -174,9 +202,13 @@ export function markerPlaneRect(
 	if (mmPerUnit === null || onPlane.some((p) => p === null)) return null;
 	const p = onPlane as Pt[];
 
-	// Local frame: x along marker 0 -> marker 1. The rectification may mirror the plane; marker 3
+	// Local frame: x along the camera's horizontal on the plane at the anchor, turned by the
+	// quarter turn that comes closest to marker 0 -> marker 1. The markers say which way is up
+	// (an upside-down camera still gets marker 0 at the top-left); the camera keeps the frame
+	// level when the markers lie askew. The rectification may mirror the plane; marker 3
 	// (bottom-left) must end up below marker 0, so y is flipped when it is not.
-	const theta = Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x);
+	const theta = levelAngle(toPlane, anchor, inner, Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x));
+	if (theta === null) return null;
 	const cos = Math.cos(theta);
 	const sin = Math.sin(theta);
 	const rotated = p.map((q) => ({ x: q.x * cos + q.y * sin, y: -q.x * sin + q.y * cos }));

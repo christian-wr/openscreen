@@ -194,6 +194,44 @@ const AREA_H = SHEET_H - 2 * (INSET + MARKER);
 /** A sheet unit in millimetres: the printed marker is 40 mm. */
 const MM_PER_UNIT = 40 / MARKER;
 
+/**
+ * The frame the measurement should give, from the sheet's true geometry: the hull of the inner
+ * corners on the sheet, its top edge level with the camera's horizontal at their middle, turned
+ * by the quarter turn nearest marker 0 -> marker 1 (the sheet's x-axis). Corners in pixels.
+ */
+function levelHull(sheetCorners: [Pt, Pt, Pt, Pt]) {
+	const unitToImage = squareToQuad(sheetCorners);
+	const imageToUnit = invert(unitToImage);
+	const toImage = (p: Pt) => apply(unitToImage, { x: p.x / SHEET_W, y: p.y / SHEET_H });
+	const toSheet = (p: Pt) => {
+		const u = apply(imageToUnit, p);
+		return { x: u.x * SHEET_W, y: u.y * SHEET_H };
+	};
+	const img = INNER_ON_SHEET.map(toImage);
+	const mid = { x: img.reduce((t, p) => t + p.x, 0) / 4, y: img.reduce((t, p) => t + p.y, 0) / 4 };
+	const a = toSheet(mid);
+	const b = toSheet({ x: mid.x + 1, y: mid.y });
+	const camera = Math.atan2(b.y - a.y, b.x - a.x);
+	const theta = camera + Math.round(-camera / (Math.PI / 2)) * (Math.PI / 2);
+	const cos = Math.cos(theta);
+	const sin = Math.sin(theta);
+	const local = INNER_ON_SHEET.map((p) => ({
+		x: p.x * cos + p.y * sin,
+		y: -p.x * sin + p.y * cos,
+	}));
+	const x0 = Math.min(...local.map((p) => p.x));
+	const x1 = Math.max(...local.map((p) => p.x));
+	const y0 = Math.min(...local.map((p) => p.y));
+	const y1 = Math.max(...local.map((p) => p.y));
+	const corners = [
+		{ x: x0, y: y0 },
+		{ x: x1, y: y0 },
+		{ x: x1, y: y1 },
+		{ x: x0, y: y1 },
+	].map((p) => toImage({ x: p.x * cos - p.y * sin, y: p.x * sin + p.y * cos }));
+	return { corners, widthMm: (x1 - x0) * MM_PER_UNIT, heightMm: (y1 - y0) * MM_PER_UNIT };
+}
+
 function expectWithin(actual: number, expected: number, fraction: number) {
 	expect(Math.abs(actual - expected) / expected).toBeLessThanOrEqual(fraction);
 }
@@ -203,8 +241,9 @@ describe("detectMarkedArea", () => {
 		const area = detectMarkedArea(photograph(W, H, TILTED, [0, 1, 2, 3]).image);
 		expect(area?.plane).toBeTruthy();
 		const plane = area?.plane;
-		expectWithin(plane?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
-		expectWithin((plane?.widthMm ?? 0) / (plane?.aspect ?? 1), AREA_H * MM_PER_UNIT, 0.03);
+		const expected = levelHull(TILTED);
+		expectWithin(plane?.widthMm ?? 0, expected.widthMm, 0.03);
+		expectWithin((plane?.widthMm ?? 0) / (plane?.aspect ?? 1), expected.heightMm, 0.03);
 	});
 
 	it("measures under a steep keystone, where the picture's own proportions are far off", () => {
@@ -228,8 +267,11 @@ describe("detectMarkedArea", () => {
 		];
 		const area = detectMarkedArea(photograph(W, H, rotated, [0, 1, 2, 3]).image);
 		const plane = area?.plane;
-		expectWithin(plane?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.03);
-		expectWithin((plane?.widthMm ?? 0) / (plane?.aspect ?? 1), AREA_H * MM_PER_UNIT, 0.03);
+		// Width runs along marker 0 -> marker 1, the sheet's long side, though it stands upright.
+		const expected = levelHull(rotated);
+		expect(expected.widthMm).toBeGreaterThan(expected.heightMm);
+		expectWithin(plane?.widthMm ?? 0, expected.widthMm, 0.03);
+		expectWithin((plane?.widthMm ?? 0) / (plane?.aspect ?? 1), expected.heightMm, 0.03);
 	});
 
 	it("returns the same corners as detectCornerMarkers", () => {
@@ -245,11 +287,15 @@ describe("detectMarkedArea", () => {
 		const { image, toImage } = photograph(W, H, TILTED, [0, 1, 2, 3]);
 		const plane = detectMarkedArea(image)?.plane;
 		expect(plane).toBeTruthy();
-		// The test sheet's inner corners already form a rectangle, so the frame is that rectangle.
+		// The sheet lies a little askew to the camera, so the frame is the inner corners' hull
+		// levelled with the camera, not the sheet's own rectangle.
+		const expected = levelHull(TILTED);
 		plane?.corners.forEach((c, i) => {
-			expectNear(c, toImage(INNER_ON_SHEET[i]), 4);
+			expectNear(c, expected.corners[i], 4);
 		});
-		expectWithin(plane?.aspect ?? 0, AREA_W / AREA_H, 0.04);
-		expectWithin(plane?.widthMm ?? 0, AREA_W * MM_PER_UNIT, 0.04);
+		expectWithin(plane?.aspect ?? 0, expected.widthMm / expected.heightMm, 0.04);
+		expectWithin(plane?.widthMm ?? 0, expected.widthMm, 0.04);
+		// Marker 0's inner corner is still the one at the top-left.
+		expectNear(plane?.corners[0] ?? { x: 0, y: 0 }, toImage(INNER_ON_SHEET[0]), 12);
 	});
 });

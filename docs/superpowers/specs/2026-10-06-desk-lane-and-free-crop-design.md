@@ -59,7 +59,11 @@ Rechteck gelesen, als das sie gespeichert wurde.)
 
 - `planeFromMarkers(squares, sideMm)` → Homographie Bild → Ebene (Millimeter), aus den gemittelten
   zirkulären Punkten der Marker-Quadrate (heute intern in `measureOnPlane`), mit festgelegter
-  Ausrichtung: x-Achse entlang Marker 0 → Marker 1, Ursprung in der Mitte der vier Marker.
+  Ausrichtung: x-Achse waagerecht zur Kamera (die Bildwaagerechte, auf die Ebene übertragen in
+  der Mitte der Marker), um die Vierteldrehung gedreht, die Marker 0 → Marker 1 am nächsten
+  kommt — die Marker bestimmen, wo oben ist (Marker 0 oben links, Marker 3 darunter), die Kamera
+  hält den Rahmen gerade, auch wenn die Marker schief liegen. Ursprung in der Mitte der vier
+  Marker.
 - `planeFromPerspective(perspective)` → dieselbe Homographie aus gespeicherten `corners` + `aspect`.
 - `rectToCorners(plane, rect)` → die vier Bildpunkte (normiert 0..1) eines Rechtecks auf der Ebene.
 - `measureOnPlane` bleibt als Messfunktion erhalten (Größenangabe im Dialog).

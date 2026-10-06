@@ -102,20 +102,76 @@ describe("markerPlaneRect", () => {
 		expect(Math.abs((rect?.aspect ?? 0) - width / height) / (width / height)).toBeLessThan(0.005);
 	});
 
-	it("runs along marker 0 -> marker 1 and keeps marker 0 at the top-left", () => {
-		const along = Math.atan2(world[1].y - world[0].y, world[1].x - world[0].x);
-		const markers = Math.atan2(
-			WORLD_INNER[1].y - WORLD_INNER[0].y,
-			WORLD_INNER[1].x - WORLD_INNER[0].x,
-		);
-		expect(Math.abs(along - markers)).toBeLessThan(0.01);
-		// The rectangle is the hull of the inner corners: marker 0's corner lies on its top edge
-		// side, so the top-left is nearer to it than to any other inner corner.
-		const d = WORLD_INNER.map((p) => Math.hypot(p.x - world[0].x, p.y - world[0].y));
-		expect(d.indexOf(Math.min(...d))).toBe(0);
-	});
-
 	it("gives nothing without squares", () => {
 		expect(markerPlaneRect([], 40, toImage(WORLD_INNER) as Corners)).toBeNull();
 	});
+});
+
+/** Angle between two directions as lines, in degrees, 0..90. */
+function lineAngleDeg(a: number, b: number): number {
+	const d = Math.abs((((a - b) % Math.PI) + Math.PI) % Math.PI);
+	return (Math.min(d, Math.PI - d) * 180) / Math.PI;
+}
+
+/** The markers turned by `deg` about their middle, as world squares and inner corners. */
+function turned(deg: number) {
+	const r = (deg * Math.PI) / 180;
+	const centers = CENTERS.map((c) => ({
+		x: MIDDLE.x + (c.x - MIDDLE.x) * Math.cos(r) - (c.y - MIDDLE.y) * Math.sin(r),
+		y: MIDDLE.y + (c.x - MIDDLE.x) * Math.sin(r) + (c.y - MIDDLE.y) * Math.cos(r),
+	}));
+	const squares = centers.map((c, i) => square(c, TURNS[i] + deg));
+	return { squares, inner: squares.map((sq) => nearest(sq, MIDDLE)) };
+}
+
+describe("markerPlaneRect levels the frame to the camera", () => {
+	// `cam` maps world -> image; the image may be mirrored.
+	function run(cam: number[]) {
+		const back = inverse(cam);
+		const img = (pts: Pt[]) => pts.map((p) => project(cam, p)) as Corners;
+		// The camera's horizontal at the markers' middle, as a world direction.
+		const horizontalAt = (inner: Pt[]) => {
+			const a = img(inner).reduce((t, p) => ({ x: t.x + p.x / 4, y: t.y + p.y / 4 }), {
+				x: 0,
+				y: 0,
+			});
+			const p0 = project(back, a);
+			const p1 = project(back, { x: a.x + 1, y: a.y });
+			return Math.atan2(p1.y - p0.y, p1.x - p0.x);
+		};
+		const along = (inner: Pt[]) => Math.atan2(inner[1].y - inner[0].y, inner[1].x - inner[0].x);
+		// Turn the markers so that 0 -> 1 runs 20 degrees off the camera's horizontal.
+		const first = turned(0);
+		const { squares, inner } = turned(
+			((horizontalAt(first.inner) - along(first.inner)) * 180) / Math.PI + 20,
+		);
+		const horizontal = horizontalAt(inner);
+		const rect = markerPlaneRect(squares.map(img), 40, img(inner));
+		expect(rect).not.toBeNull();
+		const world = rect ? rect.corners.map((p) => project(back, p)) : [];
+		return { inner, horizontal, world, markers: along(inner) };
+	}
+
+	for (const [name, cam] of [
+		["a plain camera", H],
+		// The same camera seen in a mirror: x flips in the image.
+		[
+			"a mirrored image",
+			[-H[0] + 2000 * H[6], -H[1] + 2000 * H[7], -H[2] + 2000 * H[8], ...H.slice(3)],
+		],
+	] as const) {
+		it(`keeps the top edge level with ${name}, marker 0 at the top-left`, () => {
+			const { inner, horizontal, world, markers } = run([...cam]);
+			// The setup really tilts the markers against the camera.
+			expect(lineAngleDeg(markers, horizontal)).toBeGreaterThan(15);
+			expect(lineAngleDeg(markers, horizontal)).toBeLessThan(25);
+			const top = Math.atan2(world[1].y - world[0].y, world[1].x - world[0].x);
+			expect(lineAngleDeg(top, horizontal)).toBeLessThan(0.5);
+			for (let k = 0; k < 4; k++) {
+				expect(angleAt(world[(k + 3) % 4], world[k], world[(k + 1) % 4])).toBeCloseTo(90, 0);
+			}
+			const d = inner.map((p) => Math.hypot(p.x - world[0].x, p.y - world[0].y));
+			expect(d.indexOf(Math.min(...d))).toBe(0);
+		});
+	}
 });
