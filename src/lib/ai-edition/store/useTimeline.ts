@@ -66,7 +66,7 @@ import {
 import type { AxcutAudioTrack, AxcutClipCropRegion, AxcutDocument } from "../schema";
 import { appendAutoZoomSuggestions } from "../timeline/apply-auto-zooms";
 import { hasAnyClipWithCamera } from "../timeline/camera";
-import { projectCameraCount } from "../timeline/cameraList";
+import { projectCameraAvailable, projectCameraCount } from "../timeline/cameraList";
 import { probeAudioDuration, probeVideoDimensions, probeVideoDuration } from "../timeline/duration";
 import {
 	anchorRegionsWithDerivedMs,
@@ -366,6 +366,7 @@ function deskCameraOf(doc: AxcutDocument): number | null {
 		deskCamera: legacy.deskCamera,
 		cameraCount: projectCameraCount(doc.assets),
 		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
+		available: (index) => projectCameraAvailable(doc.assets, index),
 	});
 }
 

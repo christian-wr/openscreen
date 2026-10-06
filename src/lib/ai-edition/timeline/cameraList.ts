@@ -59,6 +59,19 @@ export function projectCameraCount(assets: readonly AxcutAsset[]): number {
 }
 
 /**
+ * Whether camera `index` (0 = camera 1) would be drawn anywhere in the project: some asset has
+ * it visible and with a file. The same rule as `ProjectCamera.available` and as the scene's
+ * camera sources (`assetCameraSource`), read project-wide for a choice like the desk camera.
+ */
+export function projectCameraAvailable(assets: readonly AxcutAsset[], index: number): boolean {
+	if (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS) return false;
+	return assets.some((asset) => {
+		const track = index === 0 ? asset.cameraTrack : asset.additionalCameraTracks?.[index - 1];
+		return Boolean(track?.visible && track.sourcePath.length > 0);
+	});
+}
+
+/**
  * The name of camera `index` (0 = camera 1) for a project-wide choice like the desk camera:
  * read from the first asset that has that camera, `null` when none has it.
  */

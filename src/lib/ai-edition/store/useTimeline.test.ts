@@ -3306,6 +3306,24 @@ describe("useTimeline desk sections", () => {
 		expect(result.current.deskCamera).toBe(1);
 	});
 
+	// A hidden camera draws nothing, so it counts as lost like a missing one: the choice stays
+	// stored, the resolved camera falls back to the next available one.
+	it("passes over a chosen desk camera that is hidden", () => {
+		seed(
+			{ deskCamera: 1 },
+			{
+				...threeCamAsset,
+				additionalCameraTracks: [
+					{ ...extra("/tmp/cam2.webm"), visible: false },
+					extra("/tmp/cam3.webm"),
+				],
+			},
+		);
+		const { result } = renderTimeline();
+		expect(result.current.deskCameraChosen).toBe(1);
+		expect(result.current.deskCamera).toBe(2);
+	});
+
 	it("hides and shows a desk section's label", async () => {
 		seed({ deskRegions: [row("desk_1", 1000, 3000)] });
 		const { result } = renderTimeline();

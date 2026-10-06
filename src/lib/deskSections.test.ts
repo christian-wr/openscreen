@@ -23,10 +23,15 @@ describe("normalizeDeskRegions", () => {
 
 describe("resolveDeskCamera", () => {
 	const none = [{}, {}, {}];
+	const all = () => true;
 
 	it("takes the chosen camera when the project has it", () => {
-		expect(resolveDeskCamera({ deskCamera: 2, cameraCount: 3, cameraSettings: none })).toBe(2);
-		expect(resolveDeskCamera({ deskCamera: 0, cameraCount: 3, cameraSettings: none })).toBe(0);
+		expect(
+			resolveDeskCamera({ available: all, deskCamera: 2, cameraCount: 3, cameraSettings: none }),
+		).toBe(2);
+		expect(
+			resolveDeskCamera({ available: all, deskCamera: 0, cameraCount: 3, cameraSettings: none }),
+		).toBe(0);
 	});
 
 	it("falls back to the first camera after camera 1 with a perspective", () => {
@@ -46,22 +51,96 @@ describe("resolveDeskCamera", () => {
 			},
 		] as never;
 		expect(
-			resolveDeskCamera({ deskCamera: undefined, cameraCount: 3, cameraSettings: withPerspective }),
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 3,
+				cameraSettings: withPerspective,
+			}),
 		).toBe(2);
 		// A chosen camera the project no longer has falls back the same way.
 		expect(
-			resolveDeskCamera({ deskCamera: 7, cameraCount: 3, cameraSettings: withPerspective }),
+			resolveDeskCamera({
+				available: all,
+				deskCamera: 7,
+				cameraCount: 3,
+				cameraSettings: withPerspective,
+			}),
 		).toBe(2);
 	});
 
 	it("falls back to camera 2, and to nothing with a single camera", () => {
 		expect(
-			resolveDeskCamera({ deskCamera: undefined, cameraCount: 2, cameraSettings: [{}, {}] }),
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 2,
+				cameraSettings: [{}, {}],
+			}),
 		).toBe(1);
 		expect(
-			resolveDeskCamera({ deskCamera: undefined, cameraCount: 1, cameraSettings: [{}] }),
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 1,
+				cameraSettings: [{}],
+			}),
 		).toBeNull();
-		expect(resolveDeskCamera({ deskCamera: "2", cameraCount: 1, cameraSettings: [{}] })).toBeNull();
+		expect(
+			resolveDeskCamera({ available: all, deskCamera: "2", cameraCount: 1, cameraSettings: [{}] }),
+		).toBeNull();
+	});
+
+	// A camera whose layer would not be drawn (hidden, or no file) cannot show a desk section.
+	it("passes over a chosen camera that is not available", () => {
+		const notCamera2 = (index: number) => index !== 1;
+		expect(
+			resolveDeskCamera({
+				available: notCamera2,
+				deskCamera: 1,
+				cameraCount: 3,
+				cameraSettings: none,
+			}),
+		).toBe(2);
+	});
+
+	it("skips unavailable cameras when picking automatically", () => {
+		const notCamera2 = (index: number) => index !== 1;
+		expect(
+			resolveDeskCamera({
+				available: notCamera2,
+				deskCamera: undefined,
+				cameraCount: 3,
+				cameraSettings: none,
+			}),
+		).toBe(2);
+		const perspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 1, y: 1 },
+				{ x: 0, y: 1 },
+			],
+			aspect: 1,
+		};
+		// The camera with a perspective is unavailable: the next available camera is taken.
+		expect(
+			resolveDeskCamera({
+				available: notCamera2,
+				deskCamera: undefined,
+				cameraCount: 3,
+				cameraSettings: [{}, { perspective }, {}] as never,
+			}),
+		).toBe(2);
+		// Only camera 1 is left: nothing resolves automatically.
+		expect(
+			resolveDeskCamera({
+				available: (index) => index === 0,
+				deskCamera: undefined,
+				cameraCount: 2,
+				cameraSettings: [{}, {}],
+			}),
+		).toBeNull();
 	});
 });
 

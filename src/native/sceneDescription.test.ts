@@ -3528,6 +3528,69 @@ describe("buildSceneDescription desk sections", () => {
 		expect(withDesk.cameraLayoutRegions).toBeUndefined();
 	});
 
+	// A hidden desk camera draws no layer, so its section must not put a label over the screen.
+	it("draws neither row nor label when the chosen desk camera is not drawn", () => {
+		const doc = docWith(2, { deskRegions: [desk], deskCamera: 1 });
+		const hidden = {
+			...doc,
+			assets: doc.assets.map((a) => ({
+				...a,
+				additionalCameraTracks: [{ ...extra, visible: false }],
+			})),
+		};
+		const scene = buildSceneDescription(hidden);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	// Camera 2 exists in the project, but not in the take the section sits on: no label there.
+	it("draws no label over a clip whose asset lacks the desk camera", () => {
+		const withCamera2 = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [extra],
+		});
+		const without = makeAsset({
+			id: "b",
+			originalPath: "/screen-b.mp4",
+			cameraTrack: { sourcePath: "/w-b.mp4", startMs: 0, offsetMs: 0, visible: true },
+		});
+		const clips = [
+			makeClip({
+				id: "c1",
+				assetId: "a",
+				sourceStartSec: 0,
+				sourceEndSec: 5,
+				timelineStartSec: 0,
+				timelineEndSec: 5,
+			}),
+			makeClip({
+				id: "c2",
+				assetId: "b",
+				sourceStartSec: 0,
+				sourceEndSec: 5,
+				timelineStartSec: 5,
+				timelineEndSec: 10,
+			}),
+		];
+		const scene = buildSceneDescription(
+			makeDoc({
+				assets: [withCamera2, without],
+				clips,
+				legacyEditor: {
+					deskRegions: [
+						{ id: "d1", startMs: 1000, endMs: 3000, clipId: "c1", assetId: "a" },
+						{ id: "d2", startMs: 6000, endMs: 8000, clipId: "c2", assetId: "b" },
+					],
+				},
+			}),
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(deskLabels(scene).map((l) => l.id)).toEqual(["desk-d1-0"]);
+	});
+
 	it("keeps a desk section right after a Full Camera section", () => {
 		const scene = buildSceneDescription(
 			docWith(2, {

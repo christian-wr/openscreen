@@ -3,6 +3,7 @@ import type { AxcutAsset, AxcutClip, AxcutDocument } from "../schema";
 import {
 	camerasForClipAt,
 	camerasOfSection,
+	projectCameraAvailable,
 	projectCameraCount,
 	projectCameraLabel,
 	projectCameras,
@@ -125,5 +126,28 @@ describe("projectCameraLabel", () => {
 	it("is null for a camera no asset has", () => {
 		expect(projectCameraLabel([asset()], 5, t)).toBeNull();
 		expect(projectCameraLabel([], 0, t)).toBeNull();
+	});
+});
+
+describe("projectCameraAvailable", () => {
+	it("is true while some asset would draw the camera (visible, with a file)", () => {
+		const hidden = asset({
+			id: "h",
+			additionalCameraTracks: [
+				{ sourcePath: "/c2.mp4", startMs: 0, offsetMs: 0, visible: false, label: "Desk" },
+			],
+		});
+		const noFile = asset({
+			id: "n",
+			additionalCameraTracks: [
+				{ sourcePath: "", startMs: 0, offsetMs: 0, visible: true, label: "Desk" },
+			],
+		});
+		expect(projectCameraAvailable([hidden], 1)).toBe(false);
+		expect(projectCameraAvailable([noFile], 1)).toBe(false);
+		expect(projectCameraAvailable([hidden, asset()], 1)).toBe(true);
+		expect(projectCameraAvailable([asset()], 0)).toBe(true);
+		expect(projectCameraAvailable([asset()], 5)).toBe(false);
+		expect(projectCameraAvailable([asset({ cameraTrack: null })], 0)).toBe(false);
 	});
 });

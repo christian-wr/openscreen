@@ -54,7 +54,7 @@ import type {
 } from "@/lib/ai-edition/schema";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
 import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
-import { projectCameraCount } from "@/lib/ai-edition/timeline/cameraList";
+import { projectCameraAvailable, projectCameraCount } from "@/lib/ai-edition/timeline/cameraList";
 import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import { removedRawSpans } from "@/lib/ai-edition/timeline/programme-time";
 import { takeProgramme } from "@/lib/ai-edition/timeline/take-programme";
@@ -1326,14 +1326,13 @@ export function buildSceneDescription(
 		(region) =>
 			cameraSectionsOverlapping(existingCameraSections, region.startMs, region.endMs).length === 0,
 	);
-	const desk = deskRowsForScene(
-		deskRegions,
-		resolveDeskCamera({
-			deskCamera: legacyRaw?.deskCamera,
-			cameraCount: projectCameraCount(document.assets),
-			cameraSettings: cameraSettings.map((s) => s ?? {}),
-		}),
-	);
+	const deskCamera = resolveDeskCamera({
+		deskCamera: legacyRaw?.deskCamera,
+		cameraCount: projectCameraCount(document.assets),
+		cameraSettings: cameraSettings.map((s) => s ?? {}),
+		available: (index) => projectCameraAvailable(document.assets, index),
+	});
+	const desk = deskRowsForScene(deskRegions, deskCamera);
 	const labelledDeskSections = new Set(
 		deskRegions.filter((region) => showsDeskLabel(region)).map((region) => region.id),
 	);
@@ -1377,9 +1376,17 @@ export function buildSceneDescription(
 	// section id. A desk section of camera 1 is an unturned Full Camera row, so the turned-only
 	// label above never doubles it.
 	if (labelledDeskSections.size > 0) {
+		// A piece on a take that does not draw the desk camera shows the plain screen: no label
+		// there (the layer filter below drops that piece's layout for the same reason).
+		const drawsDeskCamera = (piece: DeskLabelPiece) => {
+			if (deskCamera === null || piece.clipIndex === undefined) return false;
+			const asset = assetById.get(visibleClips[piece.clipIndex]?.assetId ?? "");
+			const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
+			return (sources[deskCamera]?.path ?? "") !== "";
+		};
 		projectedAnnotations.push(
 			...(deskSectionLabelRegions(
-				[...projectedLayoutRegions, ...projectedCameraFullscreenRegions],
+				[...projectedLayoutRegions, ...projectedCameraFullscreenRegions].filter(drawsDeskCamera),
 				labelledDeskSections,
 			) as unknown as typeof projectedAnnotations),
 		);

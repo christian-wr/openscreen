@@ -60,27 +60,34 @@ export function normalizeDeskRegions(raw: unknown): AnchoredDeskRegion[] {
 }
 
 /**
- * The desk camera (0 = camera 1): the chosen one while the project has it; else the first
- * camera after camera 1 with a perspective; else camera 2; else none.
+ * The desk camera (0 = camera 1): the chosen one while the project has it and it is available;
+ * else the first available camera after camera 1 with a perspective; else the first available
+ * camera after camera 1; else none. `available` says whether a camera's layer would be drawn
+ * at all (visible, with a file) — a camera that would show nothing never shows a desk section.
  */
 export function resolveDeskCamera(input: {
 	deskCamera: unknown;
 	cameraCount: number;
 	cameraSettings: CameraSettings[];
+	available: (index: number) => boolean;
 }): number | null {
-	const { deskCamera, cameraCount, cameraSettings } = input;
+	const { deskCamera, cameraCount, cameraSettings, available } = input;
 	if (
 		typeof deskCamera === "number" &&
 		Number.isInteger(deskCamera) &&
 		deskCamera >= 0 &&
-		deskCamera < cameraCount
+		deskCamera < cameraCount &&
+		available(deskCamera)
 	) {
 		return deskCamera;
 	}
 	for (let i = 1; i < cameraCount; i++) {
-		if (cameraSettings[i]?.perspective) return i;
+		if (cameraSettings[i]?.perspective && available(i)) return i;
 	}
-	return cameraCount >= 2 ? 1 : null;
+	for (let i = 1; i < cameraCount; i++) {
+		if (available(i)) return i;
+	}
+	return null;
 }
 
 /** The scene's view of the desk sections: rows of the two lists the compositor draws. */
