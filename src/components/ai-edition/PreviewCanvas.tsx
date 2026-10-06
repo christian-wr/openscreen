@@ -341,6 +341,8 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 		settings.frame,
 	]);
 
+	// Desk sections are drawn by the native compositor through the scene and are not mirrored
+	// in these DOM hitboxes (a desk section of camera 1 keeps the PiP hitbox).
 	// Full Camera: during a cameraFullscreen region the webcam takes the whole
 	// frame and eases back. Same `computeCameraFullscreenRect` call as both
 	// exporters and the native compositor, so all four animate identically.
