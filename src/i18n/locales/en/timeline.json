@@ -8,6 +8,7 @@
 		"addAnnotation": "Add text, an arrow, an image or a blur at the current time",
 		"addSpeed": "Add a speed change at the current time",
 		"addCameraFullscreen": "Add Full Camera: shows the camera full screen at the current time",
+		"addDesk": "Add desk section: shows the desk camera full screen at the current time",
 		"addLayout": "Add layout: screen and camera arrangements for a section"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Press {{key}} to add annotation",
 		"pressAudio": "Press {{audioKey}} to add audio, {{voiceoverKey}} to record a voiceover",
 		"pressSpeed": "Press {{key}} to add speed",
-		"pressCameraFullscreen": "Press {{key}} to add a Full Camera segment"
+		"pressCameraFullscreen": "Press {{key}} to add a Full Camera segment",
+		"pressDesk": "Press {{key}} to add a desk section"
 	},
 	"labels": {
 		"pan": "Pan",
@@ -33,6 +35,7 @@
 		"emptyText": "Empty text",
 		"cameraFullscreen": "Full Camera",
 		"cameraFullscreenItem": "Full Camera {{index}}",
+		"desk": "Desk",
 		"layoutScreenPip": "Screen + camera",
 		"layoutCameraFull": "Full camera",
 		"layoutCameraFullPip": "Camera + inset",

@@ -483,6 +483,15 @@
 		"crop": "Kırp…",
 		"perspective": "Perspektifi düzelt…",
 		"reset": "Sıfırla",
-		"cropOffWithPerspective": "Perspektif ayarlıyken kırpmanın etkisi yoktur."
+		"cropOffWithPerspective": "Perspektif ayarlıyken kırpmanın etkisi yoktur.",
+		"deskCamera": "Masa kamerası",
+		"deskCameraAuto": "(otomatik)"
+	},
+	"desk": {
+		"title": "Masa",
+		"camera": "Masa kamerası",
+		"change": "Değiştir",
+		"showLabel": "Etiketi göster",
+		"unavailable": "Kullanılamıyor"
 	}
 }

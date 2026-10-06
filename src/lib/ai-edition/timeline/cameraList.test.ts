@@ -4,6 +4,7 @@ import {
 	camerasForClipAt,
 	camerasOfSection,
 	projectCameraCount,
+	projectCameraLabel,
 	projectCameras,
 } from "./cameraList";
 
@@ -111,5 +112,18 @@ describe("projectCameraCount", () => {
 		expect(projectCameraCount([screenOnly])).toBe(0);
 		expect(projectCameraCount([asset({ additionalCameraTracks: [] })])).toBe(1);
 		expect(projectCameraCount([screenOnly, asset()])).toBe(3);
+	});
+});
+
+describe("projectCameraLabel", () => {
+	it("names a camera from the first asset that has it", () => {
+		const screenOnly = asset({ id: "s", cameraTrack: undefined, additionalCameraTracks: [] });
+		expect(projectCameraLabel([screenOnly, asset()], 1, t)).toBe("cameras.cameraNamed:2:Desk");
+		expect(projectCameraLabel([asset()], 0, t)).toBe("cameras.cameraN:1");
+	});
+
+	it("is null for a camera no asset has", () => {
+		expect(projectCameraLabel([asset()], 5, t)).toBeNull();
+		expect(projectCameraLabel([], 0, t)).toBeNull();
 	});
 });

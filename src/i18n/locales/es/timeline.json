@@ -8,6 +8,7 @@
 		"addAnnotation": "Agregar texto, una flecha, una imagen o un desenfoque en el momento actual",
 		"addSpeed": "Agregar un cambio de velocidad en el momento actual",
 		"addCameraFullscreen": "Agregar Cámara a pantalla completa: muestra la cámara a pantalla completa en el momento actual",
+		"addDesk": "Agregar sección de escritorio: muestra la cámara de escritorio a pantalla completa en el momento actual",
 		"addLayout": "Añadir diseño: disposición de pantalla y cámaras para una sección"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Presiona {{key}} para agregar anotación",
 		"pressAudio": "Pulsa {{audioKey}} para añadir audio, {{voiceoverKey}} para grabar una voz en off",
 		"pressSpeed": "Presiona {{key}} para agregar velocidad",
-		"pressCameraFullscreen": "Presiona {{key}} para agregar un segmento de cámara a pantalla completa"
+		"pressCameraFullscreen": "Presiona {{key}} para agregar un segmento de cámara a pantalla completa",
+		"pressDesk": "Presiona {{key}} para agregar una sección de escritorio"
 	},
 	"labels": {
 		"pan": "Desplazar",
@@ -33,6 +35,7 @@
 		"emptyText": "Texto vacío",
 		"cameraFullscreen": "Cámara a pantalla completa",
 		"cameraFullscreenItem": "Cámara a pantalla completa {{index}}",
+		"desk": "Escritorio",
 		"layoutScreenPip": "Pantalla + cámara",
 		"layoutCameraFull": "Cámara completa",
 		"layoutCameraFullPip": "Cámara + recuadro",

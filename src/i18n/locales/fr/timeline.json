@@ -8,6 +8,7 @@
 		"addAnnotation": "Ajouter du texte, une flèche, une image ou un flou à l'instant actuel",
 		"addSpeed": "Ajouter un changement de vitesse à l'instant actuel",
 		"addCameraFullscreen": "Ajouter Caméra plein écran : affiche la caméra en plein écran à l'instant actuel",
+		"addDesk": "Ajouter une section Bureau : affiche la caméra de bureau en plein écran à l'instant actuel",
 		"addLayout": "Ajouter une disposition : agencement de l'écran et des caméras pour une section"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Appuyez sur {{key}} pour ajouter une annotation",
 		"pressAudio": "Appuyez sur {{audioKey}} pour ajouter un audio, {{voiceoverKey}} pour enregistrer une voix off",
 		"pressSpeed": "Appuyez sur {{key}} pour ajouter une vitesse",
-		"pressCameraFullscreen": "Appuyez sur {{key}} pour ajouter un segment Caméra plein écran"
+		"pressCameraFullscreen": "Appuyez sur {{key}} pour ajouter un segment Caméra plein écran",
+		"pressDesk": "Appuyez sur {{key}} pour ajouter une section Bureau"
 	},
 	"labels": {
 		"pan": "Panoramique",
@@ -33,6 +35,7 @@
 		"emptyText": "Texte vide",
 		"cameraFullscreen": "Caméra plein écran",
 		"cameraFullscreenItem": "Caméra plein écran {{index}}",
+		"desk": "Bureau",
 		"layoutScreenPip": "Écran + caméra",
 		"layoutCameraFull": "Caméra plein écran",
 		"layoutCameraFullPip": "Caméra + incrustation",

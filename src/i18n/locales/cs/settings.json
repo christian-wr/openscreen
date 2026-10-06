@@ -483,6 +483,15 @@
 		"crop": "Ořez…",
 		"perspective": "Opravit perspektivu…",
 		"reset": "Obnovit",
-		"cropOffWithPerspective": "Dokud je nastavena perspektiva, ořez nemá žádný účinek."
+		"cropOffWithPerspective": "Dokud je nastavena perspektiva, ořez nemá žádný účinek.",
+		"deskCamera": "Stolní kamera",
+		"deskCameraAuto": "(automaticky)"
+	},
+	"desk": {
+		"title": "Stůl",
+		"camera": "Stolní kamera",
+		"change": "Změnit",
+		"showLabel": "Zobrazit popisek",
+		"unavailable": "Nedostupné"
 	}
 }

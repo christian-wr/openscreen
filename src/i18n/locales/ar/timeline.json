@@ -8,6 +8,7 @@
 		"addAnnotation": "إضافة نص أو سهم أو صورة أو تمويه عند الوقت الحالي",
 		"addSpeed": "إضافة تغيير في السرعة عند الوقت الحالي",
 		"addCameraFullscreen": "إضافة كاميرا كاملة الشاشة: تعرض الكاميرا بملء الشاشة عند الوقت الحالي",
+		"addDesk": "إضافة مقطع المكتب: يعرض كاميرا المكتب بملء الشاشة عند الوقت الحالي",
 		"addLayout": "إضافة تخطيط: ترتيب الشاشة والكاميرات لمقطع"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "اضغط {{key}} لإضافة شرح",
 		"pressAudio": "اضغط {{audioKey}} لإضافة صوت، و{{voiceoverKey}} لتسجيل تعليق صوتي",
 		"pressSpeed": "اضغط {{key}} لإضافة سرعة",
-		"pressCameraFullscreen": "اضغط {{key}} لإضافة مقطع كاميرا كاملة الشاشة"
+		"pressCameraFullscreen": "اضغط {{key}} لإضافة مقطع كاميرا كاملة الشاشة",
+		"pressDesk": "اضغط {{key}} لإضافة مقطع المكتب"
 	},
 	"labels": {
 		"pan": "تحريك",
@@ -33,6 +35,7 @@
 		"emptyText": "نص فارغ",
 		"cameraFullscreen": "كاميرا كاملة الشاشة",
 		"cameraFullscreenItem": "كاميرا كاملة الشاشة {{index}}",
+		"desk": "المكتب",
 		"layoutScreenPip": "الشاشة + الكاميرا",
 		"layoutCameraFull": "كاميرا بملء الشاشة",
 		"layoutCameraFullPip": "كاميرا + نافذة صغيرة",

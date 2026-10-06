@@ -483,6 +483,15 @@
 		"crop": "裁切…",
 		"perspective": "校正透視…",
 		"reset": "重設",
-		"cropOffWithPerspective": "設定了透視校正時，裁切不會生效。"
+		"cropOffWithPerspective": "設定了透視校正時，裁切不會生效。",
+		"deskCamera": "書桌攝影機",
+		"deskCameraAuto": "（自動）"
+	},
+	"desk": {
+		"title": "書桌",
+		"camera": "書桌攝影機",
+		"change": "變更",
+		"showLabel": "顯示標籤",
+		"unavailable": "無法使用"
 	}
 }

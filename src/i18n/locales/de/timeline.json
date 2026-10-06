@@ -8,6 +8,7 @@
 		"addAnnotation": "Text, Pfeil, Bild oder Weichzeichner zum aktuellen Zeitpunkt hinzufügen",
 		"addSpeed": "Tempowechsel zum aktuellen Zeitpunkt hinzufügen",
 		"addCameraFullscreen": "Vollbild-Kamera hinzufügen: zeigt die Kamera im Vollbild zum aktuellen Zeitpunkt",
+		"addDesk": "Tischabschnitt hinzufügen: zeigt die Tischkamera im Vollbild zum aktuellen Zeitpunkt",
 		"addLayout": "Layout hinzufügen: Anordnung von Bildschirm und Kameras für einen Abschnitt"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Drücke {{key}}, um eine Anmerkung hinzuzufügen",
 		"pressAudio": "Drücke {{audioKey}} für Audio, {{voiceoverKey}} für ein Voiceover",
 		"pressSpeed": "Drücke {{key}}, um ein Tempo hinzuzufügen",
-		"pressCameraFullscreen": "Drücke {{key}}, um einen Vollbild-Kamera-Abschnitt hinzuzufügen"
+		"pressCameraFullscreen": "Drücke {{key}}, um einen Vollbild-Kamera-Abschnitt hinzuzufügen",
+		"pressDesk": "Drücke {{key}}, um einen Tischabschnitt hinzuzufügen"
 	},
 	"labels": {
 		"pan": "Verschieben",
@@ -33,6 +35,7 @@
 		"emptyText": "Leerer Text",
 		"cameraFullscreen": "Vollbild-Kamera",
 		"cameraFullscreenItem": "Vollbild-Kamera {{index}}",
+		"desk": "Tisch",
 		"layoutScreenPip": "Bildschirm + Kamera",
 		"layoutCameraFull": "Kamera voll",
 		"layoutCameraFullPip": "Kamera + Einblendung",

@@ -648,6 +648,82 @@ describe("FloatingInspector", () => {
 	});
 });
 
+describe("FloatingInspector desk pane", () => {
+	const camTrack = (sourcePath: string, extra: Record<string, unknown> = {}) => ({
+		sourcePath,
+		startMs: 0,
+		offsetMs: 0,
+		visible: true,
+		...extra,
+	});
+	const deskTl = (deskCamera: number | null) => {
+		const tl = {
+			selection: { kind: "desk", id: "d1" },
+			clearSelection: vi.fn(),
+			selectedAudioTrackId: null,
+			selectAudioTrack: vi.fn(),
+			assets: [
+				{
+					id: "a1",
+					cameraTrack: camTrack("/cam1.webm"),
+					additionalCameraTracks: [camTrack("/cam2.webm", { label: "Brio" })],
+				},
+			],
+			deskRegions: [{ id: "d1", startMs: 0, endMs: 2000, assetId: "a1" }],
+			deskCamera,
+			deskCameraChosen: null,
+			updateDeskLabel: vi.fn(),
+			removeRegion: vi.fn(),
+		};
+		return tl;
+	};
+	const props = (tl: ReturnType<typeof deskTl>, onFacetChange = vi.fn()) => ({
+		facet: "effects" as const,
+		open: true,
+		onFacetChange,
+		onToggleOpen: vi.fn(),
+		clips: [],
+		onEditClip: vi.fn(),
+		setCameraSettings: vi.fn(),
+		transcriptProps: {} as unknown as React.ComponentProps<
+			typeof FloatingInspector
+		>["transcriptProps"],
+		tl: tl as unknown as React.ComponentProps<typeof FloatingInspector>["tl"],
+	});
+
+	it("names the desk camera and switches the label off", () => {
+		const tl = deskTl(1);
+		render(<FloatingInspector {...props(tl)} />);
+		expect(screen.getByText("settings.desk.title")).toBeInTheDocument();
+		expect(screen.getByText("settings.cameras.cameraNamed")).toBeInTheDocument();
+		const toggle = screen.getByRole("button", { name: "settings.desk.showLabel" });
+		expect(toggle).toHaveAttribute("aria-pressed", "true");
+		fireEvent.click(toggle);
+		expect(tl.updateDeskLabel).toHaveBeenCalledWith("d1", false);
+	});
+
+	it("says when no desk camera resolves", () => {
+		render(<FloatingInspector {...props(deskTl(null))} />);
+		expect(screen.getByText("settings.desk.unavailable")).toBeInTheDocument();
+	});
+
+	it("'change' opens the layout facet, where the cameras are", () => {
+		const tl = deskTl(1);
+		const onFacetChange = vi.fn();
+		render(<FloatingInspector {...props(tl, onFacetChange)} />);
+		fireEvent.click(screen.getByRole("button", { name: "settings.desk.change" }));
+		expect(tl.clearSelection).toHaveBeenCalled();
+		expect(onFacetChange).toHaveBeenCalledWith("layout");
+	});
+
+	it("deletes the section", () => {
+		const tl = deskTl(1);
+		render(<FloatingInspector {...props(tl)} />);
+		fireEvent.click(screen.getByRole("button", { name: /editor.inspector.deleteRegion/ }));
+		expect(tl.removeRegion).toHaveBeenCalledWith("desk", "d1");
+	});
+});
+
 describe("AnnotationSizeField", () => {
 	const commitTyped = (typed: string) => {
 		const onCommit = vi.fn();

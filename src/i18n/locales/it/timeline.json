@@ -8,6 +8,7 @@
 		"addAnnotation": "Aggiungi testo, una freccia, un'immagine o una sfocatura nel momento attuale",
 		"addSpeed": "Aggiungi un cambio di velocità nel momento attuale",
 		"addCameraFullscreen": "Aggiungi Camera a schermo intero: mostra la fotocamera a schermo intero nel momento attuale",
+		"addDesk": "Aggiungi sezione Scrivania: mostra la fotocamera da scrivania a schermo intero nel momento attuale",
 		"addLayout": "Aggiungi layout: disposizione di schermo e fotocamere per una sezione"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Premi {{key}} per aggiungere annotazione",
 		"pressAudio": "Premi {{audioKey}} per aggiungere audio, {{voiceoverKey}} per registrare una voce fuori campo",
 		"pressSpeed": "Premi {{key}} per aggiungere velocità",
-		"pressCameraFullscreen": "Premi {{key}} per aggiungere un segmento Camera a schermo intero"
+		"pressCameraFullscreen": "Premi {{key}} per aggiungere un segmento Camera a schermo intero",
+		"pressDesk": "Premi {{key}} per aggiungere una sezione Scrivania"
 	},
 	"labels": {
 		"pan": "Panoramica",
@@ -33,6 +35,7 @@
 		"emptyText": "Testo vuoto",
 		"cameraFullscreen": "Camera a schermo intero",
 		"cameraFullscreenItem": "Camera a schermo intero {{index}}",
+		"desk": "Scrivania",
 		"layoutScreenPip": "Schermo + fotocamera",
 		"layoutCameraFull": "Fotocamera a schermo intero",
 		"layoutCameraFullPip": "Fotocamera + riquadro",

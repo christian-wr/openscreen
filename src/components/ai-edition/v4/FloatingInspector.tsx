@@ -13,6 +13,7 @@ import {
 	EyeOff,
 	FileText,
 	ImageIcon,
+	LampDesk,
 	type LucideIcon,
 	Maximize2,
 	MousePointer2,
@@ -58,7 +59,7 @@ import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { rafCoalesce } from "@/lib/ai-edition/store/rafCoalesce";
 import { useEditorSettings } from "@/lib/ai-edition/store/useEditorSettings";
 import type { useTimeline } from "@/lib/ai-edition/store/useTimeline";
-import { camerasOfSection } from "@/lib/ai-edition/timeline/cameraList";
+import { camerasOfSection, projectCameraLabel } from "@/lib/ai-edition/timeline/cameraList";
 import { formatSeconds } from "@/lib/ai-edition/timeline/format";
 import { coalescedTrimGroups } from "@/lib/ai-edition/timeline/trim-mapping";
 import {
@@ -191,7 +192,14 @@ export function FloatingInspector({
 			{effectiveOpen ? (
 				<div className={styles.inspector}>
 					{selection ? (
-						<SelectionPane tl={tl} onClose={() => tl.clearSelection()} />
+						<SelectionPane
+							tl={tl}
+							onClose={() => tl.clearSelection()}
+							onShowCameras={() => {
+								tl.clearSelection();
+								onFacetChange("layout");
+							}}
+						/>
 					) : audioTrackSelected ? (
 						<AudioTrackPane tl={tl} onClose={() => tl.clearSelection()} />
 					) : (
@@ -685,7 +693,16 @@ export function AnnotationSizeField({
 	);
 }
 
-function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }) {
+function SelectionPane({
+	tl,
+	onClose,
+	onShowCameras,
+}: {
+	tl: TimelineApi;
+	onClose: () => void;
+	/** Leaves the selection for the layout facet, where the "Cameras" section picks the desk camera. */
+	onShowCameras: () => void;
+}) {
 	const ts = useScopedT("settings");
 	const tt = useScopedT("timeline");
 	const tc = useScopedT("common");
@@ -1311,6 +1328,43 @@ function SelectionPane({ tl, onClose }: { tl: TimelineApi; onClose: () => void }
 		);
 	}
 
+	if (selection.kind === "desk") {
+		const region = tl.deskRegions.find((d) => d.id === selection.id);
+		if (!region) return null;
+		const cameraName =
+			tl.deskCamera === null ? null : projectCameraLabel(tl.assets, tl.deskCamera, ts);
+		return (
+			<div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+				{paneHeader(<LampDesk size={16} />, ts("desk.title"), onClose, tc("actions.close"))}
+				<div style={bodyStyle}>
+					{paneStack(
+						ts("desk.camera"),
+						<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+							<span style={{ flex: "1 1 auto", minWidth: 0, fontSize: 13 }}>
+								{cameraName ?? ts("desk.unavailable")}
+							</span>
+							<button type="button" onClick={onShowCameras} className={PANE_BUTTON}>
+								{ts("desk.change")}
+							</button>
+						</div>,
+					)}
+					{paneRow(
+						ts("desk.showLabel"),
+						<Toggle
+							checked={showsDeskLabel(region)}
+							ariaLabel={ts("desk.showLabel")}
+							onChange={(v) => void tl.updateDeskLabel(region.id, v)}
+						/>,
+					)}
+					<button type="button" onClick={deleteAndClose} className={PANE_BUTTON}>
+						<Trash2 size={16} style={{ color: "var(--danger)" }} />
+						{te("inspector.deleteRegion")}
+					</button>
+				</div>
+			</div>
+		);
+	}
+
 	// trim — a trim ventilated across a clip boundary is 2+ DSL rows that render
 	// as one coalesced pill (see V4Timeline's trimPills), so the DURATION shown has to be
 	// the group's, not the clicked row's. Deleting no longer needs the same expansion here:
@@ -1393,6 +1447,11 @@ function FacetBody({
 					cameraSettings: tl.cameraSettings,
 					setCameraSettings,
 					onOpenCalibration,
+					desk: {
+						camera: tl.deskCamera,
+						chosen: tl.deskCameraChosen,
+						setDeskCamera: tl.setDeskCamera,
+					},
 				}}
 			/>,
 		);

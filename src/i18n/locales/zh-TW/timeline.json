@@ -8,6 +8,7 @@
 		"addAnnotation": "在目前時間新增文字、箭頭、圖片或模糊",
 		"addSpeed": "在目前時間新增速度變化",
 		"addCameraFullscreen": "新增全螢幕攝影機：在目前時間全螢幕顯示攝影機",
+		"addDesk": "新增書桌片段：在目前時間全螢幕顯示書桌攝影機",
 		"addLayout": "新增版面：為片段設定畫面與攝影機的排列"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "按 {{key}} 新增標註",
 		"pressAudio": "按 {{audioKey}} 新增音訊，按 {{voiceoverKey}} 錄製配音",
 		"pressSpeed": "按 {{key}} 新增速度",
-		"pressCameraFullscreen": "按 {{key}} 新增一個全螢幕攝影機片段"
+		"pressCameraFullscreen": "按 {{key}} 新增一個全螢幕攝影機片段",
+		"pressDesk": "按 {{key}} 新增一個書桌片段"
 	},
 	"labels": {
 		"pan": "平移",
@@ -33,6 +35,7 @@
 		"emptyText": "空文字",
 		"cameraFullscreen": "全螢幕攝影機",
 		"cameraFullscreenItem": "全螢幕攝影機 {{index}}",
+		"desk": "書桌",
 		"layoutScreenPip": "畫面 + 攝影機",
 		"layoutCameraFull": "攝影機全螢幕",
 		"layoutCameraFullPip": "攝影機 + 子母畫面",
@@ -64,7 +67,7 @@
 		"cannotPlaceCameraSection": "無法在此處放置攝影機片段",
 		"cameraSectionExistsAtLocation": "此處已有攝影機片段。",
 		"noCamera": "此專案沒有攝影機",
-		"noDeskCamera": "沒有桌面攝影機 — 請在「攝影機」區段中選擇一個"
+		"noDeskCamera": "沒有書桌攝影機 — 請在「攝影機」區段中選擇一個"
 	},
 	"success": {
 		"addedZoomSuggestions": "已新增 {{count}} 個基於游標的縮放建議",

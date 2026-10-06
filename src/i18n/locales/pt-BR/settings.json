@@ -483,6 +483,15 @@
 		"crop": "Recorte…",
 		"perspective": "Corrigir perspectiva…",
 		"reset": "Redefinir",
-		"cropOffWithPerspective": "O recorte não tem efeito enquanto houver uma perspectiva definida."
+		"cropOffWithPerspective": "O recorte não tem efeito enquanto houver uma perspectiva definida.",
+		"deskCamera": "Câmera de mesa",
+		"deskCameraAuto": "(automática)"
+	},
+	"desk": {
+		"title": "Mesa",
+		"camera": "Câmera de mesa",
+		"change": "Alterar",
+		"showLabel": "Mostrar rótulo",
+		"unavailable": "Indisponível"
 	}
 }

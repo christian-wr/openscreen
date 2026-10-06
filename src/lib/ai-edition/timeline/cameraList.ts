@@ -58,6 +58,22 @@ export function projectCameraCount(assets: readonly AxcutAsset[]): number {
 	return count;
 }
 
+/**
+ * The name of camera `index` (0 = camera 1) for a project-wide choice like the desk camera:
+ * read from the first asset that has that camera, `null` when none has it.
+ */
+export function projectCameraLabel(
+	assets: readonly AxcutAsset[],
+	index: number,
+	t: Translate,
+): string | null {
+	for (const asset of assets) {
+		const camera = projectCameras(asset, t).find((c) => c.index === index);
+		if (camera) return camera.label;
+	}
+	return null;
+}
+
 /** The cameras of the asset whose clip is under the playhead (empty without a clip). */
 export function camerasForClipAt(
 	document: AxcutDocument,

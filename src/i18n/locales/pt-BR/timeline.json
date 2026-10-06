@@ -8,6 +8,7 @@
 		"addAnnotation": "Adicionar texto, seta, imagem ou desfoque no momento atual",
 		"addSpeed": "Adicionar uma mudança de velocidade no momento atual",
 		"addCameraFullscreen": "Adicionar Câmera em Tela Cheia: mostra a câmera em tela cheia no momento atual",
+		"addDesk": "Adicionar seção de mesa: mostra a câmera de mesa em tela cheia no momento atual",
 		"addLayout": "Adicionar layout: disposição de tela e câmeras para uma seção"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Pressione {{key}} para adicionar anotação",
 		"pressAudio": "Pressione {{audioKey}} para adicionar áudio, {{voiceoverKey}} para gravar uma narração",
 		"pressSpeed": "Pressione {{key}} para adicionar velocidade",
-		"pressCameraFullscreen": "Pressione {{key}} para adicionar um segmento de Câmera em Tela Cheia"
+		"pressCameraFullscreen": "Pressione {{key}} para adicionar um segmento de Câmera em Tela Cheia",
+		"pressDesk": "Pressione {{key}} para adicionar uma seção de mesa"
 	},
 	"labels": {
 		"pan": "Mover",
@@ -33,6 +35,7 @@
 		"emptyText": "Texto vazio",
 		"cameraFullscreen": "Câmera em Tela Cheia",
 		"cameraFullscreenItem": "Câmera em Tela Cheia {{index}}",
+		"desk": "Mesa",
 		"layoutScreenPip": "Tela + câmera",
 		"layoutCameraFull": "Câmera em tela cheia",
 		"layoutCameraFullPip": "Câmera + inserção",

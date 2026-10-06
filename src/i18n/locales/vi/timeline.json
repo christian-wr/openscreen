@@ -8,6 +8,7 @@
 		"addAnnotation": "Thêm văn bản, mũi tên, hình ảnh hoặc làm mờ tại thời điểm hiện tại",
 		"addSpeed": "Thêm thay đổi tốc độ tại thời điểm hiện tại",
 		"addCameraFullscreen": "Thêm Camera Toàn màn hình: hiển thị camera toàn màn hình tại thời điểm hiện tại",
+		"addDesk": "Thêm đoạn Bàn: hiển thị camera bàn toàn màn hình tại thời điểm hiện tại",
 		"addLayout": "Thêm bố cục: cách sắp xếp màn hình và camera cho một đoạn"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Nhấn {{key}} để thêm chú thích",
 		"pressAudio": "Nhấn {{audioKey}} để thêm âm thanh, {{voiceoverKey}} để ghi âm lời thuyết minh",
 		"pressSpeed": "Nhấn {{key}} để thêm tốc độ",
-		"pressCameraFullscreen": "Nhấn {{key}} để thêm một đoạn Camera Toàn màn hình"
+		"pressCameraFullscreen": "Nhấn {{key}} để thêm một đoạn Camera Toàn màn hình",
+		"pressDesk": "Nhấn {{key}} để thêm một đoạn Bàn"
 	},
 	"labels": {
 		"pan": "Xoay",
@@ -33,6 +35,7 @@
 		"emptyText": "Văn bản trống",
 		"cameraFullscreen": "Camera Toàn màn hình",
 		"cameraFullscreenItem": "Camera Toàn màn hình {{index}}",
+		"desk": "Bàn",
 		"layoutScreenPip": "Màn hình + camera",
 		"layoutCameraFull": "Camera toàn màn hình",
 		"layoutCameraFullPip": "Camera + khung nhỏ",

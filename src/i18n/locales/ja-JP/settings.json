@@ -483,6 +483,15 @@
 		"crop": "切り抜き…",
 		"perspective": "パースを補正…",
 		"reset": "リセット",
-		"cropOffWithPerspective": "遠近補正が設定されている間、切り抜きは効果がありません。"
+		"cropOffWithPerspective": "遠近補正が設定されている間、切り抜きは効果がありません。",
+		"deskCamera": "机上カメラ",
+		"deskCameraAuto": "（自動）"
+	},
+	"desk": {
+		"title": "机上",
+		"camera": "机上カメラ",
+		"change": "変更",
+		"showLabel": "ラベルを表示",
+		"unavailable": "利用できません"
 	}
 }

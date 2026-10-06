@@ -8,6 +8,7 @@
 		"addAnnotation": "Přidat text, šipku, obrázek nebo rozmazání v aktuálním čase",
 		"addSpeed": "Přidat změnu rychlosti v aktuálním čase",
 		"addCameraFullscreen": "Přidat Celou kameru: zobrazí kameru na celou obrazovku v aktuálním čase",
+		"addDesk": "Přidat úsek stolu: zobrazí stolní kameru na celou obrazovku v aktuálním čase",
 		"addLayout": "Přidat rozvržení: uspořádání obrazovky a kamer pro úsek"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Stiskněte {{key}} pro přidání anotace",
 		"pressAudio": "Stiskněte {{audioKey}} pro přidání zvuku, {{voiceoverKey}} pro nahrání komentáře",
 		"pressSpeed": "Stiskněte {{key}} pro přidání rychlosti",
-		"pressCameraFullscreen": "Stiskněte {{key}} pro přidání segmentu celé kamery"
+		"pressCameraFullscreen": "Stiskněte {{key}} pro přidání segmentu celé kamery",
+		"pressDesk": "Stiskněte {{key}} pro přidání úseku stolu"
 	},
 	"labels": {
 		"pan": "Posun",
@@ -33,6 +35,7 @@
 		"emptyText": "Prázdný text",
 		"cameraFullscreen": "Celá kamera",
 		"cameraFullscreenItem": "Celá kamera {{index}}",
+		"desk": "Stůl",
 		"layoutScreenPip": "Obrazovka + kamera",
 		"layoutCameraFull": "Kamera na celou obrazovku",
 		"layoutCameraFullPip": "Kamera + vložené okno",

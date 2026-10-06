@@ -483,6 +483,15 @@
 		"crop": "Cắt…",
 		"perspective": "Chỉnh phối cảnh…",
 		"reset": "Đặt lại",
-		"cropOffWithPerspective": "Cắt khung không có tác dụng khi đã đặt phối cảnh."
+		"cropOffWithPerspective": "Cắt khung không có tác dụng khi đã đặt phối cảnh.",
+		"deskCamera": "Camera bàn",
+		"deskCameraAuto": "(tự động)"
+	},
+	"desk": {
+		"title": "Bàn",
+		"camera": "Camera bàn",
+		"change": "Thay đổi",
+		"showLabel": "Hiện nhãn",
+		"unavailable": "Không khả dụng"
 	}
 }

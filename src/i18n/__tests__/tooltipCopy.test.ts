@@ -131,6 +131,7 @@ const EDITOR_TOOLTIP_KEYS: Record<string, string[]> = {
 		"buttons.addSpeed",
 		"buttons.addAnnotation",
 		"buttons.addCameraFullscreen",
+		"buttons.addDesk",
 		"buttons.autoFocusAll",
 		"buttons.autoFocusAllTip",
 		"buttons.clearTimeline",
@@ -186,6 +187,7 @@ const CHIP_KEYS: Record<string, string[]> = {
 		"buttons.addSpeed",
 		"buttons.addAnnotation",
 		"buttons.addCameraFullscreen",
+		"buttons.addDesk",
 	],
 	editor: ["transport.play", "transport.pause", "chat.send"],
 };

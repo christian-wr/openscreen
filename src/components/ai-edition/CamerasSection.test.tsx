@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AxcutDocument } from "@/lib/ai-edition/schema";
 
@@ -181,5 +181,59 @@ describe("CamerasSection", () => {
 		expect(cameraHasCrop(withCamera1Crop(crop), [], 0)).toBe(true);
 		expect(cameraHasCrop(withCamera1Crop({ x: 0, y: 0, width: 1, height: 1 }), [], 0)).toBe(false);
 		expect(cameraHasCrop(makeDoc(0), [], 0)).toBe(false);
+	});
+});
+
+describe("CamerasSection desk camera", () => {
+	const renderDesk = (camera: number | null, chosen: number | null, extra = 1) => {
+		const setDeskCamera = vi.fn();
+		render(
+			<CamerasSection
+				document={makeDoc(extra)}
+				playheadSec={2}
+				cameraSettings={[]}
+				setCameraSettings={vi.fn()}
+				desk={{ camera, chosen, setDeskCamera }}
+			/>,
+		);
+		const switchOf = (index: number) =>
+			within(screen.getByTestId(`camera-row-${index}`)).getByRole("button", {
+				name: "settings.cameras.deskCamera",
+			});
+		return { setDeskCamera, switchOf };
+	};
+
+	it("marks the resolved desk camera and says when it was picked automatically", () => {
+		const { switchOf } = renderDesk(1, null);
+		expect(switchOf(0)).toHaveAttribute("aria-pressed", "false");
+		expect(switchOf(1)).toHaveAttribute("aria-pressed", "true");
+		expect(screen.getByTestId("camera-row-1")).toHaveTextContent("settings.cameras.deskCameraAuto");
+		expect(screen.getByTestId("camera-row-0")).not.toHaveTextContent(
+			"settings.cameras.deskCameraAuto",
+		);
+	});
+
+	it("picks camera 2 as the desk camera", () => {
+		const { setDeskCamera, switchOf } = renderDesk(1, null);
+		fireEvent.click(switchOf(1));
+		expect(setDeskCamera).toHaveBeenCalledWith(1);
+	});
+
+	it("a click on the chosen desk camera lifts the choice", () => {
+		const { setDeskCamera, switchOf } = renderDesk(1, 1);
+		expect(screen.queryByText("settings.cameras.deskCameraAuto")).toBeNull();
+		fireEvent.click(switchOf(1));
+		expect(setDeskCamera).toHaveBeenCalledWith(null);
+	});
+
+	it("camera 1 can be the desk camera", () => {
+		const { setDeskCamera, switchOf } = renderDesk(1, null);
+		fireEvent.click(switchOf(0));
+		expect(setDeskCamera).toHaveBeenCalledWith(0);
+	});
+
+	it("offers no desk choice to a one-camera project", () => {
+		renderDesk(null, null, 0);
+		expect(screen.queryByRole("button", { name: "settings.cameras.deskCamera" })).toBeNull();
 	});
 });

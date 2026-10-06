@@ -483,6 +483,15 @@
 		"crop": "Zuschnitt…",
 		"perspective": "Perspektive korrigieren…",
 		"reset": "Zurücksetzen",
-		"cropOffWithPerspective": "Mit gesetzter Perspektive hat der Zuschnitt keine Wirkung."
+		"cropOffWithPerspective": "Mit gesetzter Perspektive hat der Zuschnitt keine Wirkung.",
+		"deskCamera": "Tischkamera",
+		"deskCameraAuto": "(automatisch)"
+	},
+	"desk": {
+		"title": "Tisch",
+		"camera": "Tischkamera",
+		"change": "Ändern",
+		"showLabel": "Schriftzug zeigen",
+		"unavailable": "Nicht verfügbar"
 	}
 }

@@ -483,6 +483,15 @@
 		"crop": "Crop…",
 		"perspective": "Correct perspective…",
 		"reset": "Reset",
-		"cropOffWithPerspective": "Crop has no effect while a perspective is set."
+		"cropOffWithPerspective": "Crop has no effect while a perspective is set.",
+		"deskCamera": "Desk camera",
+		"deskCameraAuto": "(automatic)"
+	},
+	"desk": {
+		"title": "Desk",
+		"camera": "Desk camera",
+		"change": "Change",
+		"showLabel": "Show label",
+		"unavailable": "Not available"
 	}
 }

@@ -483,6 +483,15 @@
 		"crop": "Recadrage…",
 		"perspective": "Corriger la perspective…",
 		"reset": "Réinitialiser",
-		"cropOffWithPerspective": "Le recadrage est sans effet tant qu'une perspective est définie."
+		"cropOffWithPerspective": "Le recadrage est sans effet tant qu'une perspective est définie.",
+		"deskCamera": "Caméra de bureau",
+		"deskCameraAuto": "(automatique)"
+	},
+	"desk": {
+		"title": "Bureau",
+		"camera": "Caméra de bureau",
+		"change": "Modifier",
+		"showLabel": "Afficher le titre",
+		"unavailable": "Indisponible"
 	}
 }

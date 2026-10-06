@@ -483,6 +483,15 @@
 		"crop": "Ritaglio…",
 		"perspective": "Correggi prospettiva…",
 		"reset": "Ripristina",
-		"cropOffWithPerspective": "Il ritaglio non ha effetto finché è impostata una prospettiva."
+		"cropOffWithPerspective": "Il ritaglio non ha effetto finché è impostata una prospettiva.",
+		"deskCamera": "Fotocamera da scrivania",
+		"deskCameraAuto": "(automatica)"
+	},
+	"desk": {
+		"title": "Scrivania",
+		"camera": "Fotocamera da scrivania",
+		"change": "Cambia",
+		"showLabel": "Mostra etichetta",
+		"unavailable": "Non disponibile"
 	}
 }

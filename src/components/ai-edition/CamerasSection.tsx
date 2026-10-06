@@ -33,6 +33,17 @@ export interface CamerasSectionProps {
 	setCameraSettings: (index: number, patch: Partial<CameraSettings> | null) => void | Promise<void>;
 	/** Opens the calibration dialog for a camera. */
 	onOpenCalibration?: (cameraIndex: number, mode: CalibrationMode) => void;
+	/** The desk camera choice; absent where there is no timeline store to write it. */
+	desk?: DeskCameraChoice;
+}
+
+/** The project's desk camera (0 = camera 1) as resolved and as stored, and its writer. */
+export interface DeskCameraChoice {
+	/** The camera desk sections show, or `null` when none resolves. */
+	camera: number | null;
+	/** The stored choice, or `null` while the camera is picked automatically. */
+	chosen: number | null;
+	setDeskCamera: (index: number | null) => void | Promise<void>;
 }
 
 export type CameraStill = { src: string; timeSec: number };
@@ -141,6 +152,7 @@ export function CamerasSection({
 	cameraSettings,
 	setCameraSettings,
 	onOpenCalibration,
+	desk,
 }: CamerasSectionProps) {
 	const ts = useScopedT("settings");
 	const storePlayheadSec = useProjectStore((s) => s.currentTimeSec);
@@ -151,6 +163,8 @@ export function CamerasSection({
 	);
 	const stills = useMemo(() => stillsAt(document, playheadSec), [document, playheadSec]);
 	if (cameras.length === 0) return null;
+	// One camera has nothing to be a desk camera for, unless it was chosen and must be lifted.
+	const offerDesk = desk !== undefined && (cameras.length >= 2 || desk.chosen !== null);
 	return (
 		<>
 			<div className={styles.sectionLabel}>{ts("cameras.title")}</div>
@@ -182,6 +196,33 @@ export function CamerasSection({
 								)}
 							</div>
 						</div>
+						{offerDesk ? (
+							<div
+								style={{
+									display: "flex",
+									justifyContent: "space-between",
+									alignItems: "center",
+									gap: 12,
+								}}
+							>
+								<span className={styles.label}>
+									{ts("cameras.deskCamera")}
+									{/* Which camera was resolved without a choice: picking it fixes it. */}
+									{desk.chosen === null && desk.camera === camera.index ? (
+										<span className={styles.hint}> {ts("cameras.deskCameraAuto")}</span>
+									) : null}
+								</span>
+								{/* Exactly one: a click picks this camera; on the stored choice it lifts
+								    the choice and the project goes back to the automatic one. */}
+								<Toggle
+									checked={desk.camera === camera.index}
+									ariaLabel={ts("cameras.deskCamera")}
+									onChange={() =>
+										void desk.setDeskCamera(desk.chosen === camera.index ? null : camera.index)
+									}
+								/>
+							</div>
+						) : null}
 						{isFirst ? <p className={styles.hint}>{ts("cameras.camera1Hint")}</p> : null}
 						{isFirst ? null : (
 							<>

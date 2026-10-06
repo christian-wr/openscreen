@@ -2784,7 +2784,10 @@ export function LayoutPane({
 	cameras,
 }: {
 	/** The per-camera list; absent where the pane has no timeline store at hand. */
-	cameras?: Pick<CamerasSectionProps, "cameraSettings" | "setCameraSettings" | "onOpenCalibration">;
+	cameras?: Pick<
+		CamerasSectionProps,
+		"cameraSettings" | "setCameraSettings" | "onOpenCalibration" | "desk"
+	>;
 } = {}) {
 	const canSegmentCamera = useCanSegmentCamera();
 	const ts = useScopedT("settings");

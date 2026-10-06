@@ -8,6 +8,7 @@
 		"addAnnotation": "Şu anki zamanda metin, ok, resim veya bulanıklık ekle",
 		"addSpeed": "Şu anki zamanda hız değişikliği ekle",
 		"addCameraFullscreen": "Tam Ekran Kamera ekle: kamerayı şu anki zamanda tam ekran gösterir",
+		"addDesk": "Masa bölümü ekle: masa kamerasını şu anki zamanda tam ekran gösterir",
 		"addLayout": "Düzen ekle: bir bölüm için ekran ve kamera yerleşimi"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "Açıklama eklemek için {{key}} tuşuna basın",
 		"pressAudio": "Ses eklemek için {{audioKey}}, seslendirme kaydetmek için {{voiceoverKey}} tuşuna basın",
 		"pressSpeed": "Hız eklemek için {{key}} tuşuna basın",
-		"pressCameraFullscreen": "Tam Ekran Kamera bölümü eklemek için {{key}} tuşuna basın"
+		"pressCameraFullscreen": "Tam Ekran Kamera bölümü eklemek için {{key}} tuşuna basın",
+		"pressDesk": "Masa bölümü eklemek için {{key}} tuşuna basın"
 	},
 	"labels": {
 		"pan": "Kaydır",
@@ -33,6 +35,7 @@
 		"emptyText": "Boş metin",
 		"cameraFullscreen": "Tam Ekran Kamera",
 		"cameraFullscreenItem": "Tam Ekran Kamera {{index}}",
+		"desk": "Masa",
 		"layoutScreenPip": "Ekran + kamera",
 		"layoutCameraFull": "Tam ekran kamera",
 		"layoutCameraFullPip": "Kamera + küçük pencere",

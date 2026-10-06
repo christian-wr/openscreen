@@ -1415,6 +1415,13 @@ export function NewEditorShell() {
 				});
 				return;
 			}
+			if (matchesShortcut(e, shortcuts.addDeskSection, isMac)) {
+				e.preventDefault();
+				void tl.addDeskSection(newRegionDurationSec()).then((outcome) => {
+					showCameraSectionOutcome(outcome, tt);
+				});
+				return;
+			}
 
 			// Fixed (non-configurable) shortcuts advertised in the shortcuts dialog.
 			if (e.key === "Tab") {

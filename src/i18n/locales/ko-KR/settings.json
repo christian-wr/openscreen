@@ -483,6 +483,15 @@
 		"crop": "자르기…",
 		"perspective": "원근 보정…",
 		"reset": "초기화",
-		"cropOffWithPerspective": "원근 보정이 설정되어 있는 동안에는 자르기가 적용되지 않습니다."
+		"cropOffWithPerspective": "원근 보정이 설정되어 있는 동안에는 자르기가 적용되지 않습니다.",
+		"deskCamera": "책상 카메라",
+		"deskCameraAuto": "(자동)"
+	},
+	"desk": {
+		"title": "책상",
+		"camera": "책상 카메라",
+		"change": "변경",
+		"showLabel": "라벨 표시",
+		"unavailable": "사용할 수 없음"
 	}
 }

@@ -8,6 +8,7 @@
 		"addAnnotation": "在当前时间添加文字、箭头、图片或模糊",
 		"addSpeed": "在当前时间添加速度变化",
 		"addCameraFullscreen": "添加全屏摄像头：在当前时间全屏显示摄像头",
+		"addDesk": "添加书桌片段：在当前时间全屏显示书桌摄像头",
 		"addLayout": "添加布局：为片段设置屏幕与摄像头的排布"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "按 {{key}} 添加标注",
 		"pressAudio": "按 {{audioKey}} 添加音频，按 {{voiceoverKey}} 录制配音",
 		"pressSpeed": "按 {{key}} 添加速度",
-		"pressCameraFullscreen": "按 {{key}} 添加一个全屏摄像头片段"
+		"pressCameraFullscreen": "按 {{key}} 添加一个全屏摄像头片段",
+		"pressDesk": "按 {{key}} 添加一个书桌片段"
 	},
 	"labels": {
 		"pan": "平移",
@@ -33,6 +35,7 @@
 		"emptyText": "空文本",
 		"cameraFullscreen": "全屏摄像头",
 		"cameraFullscreenItem": "全屏摄像头 {{index}}",
+		"desk": "书桌",
 		"layoutScreenPip": "屏幕 + 摄像头",
 		"layoutCameraFull": "摄像头全屏",
 		"layoutCameraFullPip": "摄像头 + 画中画",
@@ -64,7 +67,7 @@
 		"cannotPlaceCameraSection": "无法在此处放置摄像头片段",
 		"cameraSectionExistsAtLocation": "此处已有摄像头片段。",
 		"noCamera": "此项目没有摄像头",
-		"noDeskCamera": "没有桌面摄像头 — 请在“摄像头”部分中选择一个"
+		"noDeskCamera": "没有书桌摄像头 — 请在“摄像头”部分中选择一个"
 	},
 	"success": {
 		"addedZoomSuggestions": "已添加 {{count}} 个基于光标的缩放建议",

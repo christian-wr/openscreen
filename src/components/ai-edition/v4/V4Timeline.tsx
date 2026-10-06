@@ -3,6 +3,7 @@ import {
 	Clock,
 	Crosshair,
 	Eraser,
+	LampDesk,
 	LayoutTemplate,
 	Loader2,
 	Maximize2,
@@ -57,7 +58,12 @@ import { useEditorSettings } from "@/lib/ai-edition/store/useEditorSettings";
 import type { useTimeline } from "@/lib/ai-edition/store/useTimeline";
 import { collectAutoZoomSuggestionsForLatestDocument } from "@/lib/ai-edition/timeline/apply-auto-zooms";
 import { hasAnyClipWithCamera } from "@/lib/ai-edition/timeline/camera";
-import { type ProjectCamera, projectCameras } from "@/lib/ai-edition/timeline/cameraList";
+import {
+	type ProjectCamera,
+	projectCameraCount,
+	projectCameraLabel,
+	projectCameras,
+} from "@/lib/ai-edition/timeline/cameraList";
 import { showCameraSectionOutcome } from "@/lib/ai-edition/timeline/cameraSectionNotice";
 import { formatSec } from "@/lib/ai-edition/timeline/format";
 import {
@@ -604,7 +610,7 @@ const AudioLanePill = memo(function AudioLanePill({
 
 interface LanePill {
 	id: string;
-	kind: "annotation" | "speed" | "trim" | "zoom" | "cameraFullscreen" | "cameraLayout";
+	kind: "annotation" | "speed" | "trim" | "zoom" | "cameraFullscreen" | "cameraLayout" | "desk";
 	start: number;
 	end: number;
 	label: string;
@@ -740,6 +746,9 @@ export function V4Timeline({
 	// clicked instead of looking like it worked. Same question, same helper as the Layout
 	// pane: is a camera attached anywhere on this timeline?
 	const hasAnyCamera = useMemo(() => hasAnyClipWithCamera(tl.assets, clips), [tl.assets, clips]);
+	// Desk sections need a second camera to mean anything, so their lane and button appear
+	// with two cameras; the lane also stays while sections exist, so none becomes unreachable.
+	const hasDeskCameras = useMemo(() => projectCameraCount(tl.assets) >= 2, [tl.assets]);
 	// The pauses added words created, placed on the ruler. Everything below measures the
 	// EXPANDED ruler — stored clip geometry plus the time those pauses add — because that
 	// is the film's real length and the one the playhead runs along. Stored geometry is
@@ -829,6 +838,18 @@ export function V4Timeline({
 		};
 	});
 	const layoutLanePills = [...cameraFullscreenPills, ...cameraLayoutPills];
+	// Desk sections: "Desk · <desk camera>", the camera the whole project resolves to.
+	const deskCameraName =
+		tl.deskCamera === null ? null : projectCameraLabel(tl.assets, tl.deskCamera, ts);
+	const deskPills: LanePill[] = coalesceRegionsForRuler(tl.deskRegions).map((p) => ({
+		id: p.ids[0],
+		kind: "desk",
+		start: p.start,
+		end: p.end,
+		label: deskCameraName ? `${t("labels.desk")} · ${deskCameraName}` : t("labels.desk"),
+		sourceIds: p.ids,
+	}));
+	const showDeskLane = hasDeskCameras || deskPills.length > 0;
 	const zoomPills: LanePill[] = coalesceRegionsForRuler(tl.zoomRegions).map((p) => ({
 		id: p.ids[0],
 		kind: "zoom",
@@ -1058,6 +1079,7 @@ export function V4Timeline({
 					await tl.updateCameraFullscreenSpan(pill.id, s * 1000, en * 1000);
 				else if (pill.kind === "cameraLayout")
 					await tl.updateCameraLayoutSpan(pill.id, s * 1000, en * 1000);
+				else if (pill.kind === "desk") await tl.updateDeskSpan(pill.id, s * 1000, en * 1000);
 				else {
 					// Trims are stored in source-time per asset but manipulated on the
 					// timeline like every other pill. Ventilate the new span across the
@@ -1485,7 +1507,7 @@ export function V4Timeline({
 				? styles.laneSpeed
 				: kind === "trim"
 					? styles.laneTrim
-					: kind === "cameraFullscreen" || kind === "cameraLayout"
+					: kind === "cameraFullscreen" || kind === "cameraLayout" || kind === "desk"
 						? styles.laneCameraFullscreen
 						: styles.laneZoom;
 	const pillIcon = (kind: LanePill["kind"], rotated?: boolean, template?: CameraLayoutTemplate) =>
@@ -1497,6 +1519,8 @@ export function V4Timeline({
 			<Scissors size={12} />
 		) : kind === "cameraLayout" ? (
 			layoutTemplateIcon(template ?? "screen-pip")
+		) : kind === "desk" ? (
+			<LampDesk size={12} />
 		) : kind === "cameraFullscreen" ? (
 			rotated ? (
 				<RotateCw size={12} />
@@ -2105,6 +2129,25 @@ export function V4Timeline({
 									</button>
 								</Tooltip>
 							) : null}
+							{hasDeskCameras ? (
+								<Tooltip
+									content={t("buttons.addDesk")}
+									shortcut={formatBinding(shortcuts.addDeskSection, isMac)}
+								>
+									<button
+										type="button"
+										className={styles.tlToolBtn}
+										aria-label={t("buttons.addDesk")}
+										onClick={() =>
+											void tl.addDeskSection(newRegionDurationSec()).then((outcome) => {
+												showCameraSectionOutcome(outcome, t);
+											})
+										}
+									>
+										<LampDesk size={16} />
+									</button>
+								</Tooltip>
+							) : null}
 							{hasAnyCamera ? (
 								<Popover open={layoutMenuOpen} onOpenChange={openLayoutMenu}>
 									<Tooltip content={t("buttons.addLayout")}>
@@ -2306,6 +2349,18 @@ export function V4Timeline({
 											: ts("layout.noWebcam"),
 									)}
 								</div>
+								{showDeskLane ? (
+									<div className={styles.tlLane}>
+										{renderPills(
+											deskPills,
+											tl.deskCamera === null
+												? t("errors.noDeskCamera")
+												: t("hints.pressDesk", {
+														key: formatBinding(shortcuts.addDeskSection, isMac),
+													}),
+										)}
+									</div>
+								) : null}
 								{/* Imported audio tracks (issue #350). Always shown, like every other
 								    lane — "Add audio" is a toolbar peer of the region tools now (and
 								    has a keyboard shortcut), so an empty lane advertises the shortcut

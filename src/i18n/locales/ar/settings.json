@@ -483,6 +483,15 @@
 		"crop": "قص…",
 		"perspective": "تصحيح المنظور…",
 		"reset": "إعادة تعيين",
-		"cropOffWithPerspective": "لا يكون للقص أي تأثير ما دام المنظور مضبوطًا."
+		"cropOffWithPerspective": "لا يكون للقص أي تأثير ما دام المنظور مضبوطًا.",
+		"deskCamera": "كاميرا المكتب",
+		"deskCameraAuto": "(تلقائي)"
+	},
+	"desk": {
+		"title": "المكتب",
+		"camera": "كاميرا المكتب",
+		"change": "تغيير",
+		"showLabel": "إظهار التسمية",
+		"unavailable": "غير متاح"
 	}
 }

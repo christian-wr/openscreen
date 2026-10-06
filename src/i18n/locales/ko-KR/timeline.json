@@ -8,6 +8,7 @@
 		"addAnnotation": "현재 시점에 텍스트, 화살표, 이미지 또는 블러 추가",
 		"addSpeed": "현재 시점에 속도 변경 추가",
 		"addCameraFullscreen": "전체 화면 카메라 추가: 현재 시점에 카메라를 전체 화면으로 표시합니다",
+		"addDesk": "책상 구간 추가: 현재 시점에 책상 카메라를 전체 화면으로 표시합니다",
 		"addLayout": "레이아웃 추가: 구간의 화면과 카메라 배치"
 	},
 	"hints": {
@@ -16,7 +17,8 @@
 		"pressAnnotation": "{{key}}를 눌러 주석 추가",
 		"pressAudio": "{{audioKey}} 키로 오디오 추가, {{voiceoverKey}} 키로 보이스오버 녹음",
 		"pressSpeed": "{{key}}를 눌러 속도 추가",
-		"pressCameraFullscreen": "{{key}}를 눌러 전체 화면 카메라 구간을 추가하세요"
+		"pressCameraFullscreen": "{{key}}를 눌러 전체 화면 카메라 구간을 추가하세요",
+		"pressDesk": "{{key}}를 눌러 책상 구간을 추가하세요"
 	},
 	"labels": {
 		"pan": "이동",
@@ -33,6 +35,7 @@
 		"emptyText": "빈 텍스트",
 		"cameraFullscreen": "전체 화면 카메라",
 		"cameraFullscreenItem": "전체 화면 카메라 {{index}}",
+		"desk": "책상",
 		"layoutScreenPip": "화면 + 카메라",
 		"layoutCameraFull": "카메라 전체 화면",
 		"layoutCameraFullPip": "카메라 + 작은 창",
