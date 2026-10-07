@@ -761,6 +761,8 @@ export function buildCompositorClipList(source: AxcutDocument): CompositorClipIn
 				webcamOffsetSec,
 				hasAudio: true,
 				...(additionalCameras ? { additionalCameras } : {}),
+				// A held segment has an empty source window and exists only for the frames it
+				// holds; every other clip holds nothing.
 			},
 		];
 	});
