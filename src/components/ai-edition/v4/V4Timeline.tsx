@@ -712,6 +712,7 @@ export function V4Timeline({
 		const cameras = defaultLayoutCameras(
 			template,
 			availableCamerasAtPlayhead().map((c) => c.index),
+			{ main: tl.mainCamera, desk: tl.deskCamera },
 		);
 		const outcome = await tl.addCameraLayout(template, cameras, newRegionDurationSec());
 		showCameraSectionOutcome(outcome, t);

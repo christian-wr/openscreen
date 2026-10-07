@@ -3,6 +3,7 @@
 
 import type { CameraLayoutTemplate } from "@/components/video-editor/types";
 import { TEMPLATE_SLOTS } from "@/lib/cameraLayouts";
+import { sceneCameraIndex } from "@/lib/mainCamera";
 import type { AxcutAsset, AxcutClip } from "../schema";
 import { type ProjectCamera, projectCameras } from "./cameraList";
 import { locateVirtualPosition } from "./virtual-preview";
@@ -32,20 +33,42 @@ export function layoutTemplateBlock(
 	return null;
 }
 
+/** The project's camera roles: the main camera (the face) and the resolved desk camera. */
+export interface LayoutCameraRoles {
+	main: number;
+	desk: number | null;
+}
+
 /**
  * The cameras a new section of `template` starts with, from the available camera indexes of
- * the clip under the playhead: the first `min` of them. `camera-full-pip` puts the desk
- * camera (camera 2) first when there is one.
+ * the clip under the playhead, seeded from the camera roles: Screen + camera and camera-full
+ * start with the main camera; camera-full-pip with the desk camera large and the main camera
+ * small; side-by-side with the main camera, then the desk camera or another one. Without a
+ * desk camera, camera-full-pip keeps its older rule with the main camera in camera 1's role
+ * (camera 2 large, the main camera small). A role whose camera the clip does not have falls
+ * back to the first `min` available cameras.
  */
 export function defaultLayoutCameras(
 	template: CameraLayoutTemplate,
 	available: readonly number[],
+	roles: LayoutCameraRoles = { main: 0, desk: null },
 ): number[] {
 	const { min } = TEMPLATE_SLOTS[template];
-	if (template === "camera-full-pip" && available.includes(1) && available.includes(0)) {
-		return [1, 0];
+	const { main } = roles;
+	const fallback = available.slice(0, min);
+	if (!available.includes(main)) return fallback;
+	const desk =
+		roles.desk !== null && roles.desk !== main && available.includes(roles.desk)
+			? roles.desk
+			: null;
+	if (template === "screen-pip" || template === "camera-full") return [main];
+	if (template === "camera-full-pip") {
+		if (desk !== null) return [desk, main];
+		const second = sceneCameraIndex(1, main);
+		return available.includes(second) ? [second, main] : fallback;
 	}
-	return available.slice(0, min);
+	const other = desk ?? available.find((camera) => camera !== main);
+	return other === undefined ? fallback : [main, other];
 }
 
 /**
