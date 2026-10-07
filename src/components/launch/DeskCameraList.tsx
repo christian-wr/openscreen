@@ -1,12 +1,7 @@
 import { Check } from "lucide-react";
+import { isDeskPickCamera, resolveAdditionalCameraPicks } from "@/lib/additionalWebcams";
 import type { CameraDevice } from "../../hooks/useCameraDevices";
-import {
-	type AdditionalCameraChoice,
-	type AdditionalCamerasClasses,
-	isSameCamera,
-	MAX_ADDITIONAL_CAMERAS,
-	presentAdditionalCameras,
-} from "./AdditionalCamerasList";
+import type { AdditionalCameraChoice, AdditionalCamerasClasses } from "./AdditionalCamerasList";
 import styles from "./LaunchWindow.module.css";
 
 export interface DeskCameraLabels {
@@ -36,8 +31,9 @@ interface DeskCameraListProps {
 }
 
 /**
- * The cameras a take will record, in recorded order: camera 1, then the additional cameras that
- * are plugged in. The desk camera can only be one of them.
+ * The cameras a take will record, in recorded order: camera 1, then the additional cameras exactly
+ * as `resolveAdditionalCameraPicks` resolves them -- the same devices the additional cameras' list
+ * checks and the recording request carries. The desk camera can only be one of them.
  */
 function recordedCameras(
 	devices: CameraDevice[],
@@ -46,9 +42,9 @@ function recordedCameras(
 ): CameraDevice[] {
 	const camera1 = devices.find((device) => device.deviceId === primaryDeviceId);
 	if (!camera1) return [];
-	const extras = presentAdditionalCameras(devices, primaryDeviceId, additional)
-		.slice(0, MAX_ADDITIONAL_CAMERAS)
-		.flatMap((choice) => devices.find((device) => isSameCamera(choice, device)) ?? []);
+	const extras = resolveAdditionalCameraPicks(additional, devices, primaryDeviceId).map(
+		(entry) => entry.device,
+	);
 	return [camera1, ...extras];
 }
 
@@ -71,7 +67,9 @@ export function DeskCameraList({
 	// A single camera is all of the take: there is nothing to tell apart.
 	if (cameras.length < 2) return null;
 	const chosen = selected
-		? (cameras.find((device) => isSameCamera(selected, device)) ?? null)
+		? (cameras.find((device) =>
+				isDeskPickCamera(selected, { id: device.deviceId, name: device.label }),
+			) ?? null)
 		: null;
 
 	const entries: Array<{ key: string; label: string; device: CameraDevice | null }> = [

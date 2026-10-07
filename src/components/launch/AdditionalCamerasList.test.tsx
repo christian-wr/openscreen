@@ -134,4 +134,130 @@ describe("AdditionalCamerasList", () => {
 
 		expect(screen.queryByText(labels.hint)).not.toBeInTheDocument();
 	});
+
+	// The list must show exactly the cameras the recording request carries, so it resolves the
+	// saved picks with resolveAdditionalWebcams' semantics: id first, name when the id is stale.
+	describe("with the recorder's resolution", () => {
+		const usb = (id: string) => ({ deviceId: id, label: "USB Camera", groupId: id });
+		const checkedIds = () =>
+			screen
+				.getAllByRole("menuitemcheckbox")
+				.map((item, index) => [index, item.getAttribute("aria-checked")] as const);
+
+		it("checks the camera a stale-id pick resolves to by name", () => {
+			const onChange = vi.fn();
+			render(
+				<AdditionalCamerasList
+					devices={[device("P"), usb("new-id"), usb("other-id")]}
+					primaryDeviceId="P"
+					selected={[{ id: "old-id", name: "USB Camera" }]}
+					onChange={onChange}
+					disabled={false}
+					labels={labels}
+				/>,
+			);
+
+			// The recorder takes the first present camera with that label: new-id.
+			expect(checkedIds()).toEqual([
+				[0, "true"],
+				[1, "false"],
+			]);
+		});
+
+		it("unchecking that camera removes the stale-id pick", () => {
+			const onChange = vi.fn();
+			render(
+				<AdditionalCamerasList
+					devices={[device("P"), usb("new-id"), usb("other-id")]}
+					primaryDeviceId="P"
+					selected={[{ id: "old-id", name: "USB Camera" }]}
+					onChange={onChange}
+					disabled={false}
+					labels={labels}
+				/>,
+			);
+
+			fireEvent.click(screen.getAllByRole("menuitemcheckbox")[0]);
+
+			expect(onChange).toHaveBeenLastCalledWith([]);
+		});
+
+		it("checking the other same-label camera adds it under its current id", () => {
+			const onChange = vi.fn();
+			render(
+				<AdditionalCamerasList
+					devices={[device("P"), usb("new-id"), usb("other-id")]}
+					primaryDeviceId="P"
+					selected={[{ id: "old-id", name: "USB Camera" }]}
+					onChange={onChange}
+					disabled={false}
+					labels={labels}
+				/>,
+			);
+
+			fireEvent.click(screen.getAllByRole("menuitemcheckbox")[1]);
+
+			expect(onChange).toHaveBeenLastCalledWith([
+				{ id: "old-id", name: "USB Camera" },
+				{ id: "other-id", name: "USB Camera" },
+			]);
+		});
+
+		it("checks only the same-label camera whose id was saved", () => {
+			render(
+				<AdditionalCamerasList
+					devices={[device("P"), usb("brio-1"), usb("brio-2")]}
+					primaryDeviceId="P"
+					selected={[{ id: "brio-2", name: "USB Camera" }]}
+					onChange={vi.fn()}
+					disabled={false}
+					labels={labels}
+				/>,
+			);
+
+			expect(checkedIds()).toEqual([
+				[0, "false"],
+				[1, "true"],
+			]);
+		});
+
+		it("counts stale-id picks that resolve toward the cap", () => {
+			const onChange = vi.fn();
+			render(
+				<AdditionalCamerasList
+					devices={[device("P"), device("B"), device("C"), device("D"), device("E")]}
+					primaryDeviceId="P"
+					selected={[
+						{ id: "old-b", name: "Camera B" },
+						{ id: "old-c", name: "Camera C" },
+						{ id: "old-d", name: "Camera D" },
+					]}
+					onChange={onChange}
+					disabled={false}
+					labels={labels}
+				/>,
+			);
+
+			const fourth = screen.getByRole("menuitemcheckbox", { name: "Camera E" });
+			expect(fourth).toBeDisabled();
+			fireEvent.click(fourth);
+			expect(onChange).not.toHaveBeenCalled();
+		});
+
+		it("does not check camera 1 for a stale pick whose name matches it, nor count it", () => {
+			render(
+				<AdditionalCamerasList
+					devices={[usb("primary"), usb("second")]}
+					primaryDeviceId="primary"
+					selected={[{ id: "old-id", name: "USB Camera" }]}
+					onChange={vi.fn()}
+					disabled={false}
+					labels={labels}
+				/>,
+			);
+
+			// The recorder resolves the name to camera 1 and drops the pick, so nothing is checked.
+			expect(checkedIds()).toEqual([[0, "false"]]);
+		});
+	});
 });

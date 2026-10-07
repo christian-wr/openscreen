@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { resolveAdditionalCameraPicks } from "@/lib/additionalWebcams";
 import type { CameraDevice } from "../../hooks/useCameraDevices";
 import styles from "./LaunchWindow.module.css";
 
@@ -36,23 +37,6 @@ interface AdditionalCamerasListProps {
 	classes?: AdditionalCamerasClasses;
 }
 
-export function isSameCamera(choice: AdditionalCameraChoice, device: CameraDevice): boolean {
-	return choice.id !== null ? choice.id === device.deviceId : choice.name === device.label;
-}
-
-/**
- * The picks that can be recorded: plugged in and not camera 1. A saved pick whose camera is
- * unplugged is neither shown nor counted.
- */
-export function presentAdditionalCameras(
-	devices: CameraDevice[],
-	primaryDeviceId: string | undefined,
-	selected: AdditionalCameraChoice[],
-): AdditionalCameraChoice[] {
-	const offered = devices.filter((device) => device.deviceId !== primaryDeviceId);
-	return selected.filter((choice) => offered.some((device) => isSameCamera(choice, device)));
-}
-
 /**
  * Checkbox list for cameras 2-4. Selection keeps the order of the clicks, because that order is
  * the order the cameras get their `-webcam-N` files in.
@@ -67,16 +51,28 @@ export function AdditionalCamerasList({
 	classes,
 }: AdditionalCamerasListProps) {
 	const offered = devices.filter((device) => device.deviceId !== primaryDeviceId);
-	const present = presentAdditionalCameras(devices, primaryDeviceId, selected);
-	const full = present.length >= MAX_ADDITIONAL_CAMERAS;
+	// The picks resolved exactly as the recording request resolves them (stale ids fall back to
+	// the name), so a checked row is a camera that will be recorded and nothing else is. A saved
+	// pick that resolves to nothing — unplugged, camera 1, or a repeat — is neither shown nor
+	// counted: it cannot be recorded.
+	const resolved = resolveAdditionalCameraPicks(selected, devices, primaryDeviceId);
+	const isChecked = (device: CameraDevice) =>
+		resolved.some((entry) => entry.device.deviceId === device.deviceId);
+	const full = resolved.length >= MAX_ADDITIONAL_CAMERAS;
 
 	const toggle = (device: CameraDevice) => {
 		if (disabled) return;
-		const isOn = present.some((choice) => isSameCamera(choice, device));
-		if (isOn) {
-			onChange(present.filter((choice) => !isSameCamera(choice, device)));
+		if (isChecked(device)) {
+			onChange(
+				resolved
+					.filter((entry) => entry.device.deviceId !== device.deviceId)
+					.map((entry) => entry.pick),
+			);
 		} else if (!full) {
-			onChange([...present, { id: device.deviceId, name: device.label }]);
+			onChange([
+				...resolved.map((entry) => entry.pick),
+				{ id: device.deviceId, name: device.label },
+			]);
 		}
 	};
 
@@ -84,7 +80,7 @@ export function AdditionalCamerasList({
 		<>
 			<div className={classes?.title ?? styles.hudMenuSectionLabel}>{labels.title}</div>
 			{offered.map((device) => {
-				const isOn = present.some((choice) => isSameCamera(choice, device));
+				const isOn = isChecked(device);
 				const blocked = disabled || (!isOn && full);
 				return (
 					<button

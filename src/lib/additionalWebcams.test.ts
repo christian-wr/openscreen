@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	deskCameraIndex,
 	nativeRequestCameraFields,
+	resolveAdditionalCameraPicks,
 	resolveAdditionalWebcams,
 } from "./additionalWebcams";
 
@@ -185,5 +186,49 @@ describe("nativeRequestCameraFields", () => {
 				camera1,
 			),
 		).toEqual({ additionalWebcams: [{ deviceId: "b", deviceName: "Cam B" }] });
+	});
+});
+
+describe("resolveAdditionalCameraPicks", () => {
+	const usb = (deviceId: string) => ({ deviceId, label: "USB Camera" });
+
+	it("pairs each pick with the camera it resolves to, a stale id by name", () => {
+		const stale = { id: "old-id", name: "USB Camera" };
+		expect(
+			resolveAdditionalCameraPicks(
+				[stale],
+				[{ deviceId: "p", label: "Primary" }, usb("new-id")],
+				"p",
+			),
+		).toEqual([{ pick: stale, device: usb("new-id") }]);
+	});
+
+	it("resolves a stale id among same-label cameras to the first one enumerated", () => {
+		const stale = { id: "old-id", name: "USB Camera" };
+		expect(resolveAdditionalCameraPicks([stale], [usb("one"), usb("two")], undefined)).toEqual([
+			{ pick: stale, device: usb("one") },
+		]);
+	});
+
+	it("keeps a valid saved id on its own camera when another has the same label", () => {
+		const pick = { id: "two", name: "USB Camera" };
+		expect(resolveAdditionalCameraPicks([pick], [usb("one"), usb("two")], undefined)).toEqual([
+			{ pick, device: usb("two") },
+		]);
+	});
+
+	it("agrees with resolveAdditionalWebcams", () => {
+		const picks = [
+			{ id: "old-id", name: "USB Camera" },
+			{ id: "two", name: "USB Camera" },
+			{ id: null, name: "Cam B" },
+		];
+		const cams = [usb("one"), usb("two"), ...present];
+		expect(
+			resolveAdditionalCameraPicks(picks, cams, "a").map(({ device }) => ({
+				deviceId: device.deviceId,
+				deviceName: device.label,
+			})),
+		).toEqual(resolveAdditionalWebcams(picks, cams, "a"));
 	});
 });

@@ -97,6 +97,20 @@ describe("DeskCameraList", () => {
 		}
 	});
 
+	it("offers a stale-id additional camera as the device the recording resolves it to", () => {
+		// The reviewer's case for #1025: the pick was saved under an id the system no longer
+		// reports, and the recorder takes the camera of that name -- so the desk list offers it.
+		const onChange = renderList({
+			devices: [device("A"), { deviceId: "new-id", label: "USB Camera", groupId: "g" }],
+			additional: [{ id: "old-id", name: "USB Camera" }],
+		});
+
+		const items = screen.getAllByRole("radio");
+		expect(items.map((item) => item.textContent)).toEqual(["None", "Camera A", "USB Camera"]);
+		fireEvent.click(screen.getByRole("radio", { name: "USB Camera" }));
+		expect(onChange).toHaveBeenLastCalledWith({ id: "new-id", name: "USB Camera" });
+	});
+
 	it("is disabled with a hint without native Windows recording", () => {
 		const onChange = renderList({ disabled: true });
 
