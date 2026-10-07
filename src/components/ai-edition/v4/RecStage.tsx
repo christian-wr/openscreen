@@ -13,7 +13,11 @@ import {
 	ZoomIn,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { AdditionalCamerasList } from "@/components/launch/AdditionalCamerasList";
+import {
+	type AdditionalCamerasClasses,
+	AdditionalCamerasList,
+} from "@/components/launch/AdditionalCamerasList";
+import { DeskCameraList } from "@/components/launch/DeskCameraList";
 import { AudioLevelMeter } from "@/components/ui/audio-level-meter";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useScopedT } from "@/contexts/I18nContext";
@@ -35,11 +39,20 @@ interface RecordingPrefsState {
 	camDeviceId: string | null;
 	camDeviceName: string | null;
 	camAdditionalDevices: Array<{ id: string | null; name: string }>;
+	camDeskDevice: { id: string | null; name: string } | null;
 	systemAudioEnabled: boolean;
 	cursorCaptureMode: "editable-overlay" | "system";
 	hideDesktopIcons: boolean;
 	autoZoomEnabled: boolean;
 }
+
+/** The HUD's camera lists, restyled as rows of this stage. */
+const extraCamClasses: AdditionalCamerasClasses = {
+	title: styles.recExtraCamsTitle,
+	item: styles.recExtraCam,
+	itemActive: styles.recExtraCamOn,
+	hint: styles.recExtraCamsHint,
+};
 
 const DEFAULT_PREFS: RecordingPrefsState = {
 	micEnabled: false,
@@ -49,6 +62,7 @@ const DEFAULT_PREFS: RecordingPrefsState = {
 	camDeviceId: null,
 	camDeviceName: null,
 	camAdditionalDevices: [],
+	camDeskDevice: null,
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
 	hideDesktopIcons: false,
@@ -498,12 +512,21 @@ export function RecStage({
 									title: tLaunch("webcam.additionalCameras"),
 									hint: tLaunch("webcam.additionalCamerasHint"),
 								}}
-								classes={{
-									title: styles.recExtraCamsTitle,
-									item: styles.recExtraCam,
-									itemActive: styles.recExtraCamOn,
-									hint: styles.recExtraCamsHint,
+								classes={extraCamClasses}
+							/>
+							<DeskCameraList
+								devices={camDevices.devices}
+								primaryDeviceId={prefs.camDeviceId ?? camDevices.selectedDeviceId}
+								additional={prefs.camAdditionalDevices}
+								selected={prefs.camDeskDevice}
+								onChange={(next) => updatePrefs({ camDeskDevice: next })}
+								disabled={!nativeWindowsCapture}
+								labels={{
+									title: tLaunch("webcam.deskCamera"),
+									none: tLaunch("webcam.deskCameraNone"),
+									hint: tLaunch("webcam.additionalCamerasHint"),
 								}}
+								classes={{ ...extraCamClasses, group: styles.recDeskCams }}
 							/>
 						</div>
 					) : null}

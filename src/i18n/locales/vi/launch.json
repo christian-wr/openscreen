@@ -50,6 +50,8 @@
 		"quality": "Chất lượng camera",
 		"additionalCameras": "Camera bổ sung",
 		"additionalCamerasHint": "Chỉ với tính năng quay gốc của Windows",
+		"deskCamera": "Camera bàn",
+		"deskCameraNone": "Không",
 		"camerasNotRecorded": "Không được ghi: {{names}}",
 		"camerasStoppedEarly": "Đã dừng sớm: {{names}}",
 		"quality1080p": "1080p",

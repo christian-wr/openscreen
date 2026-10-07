@@ -2,11 +2,7 @@ import { fixWebmDuration } from "@fix-webm-duration/fix";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useScopedT } from "@/contexts/I18nContext";
-import {
-	type AdditionalCameraPick,
-	deskCameraIndex,
-	resolveAdditionalWebcams,
-} from "@/lib/additionalWebcams";
+import { type AdditionalCameraPick, nativeRequestCameraFields } from "@/lib/additionalWebcams";
 import { mixAudioTracks, nativeMicrophoneGain } from "@/lib/audioMix";
 import {
 	type NativeLinuxRecordingRequest,
@@ -1308,20 +1304,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				// MediaRecorder against the helper's own process-spawn/WGC-init latency.
 				stopWebcamPreviewStream();
 			}
-			const additionalWebcams = webcamEnabled
-				? resolveAdditionalWebcams(
+			const cameraFields = webcamEnabled
+				? nativeRequestCameraFields(
 						webcamAdditionalDevices,
-						await listPresentCameras(),
-						webcamIdentity.deviceId,
-					)
-				: [];
-			const deskCamera = webcamEnabled
-				? deskCameraIndex(
 						webcamDeskDevice,
-						{ id: webcamIdentity.deviceId ?? null, name: webcamIdentity.deviceName ?? "" },
-						additionalWebcams.map((extra) => ({ id: extra.deviceId, name: extra.deviceName })),
+						await listPresentCameras(),
+						webcamIdentity,
 					)
-				: undefined;
+				: {};
 			const request: NativeWindowsRecordingRequest = {
 				recordingId: activeRecordingId,
 				preferSoftwareEncoder: loadUserPreferences().preferSoftwareEncoder,
@@ -1356,9 +1346,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					height: webcamPresetFor(webcamQuality).height,
 					fps: WEBCAM_TARGET_FRAME_RATE,
 				},
-				// Cameras 2-4 ride along only with camera 1: with it off the helper gets no extras.
-				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
-				...(deskCamera !== undefined ? { deskCamera } : {}),
+				// Cameras 2-4 and the desk camera ride along only with camera 1: with it off the
+				// helper gets neither.
+				...cameraFields,
 				cursor: {
 					mode: cursorCaptureMode,
 				},

@@ -50,6 +50,8 @@
 		"quality": "Kvalita kamery",
 		"additionalCameras": "Další kamery",
 		"additionalCamerasHint": "Pouze s nativním nahráváním ve Windows",
+		"deskCamera": "Stolní kamera",
+		"deskCameraNone": "Žádná",
 		"camerasNotRecorded": "Nenahráno: {{names}}",
 		"camerasStoppedEarly": "Zastaveno předčasně: {{names}}",
 		"quality1080p": "1080p",

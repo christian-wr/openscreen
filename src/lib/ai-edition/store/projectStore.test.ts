@@ -20,12 +20,22 @@ const toastMocks = vi.hoisted(() => ({
 // jsdom never fires loadedmetadata, so an unmocked probe would block on its
 // timeout. Everything else in the module (probeVideoDimensions) stays real so
 // the video-import tests above are untouched.
-const durationMocks = vi.hoisted(() => ({ probeAudioDuration: vi.fn() }));
-
-vi.mock("../timeline/duration", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../timeline/duration")>()),
-	probeAudioDuration: durationMocks.probeAudioDuration,
+const durationMocks = vi.hoisted(() => ({
+	probeAudioDuration: vi.fn(),
+	// The video probe likewise waits out its timeout in jsdom (5 s per file). It stays real by
+	// default; suites that only care about what the camera link writes switch it off.
+	skipVideoProbe: false,
 }));
+
+vi.mock("../timeline/duration", async (importOriginal) => {
+	const original = await importOriginal<typeof import("../timeline/duration")>();
+	return {
+		...original,
+		probeAudioDuration: durationMocks.probeAudioDuration,
+		probeVideoDimensions: (...args: Parameters<typeof original.probeVideoDimensions>) =>
+			durationMocks.skipVideoProbe ? Promise.resolve(null) : original.probeVideoDimensions(...args),
+	};
+});
 
 vi.mock("@/native/client", () => ({
 	nativeBridgeClient: {
@@ -325,6 +335,88 @@ describe("useProjectStore", () => {
 		const asset = useProjectStore.getState().document?.assets[0];
 		expect(asset?.cameraTrack?.sourcePath).toBe("/w.mp4");
 		expect(asset).not.toHaveProperty("additionalCameraTracks");
+	});
+
+	describe("addAsset takes over the desk camera of the recording", () => {
+		beforeEach(() => {
+			durationMocks.skipVideoProbe = true;
+		});
+		afterEach(() => {
+			durationMocks.skipVideoProbe = false;
+		});
+
+		async function addRecording(
+			camera: { deskCamera?: number; extras: number },
+			legacyEditor: Record<string, unknown> | null = null,
+		) {
+			clearHistory();
+			useProjectStore.setState({
+				projectId: "proj_test",
+				document: sampleDoc,
+				revision: 1,
+				status: "ready",
+				error: null,
+			});
+			bridgeMocks.save.mockImplementation(async (document) => ({ success: true, document }));
+			// biome-ignore lint/suspicious/noExplicitAny: test-only stub of the legacy contextBridge surface
+			(window as any).electronAPI.findRecordingCamera.mockResolvedValue({
+				success: true,
+				webcamVideoPath: "/w.mp4",
+				offsetMs: 0,
+				additionalWebcams: Array.from({ length: camera.extras }, (_, i) => ({
+					path: `/w-${i + 2}.mp4`,
+					label: `Cam ${i + 2}`,
+				})),
+				...(camera.deskCamera !== undefined ? { deskCamera: camera.deskCamera } : {}),
+			});
+			bridgeMocks.addAsset.mockResolvedValue({
+				assetId: "asset_1",
+				document: {
+					...sampleDoc,
+					assets: [
+						{ id: "asset_1", kind: "video", label: "screen.mp4", originalPath: "/tmp/screen.mp4" },
+					],
+					project: { ...sampleDoc.project, primaryAssetId: "asset_1" },
+					legacyEditor,
+				},
+			});
+
+			await useProjectStore.getState().addAsset("/tmp/screen.mp4");
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			return useProjectStore.getState().document?.legacyEditor as Record<string, unknown> | null;
+		}
+
+		it("sets it on a project that has none, in the same history-free save", async () => {
+			const legacy = await addRecording({ deskCamera: 1, extras: 1 });
+
+			expect(legacy?.deskCamera).toBe(1);
+			expect(bridgeMocks.save).toHaveBeenCalledTimes(1);
+			expect(past).toHaveLength(0);
+		});
+
+		it("takes camera 1 as well", async () => {
+			const legacy = await addRecording({ deskCamera: 0, extras: 1 }, { cameraSettings: [] });
+
+			expect(legacy).toMatchObject({ deskCamera: 0, cameraSettings: [] });
+		});
+
+		it("keeps a desk camera the project already has", async () => {
+			const legacy = await addRecording({ deskCamera: 1, extras: 1 }, { deskCamera: 0 });
+
+			expect(legacy?.deskCamera).toBe(0);
+		});
+
+		it("ignores an index past the linked cameras", async () => {
+			const legacy = await addRecording({ deskCamera: 2, extras: 1 });
+
+			expect(legacy?.deskCamera).toBeUndefined();
+		});
+
+		it("adds nothing for a recording without a desk camera", async () => {
+			const legacy = await addRecording({ extras: 1 });
+
+			expect(legacy).toBeNull();
+		});
 	});
 
 	it("addAsset stays silent (no toast) when a plain imported video has no camera", async () => {

@@ -123,6 +123,8 @@ export function LaunchWindow() {
 		setWebcamDeviceName,
 		webcamAdditionalDevices,
 		setWebcamAdditionalDevices,
+		webcamDeskDevice,
+		setWebcamDeskDevice,
 		cursorCaptureMode,
 		setCursorCaptureMode,
 		softwareEncoderFallbackNoticeVisible,
@@ -960,6 +962,15 @@ export function LaunchWindow() {
 		[controlsLocked, persistRecordingPrefs, setWebcamAdditionalDevices],
 	);
 
+	const handleChangeDeskCamera = useCallback(
+		(next: AdditionalCameraChoice | null) => {
+			if (controlsLocked) return;
+			setWebcamDeskDevice(next);
+			persistRecordingPrefs({ camDeskDevice: next });
+		},
+		[controlsLocked, persistRecordingPrefs, setWebcamDeskDevice],
+	);
+
 	const toggleDeviceSettings = useCallback(() => {
 		if (controlsLocked) return;
 		setIsLanguageMenuOpen(false);
@@ -1124,13 +1135,20 @@ export function LaunchWindow() {
 							title: t("webcam.additionalCameras"),
 							hint: t("webcam.additionalCamerasHint"),
 						},
+						desk: {
+							selected: webcamDeskDevice,
+							onChange: handleChangeDeskCamera,
+							labels: { title: t("webcam.deskCamera"), none: t("webcam.deskCameraNone") },
+						},
 					}
 				: undefined,
 		[
 			handleChangeAdditionalCameras,
+			handleChangeDeskCamera,
 			nativeWindowsCapture,
 			t,
 			webcamAdditionalDevices,
+			webcamDeskDevice,
 			webcamEnabled,
 		],
 	);

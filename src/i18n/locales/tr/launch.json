@@ -50,6 +50,8 @@
 		"quality": "Kamera kalitesi",
 		"additionalCameras": "Ek kameralar",
 		"additionalCamerasHint": "Yalnızca yerel Windows kaydıyla",
+		"deskCamera": "Masa kamerası",
+		"deskCameraNone": "Yok",
 		"camerasNotRecorded": "Kaydedilmedi: {{names}}",
 		"camerasStoppedEarly": "Erken durdu: {{names}}",
 		"quality1080p": "1080p",

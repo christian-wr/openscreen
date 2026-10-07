@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { deskCameraIndex, resolveAdditionalWebcams } from "./additionalWebcams";
+import {
+	deskCameraIndex,
+	nativeRequestCameraFields,
+	resolveAdditionalWebcams,
+} from "./additionalWebcams";
 
 const present = [
 	{ deviceId: "a", label: "Cam A" },
@@ -87,5 +91,61 @@ describe("deskCameraIndex", () => {
 
 	it("answers undefined without a desk camera", () => {
 		expect(deskCameraIndex(null, camera1, recorded)).toBeUndefined();
+	});
+
+	it("matches camera 1 by name when the live identity carries no id", () => {
+		// The HUD stores camera 1 under its enumerated id; a recorder that could not read the id
+		// off the track must still find it.
+		expect(deskCameraIndex({ id: "a", name: "Cam A" }, { id: null, name: "Cam A" }, recorded)).toBe(
+			0,
+		);
+	});
+});
+
+describe("nativeRequestCameraFields", () => {
+	const camera1 = { deviceId: "a", deviceName: "Cam A" };
+
+	it("puts the additional cameras and the desk camera's index into the request", () => {
+		expect(
+			nativeRequestCameraFields(
+				[
+					{ id: "c", name: "Cam C" },
+					{ id: "b", name: "Cam B" },
+				],
+				{ id: "b", name: "Cam B" },
+				present,
+				camera1,
+			),
+		).toEqual({
+			additionalWebcams: [
+				{ deviceId: "c", deviceName: "Cam C" },
+				{ deviceId: "b", deviceName: "Cam B" },
+			],
+			deskCamera: 2,
+		});
+	});
+
+	it("answers 0 when camera 1 is the desk camera", () => {
+		expect(
+			nativeRequestCameraFields(
+				[{ id: "b", name: "Cam B" }],
+				{ id: "a", name: "Cam A" },
+				present,
+				camera1,
+			),
+		).toEqual({ additionalWebcams: [{ deviceId: "b", deviceName: "Cam B" }], deskCamera: 0 });
+	});
+
+	it("leaves both keys out when there is nothing to add", () => {
+		expect(nativeRequestCameraFields([], null, present, camera1)).toEqual({});
+		// A desk camera that is not recorded is no desk camera.
+		expect(
+			nativeRequestCameraFields(
+				[{ id: "b", name: "Cam B" }],
+				{ id: "d", name: "Cam D" },
+				present,
+				camera1,
+			),
+		).toEqual({ additionalWebcams: [{ deviceId: "b", deviceName: "Cam B" }] });
 	});
 });

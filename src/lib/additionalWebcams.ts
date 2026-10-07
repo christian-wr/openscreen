@@ -35,9 +35,13 @@ export function resolveAdditionalWebcams(
 	return resolved;
 }
 
-/** The same camera by the rule of the camera lists: by id when the pick has one, else by name. */
+/**
+ * The same camera by the rule of the camera lists: by id when the pick has one, else by name.
+ * Also by name when the camera itself has no id: camera 1's live identity can lack one (no track
+ * to read it off), while the HUD always stores the pick under the id it enumerated.
+ */
 function isSameCamera(pick: AdditionalCameraPick, camera: AdditionalCameraPick): boolean {
-	return pick.id !== null ? pick.id === camera.id : pick.name === camera.name;
+	return pick.id !== null && camera.id !== null ? pick.id === camera.id : pick.name === camera.name;
 }
 
 /**
@@ -53,4 +57,30 @@ export function deskCameraIndex(
 	if (camera1 && isSameCamera(desk, camera1)) return 0;
 	const index = recorded.findIndex((camera) => isSameCamera(desk, camera));
 	return index >= 0 ? index + 1 : undefined;
+}
+
+/**
+ * The camera fields of a native Windows request beside camera 1: cameras 2-4 that are plugged in
+ * and the desk camera's index among the recorded cameras. Each key is left out when it has
+ * nothing to say, so a request with camera 1 alone looks as it always did.
+ */
+export function nativeRequestCameraFields(
+	additionalPicks: AdditionalCameraPick[],
+	deskPick: AdditionalCameraPick | null,
+	present: PresentCamera[],
+	camera1: { deviceId?: string; deviceName?: string },
+): {
+	additionalWebcams?: Array<{ deviceId: string; deviceName: string }>;
+	deskCamera?: number;
+} {
+	const additionalWebcams = resolveAdditionalWebcams(additionalPicks, present, camera1.deviceId);
+	const deskCamera = deskCameraIndex(
+		deskPick,
+		{ id: camera1.deviceId ?? null, name: camera1.deviceName ?? "" },
+		additionalWebcams.map((extra) => ({ id: extra.deviceId, name: extra.deviceName })),
+	);
+	return {
+		...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
+		...(deskCamera !== undefined ? { deskCamera } : {}),
+	};
 }

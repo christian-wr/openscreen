@@ -50,6 +50,8 @@
 		"quality": "攝影機畫質",
 		"additionalCameras": "額外攝影機",
 		"additionalCamerasHint": "僅限 Windows 原生錄影",
+		"deskCamera": "書桌攝影機",
+		"deskCameraNone": "無",
 		"camerasNotRecorded": "未錄製：{{names}}",
 		"camerasStoppedEarly": "提前停止：{{names}}",
 		"quality1080p": "1080p",

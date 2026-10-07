@@ -50,6 +50,8 @@
 		"quality": "Camera quality",
 		"additionalCameras": "Additional cameras",
 		"additionalCamerasHint": "Only with native Windows recording",
+		"deskCamera": "Desk camera",
+		"deskCameraNone": "None",
 		"camerasNotRecorded": "Not recorded: {{names}}",
 		"camerasStoppedEarly": "Stopped early: {{names}}",
 		"quality1080p": "1080p",

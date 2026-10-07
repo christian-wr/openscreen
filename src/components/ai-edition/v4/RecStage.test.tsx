@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { RecStage } from "./RecStage";
@@ -40,10 +40,13 @@ vi.mock("@/hooks/useMicrophoneDevices", () => ({
 	},
 }));
 
+const cameraHook = vi.hoisted(() => ({
+	devices: [] as Array<{ deviceId: string; label: string; groupId: string }>,
+}));
 vi.mock("@/hooks/useCameraDevices", () => ({
 	useCameraDevices: () => ({
-		devices: [],
-		selectedDeviceId: "",
+		devices: cameraHook.devices,
+		selectedDeviceId: cameraHook.devices[0]?.deviceId ?? "",
 		setSelectedDeviceId: vi.fn(),
 		isLoading: false,
 		error: null,
@@ -150,6 +153,7 @@ describe("RecStage controls", () => {
 			error: null,
 		};
 		editableCursor.available = true;
+		cameraHook.devices = [];
 		vi.stubGlobal("ResizeObserver", StubResizeObserver);
 	});
 
@@ -402,6 +406,45 @@ describe("RecStage controls", () => {
 		fireEvent.click(toggle);
 		await waitFor(() =>
 			expect(microphoneHook.call).toHaveBeenLastCalledWith(true, undefined, undefined),
+		);
+	});
+
+	it("offers the desk camera among the recorded cameras, and persists the pick", async () => {
+		cameraHook.devices = [
+			{ deviceId: "cam-1", label: "Brio", groupId: "g1" },
+			{ deviceId: "cam-2", label: "C920", groupId: "g2" },
+		];
+		const { setRecordingPrefs } = stubRecordingPrefs({
+			camEnabled: true,
+			camDeviceId: "cam-1",
+			camDeviceName: "Brio",
+			camAdditionalDevices: [{ id: "cam-2", name: "C920" }],
+			camDeskDevice: null,
+		});
+		Object.assign(window.electronAPI as object, {
+			getPlatform: () => "win32",
+			isNativeWindowsCaptureAvailable: vi.fn(async () => ({ success: true, available: true })),
+		});
+		renderRecStage();
+
+		const desk = within(await screen.findByRole("group", { name: "webcam.deskCamera" }));
+		expect(desk.getAllByRole("menuitemradio").map((item) => item.textContent)).toEqual([
+			"webcam.deskCameraNone",
+			"Brio",
+			"C920",
+		]);
+		await waitFor(() =>
+			expect(desk.getByRole("menuitemradio", { name: "C920" })).not.toBeDisabled(),
+		);
+		fireEvent.click(desk.getByRole("menuitemradio", { name: "C920" }));
+		await waitFor(() =>
+			expect(setRecordingPrefs).toHaveBeenCalledWith({
+				camDeskDevice: { id: "cam-2", name: "C920" },
+			}),
+		);
+		expect(desk.getByRole("menuitemradio", { name: "C920" })).toHaveAttribute(
+			"aria-checked",
+			"true",
 		);
 	});
 

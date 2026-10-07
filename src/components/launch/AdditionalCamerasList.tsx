@@ -36,8 +36,21 @@ interface AdditionalCamerasListProps {
 	classes?: AdditionalCamerasClasses;
 }
 
-function isSameCamera(choice: AdditionalCameraChoice, device: CameraDevice): boolean {
+export function isSameCamera(choice: AdditionalCameraChoice, device: CameraDevice): boolean {
 	return choice.id !== null ? choice.id === device.deviceId : choice.name === device.label;
+}
+
+/**
+ * The picks that can be recorded: plugged in and not camera 1. A saved pick whose camera is
+ * unplugged is neither shown nor counted.
+ */
+export function presentAdditionalCameras(
+	devices: CameraDevice[],
+	primaryDeviceId: string | undefined,
+	selected: AdditionalCameraChoice[],
+): AdditionalCameraChoice[] {
+	const offered = devices.filter((device) => device.deviceId !== primaryDeviceId);
+	return selected.filter((choice) => offered.some((device) => isSameCamera(choice, device)));
 }
 
 /**
@@ -54,10 +67,7 @@ export function AdditionalCamerasList({
 	classes,
 }: AdditionalCamerasListProps) {
 	const offered = devices.filter((device) => device.deviceId !== primaryDeviceId);
-	// A saved pick whose camera is unplugged is neither shown nor counted: it cannot be recorded.
-	const present = selected.filter((choice) =>
-		offered.some((device) => isSameCamera(choice, device)),
-	);
+	const present = presentAdditionalCameras(devices, primaryDeviceId, selected);
 	const full = present.length >= MAX_ADDITIONAL_CAMERAS;
 
 	const toggle = (device: CameraDevice) => {
