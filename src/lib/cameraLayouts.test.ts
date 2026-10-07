@@ -165,11 +165,36 @@ describe("normalizeCameraLayoutRegions", () => {
 	});
 });
 
+describe("normalizeCameraLayoutRegions with a main camera", () => {
+	it("keeps camera 1's camera-full row and drops the main camera's", () => {
+		const out = normalizeCameraLayoutRegions(
+			[
+				{ ...base, template: "camera-full", slots: [{ camera: 0 }] },
+				{
+					...base,
+					id: "b",
+					startMs: 5000,
+					endMs: 6000,
+					template: "camera-full",
+					slots: [{ camera: 1 }],
+				},
+			],
+			1,
+		);
+		expect(out.map((r) => r.id)).toEqual([base.id]);
+	});
+});
+
 describe("isFullCameraLayout", () => {
 	it("is true only for camera-full with camera 1", () => {
 		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 0 }] })).toBe(true);
 		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 1 }] })).toBe(false);
 		expect(isFullCameraLayout({ template: "screen-pip", slots: [{ camera: 0 }] })).toBe(false);
+	});
+
+	it("follows the main camera: camera-full of the main camera is the Full Camera region", () => {
+		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 1 }] }, 1)).toBe(true);
+		expect(isFullCameraLayout({ template: "camera-full", slots: [{ camera: 0 }] }, 1)).toBe(false);
 	});
 
 	it("is false for a camera-full row that names more than one camera", () => {

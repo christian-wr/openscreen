@@ -79,12 +79,19 @@ export type AnchoredCameraLayoutRegion = CameraLayoutRegion & {
 	sourceEndSec?: number;
 };
 
-/** A `camera-full` section of camera 1: that is a Full Camera region, never a layout row. */
+/**
+ * A `camera-full` section of the main camera (`mainCamera`, camera 1 by default): that is a
+ * Full Camera region, never a layout row. A `camera-full` section of any other camera, camera 1
+ * included while another camera is the main one, is a layout row.
+ */
 export function isFullCameraLayout(
 	region: Pick<CameraLayoutRegion, "template" | "slots">,
+	mainCamera = 0,
 ): boolean {
 	return (
-		region.template === "camera-full" && region.slots.length === 1 && region.slots[0]?.camera === 0
+		region.template === "camera-full" &&
+		region.slots.length === 1 &&
+		region.slots[0]?.camera === mainCamera
 	);
 }
 
@@ -132,14 +139,18 @@ function normalizeAll(raw: unknown): AnchoredCameraLayoutRegion[] {
 
 /**
  * Reads stored layout regions defensively: invalid ones are dropped, and a later row that
- * overlaps an earlier one in this list is dropped too. A `camera-full` row of camera 1 is
- * dropped as well: that section is stored in `cameraFullscreenRegions`, never here. Overlaps
- * with that other list are prevented by the editor, not repaired here.
+ * overlaps an earlier one in this list is dropped too. A `camera-full` row of the main camera
+ * (`mainCamera`, camera 1 by default) is dropped as well: that section is stored in
+ * `cameraFullscreenRegions`, never here. Overlaps with that other list are prevented by the
+ * editor, not repaired here.
  */
-export function normalizeCameraLayoutRegions(raw: unknown): AnchoredCameraLayoutRegion[] {
+export function normalizeCameraLayoutRegions(
+	raw: unknown,
+	mainCamera = 0,
+): AnchoredCameraLayoutRegion[] {
 	const kept: AnchoredCameraLayoutRegion[] = [];
 	for (const region of normalizeAll(raw)) {
-		if (isFullCameraLayout(region)) continue;
+		if (isFullCameraLayout(region, mainCamera)) continue;
 		const last = kept[kept.length - 1];
 		if (last && region.startMs < last.endMs) continue;
 		kept.push(region);
