@@ -10,7 +10,10 @@ vi.mock("@/native", () => ({
 	cancelGifExportNative: vi.fn(async () => ({ accepted: true })),
 	useIsCpuCompositor: () => false,
 }));
-vi.mock("@/native/sceneDescription", () => ({
+vi.mock("@/native/sceneDescription", async (importOriginal) => ({
+	// The real clip list: it is what the native export is handed.
+	buildCompositorClipList: (await importOriginal<typeof import("@/native/sceneDescription")>())
+		.buildCompositorClipList,
 	buildSceneDescription: () => ({ speedRegions: [] }),
 	resolveVisibleClips: (doc: AxcutDocument) => doc.timeline.clips,
 }));

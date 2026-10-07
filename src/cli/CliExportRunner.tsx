@@ -26,8 +26,6 @@ import {
 	appendAutoZoomSuggestions,
 	collectAutoZoomSuggestionsForDocument,
 } from "@/lib/ai-edition/timeline/apply-auto-zooms";
-import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
-import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import type { CliDoneResult, CliExportRequest } from "@/lib/cliContracts";
 import { GIF_SIZE_PRESETS, type GifSizePreset } from "@/lib/exporter";
 import { calculateMp4ExportSettings } from "@/lib/exporter/mp4ExportSettings";
@@ -35,7 +33,7 @@ import { outputFrameCount } from "@/lib/exporter/outputFrameCount";
 import { mixVoiceoverIntoVideo } from "@/lib/exporter/voiceoverMix";
 import { exportGifNative, exportMultiNative, nativeBridgeClient } from "@/native";
 import type { CompositorClipInput } from "@/native/contracts";
-import { buildSceneDescription, resolveVisibleClips } from "@/native/sceneDescription";
+import { buildCompositorClipList, buildSceneDescription } from "@/native/sceneDescription";
 import { type ExportProject, loadDocumentProject } from "./exportProject";
 
 const MP4_EXPORT_FPS = 60;
@@ -76,32 +74,10 @@ function replaceExtension(filePath: string, newExtension: string): string {
 	return filePath.replace(/\.(openscreen|json)$/i, "") + newExtension;
 }
 
-/** Mirrors ExportDialog.buildNativeClipList: trim-narrowed visible clips mapped
- * onto the native multiclip contract. Kept in lock-step with
- * buildSceneDescription so export and scene agree on the clip stream. */
+/** The native multiclip input: the shared compositor clip list, so the CLI export decodes the
+ *  same cameras as the scene draws (the main camera included). */
 export function buildNativeClipList(axcutDocument: AxcutDocument): CompositorClipInput[] {
-	const assetById = new Map(axcutDocument.assets.map((asset) => [asset.id, asset]));
-	return resolveVisibleClips(axcutDocument).flatMap((clip) => {
-		const asset = assetById.get(clip.assetId);
-		if (!asset?.originalPath) {
-			return [];
-		}
-		const camera = assetCameraSource(asset);
-		// Cameras 2-4, only sent when the asset has any (same rule as `buildSceneDescription`).
-		const additionalCameras = assetAdditionalCameraSources(asset);
-		const sourceEndSec = resolveClipSourceEndSec(clip, asset);
-		return [
-			{
-				screenPath: asset.originalPath,
-				webcamPath: camera.path,
-				sourceStartSec: clip.sourceStartSec,
-				sourceEndSec,
-				webcamOffsetSec: camera.offsetSec,
-				hasAudio: true,
-				...(additionalCameras.length > 0 ? { additionalCameras } : {}),
-			},
-		];
-	});
+	return buildCompositorClipList(axcutDocument);
 }
 
 /** Mirrors ExportDialog.gifOutputDims: cap height at the preset, keep even. */

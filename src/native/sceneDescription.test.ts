@@ -26,6 +26,7 @@ import { DEVICE_FRAMES } from "@/lib/projectDefaults";
 import { getFocusBoundsForScale } from "@/lib/zoomMath/focusUtils";
 import {
 	annotationFootageRect,
+	buildCompositorClipList,
 	buildSceneDescription,
 	wallpaperAcceptsMotion,
 	webcamBoxSourceSize,
@@ -3863,6 +3864,36 @@ describe("buildSceneDescription with a main camera", () => {
 		expect(scene.cameraLayoutRegions).toHaveLength(1);
 		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
 		expect(deskLabels(scene)).toHaveLength(1);
+	});
+
+	// The clip list the preview and both exporters hand the compositor opens the decoders; the
+	// scene only says what to draw with them. Both must carry the main camera in camera 1's place.
+	it("feeds the compositor the main camera's files, the same clips the scene carries", () => {
+		const document = docWith({ mainCamera: 1 });
+		const clips = buildCompositorClipList(document);
+		expect(clips[0]).toMatchObject({
+			screenPath: "/screen.mp4",
+			webcamPath: "/w-2.mp4",
+			webcamOffsetSec: 0.25,
+			additionalCameras: [{ path: "/w-1.mp4", offsetSec: 0 }],
+		});
+		expect(clips).toEqual(buildSceneDescription(document).clips);
+		expect(buildCompositorClipList(docWith(null))[0]).toMatchObject({
+			webcamPath: "/w-1.mp4",
+			additionalCameras: [{ path: "/w-2.mp4", offsetSec: 0.25 }],
+		});
+	});
+
+	// The default layout outside any section is the preset's: a main camera changes which camera
+	// fills the PiP, never whether there is one.
+	it("keeps the preset's camera box with a main camera, and none under no-webcam", () => {
+		const pip = { webcamLayoutPreset: "picture-in-picture" };
+		expect(
+			buildSceneDescription(docWith({ ...pip, mainCamera: 1 })).layout.webcamRect,
+		).not.toBeNull();
+		const none = { webcamLayoutPreset: "no-webcam" };
+		expect(buildSceneDescription(docWith({ ...none, mainCamera: 1 })).layout.webcamRect).toBeNull();
+		expect(buildSceneDescription(docWith(none)).layout.webcamRect).toBeNull();
 	});
 
 	it("ignores a main camera that is not available", () => {

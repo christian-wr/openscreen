@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type AxcutAsset, type AxcutDocument, axcutSchemaVersion } from "@/lib/ai-edition/schema";
 import { buildNativeClipList } from "./CliExportRunner";
 
-function doc(asset: AxcutAsset): AxcutDocument {
+function doc(asset: AxcutAsset, legacyEditor: AxcutDocument["legacyEditor"] = null): AxcutDocument {
 	return {
 		schemaVersion: axcutSchemaVersion,
 		project: {
@@ -38,7 +39,7 @@ function doc(asset: AxcutAsset): AxcutDocument {
 		annotations: [],
 		zoomRanges: [],
 		audioTracks: [],
-		legacyEditor: null,
+		legacyEditor,
 	};
 }
 
@@ -68,4 +69,35 @@ describe("CLI export clip list", () => {
 		const clips = buildNativeClipList(doc(ASSET));
 		expect(clips[0]).not.toHaveProperty("additionalCameras");
 	});
+
+	it("exports the main camera in camera 1's place", () => {
+		const clips = buildNativeClipList(
+			doc(
+				{
+					...ASSET,
+					cameraTrack: { sourcePath: "/tmp/cam1.mp4", startMs: 0, offsetMs: 0, visible: true },
+					additionalCameraTracks: [
+						{ sourcePath: "/tmp/cam2.mp4", startMs: 500, offsetMs: 0, visible: true, label: "" },
+					],
+				},
+				{ mainCamera: 1 },
+			),
+		);
+		expect(clips[0]).toMatchObject({
+			webcamPath: "/tmp/cam2.mp4",
+			webcamOffsetSec: 0.5,
+			additionalCameras: [{ path: "/tmp/cam1.mp4", offsetSec: 0 }],
+		});
+	});
+});
+
+// Every producer of compositor clip inputs reads them through `buildCompositorClipList` /
+// `clipCameraInputs`, so none of them can miss the main camera again.
+it.each([
+	"src/cli/CliExportRunner.tsx",
+	"src/components/ai-edition/ExportDialog.tsx",
+	"src/components/ai-edition/NativeCompositorOverlay.tsx",
+])("%s builds no camera inputs of its own", (file) => {
+	const source = readFileSync(file, "utf8");
+	expect(source).not.toMatch(/assetCameraSource\(|assetAdditionalCameraSources\(/);
 });

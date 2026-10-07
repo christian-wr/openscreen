@@ -16,7 +16,10 @@ vi.mock("@/native", () => ({
 	useIsCpuCompositor: () => false,
 }));
 
-vi.mock("@/native/sceneDescription", () => ({
+vi.mock("@/native/sceneDescription", async (importOriginal) => ({
+	// The real clip list: it is what the native export is handed.
+	buildCompositorClipList: (await importOriginal<typeof import("@/native/sceneDescription")>())
+		.buildCompositorClipList,
 	// `speedRegions` is what the export dialog reads to size the progress total
 	// (`outputFrameCount`); an empty object here made it read `undefined`.
 	buildSceneDescription: () => ({ speedRegions: [] }),

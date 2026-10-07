@@ -688,8 +688,8 @@ function sceneBackground(wallpaper: string, motion: WallpaperMotion): SceneBackg
  * The ONE clip list every native-facing consumer must build from — trim-narrowed
  * (`resolvePlaybackSegments`, so word-level cuts from the transcript editor actually reach
  * native instead of only affecting the transcript panel's own strikethrough), sorted, and
- * filtered to clips whose asset has a resolvable path. Shared by `buildSceneDescription`
- * below, `ExportDialog.tsx`'s `buildNativeClipList` (native MP4 export), and
+ * filtered to clips whose asset has a resolvable path. Shared by `buildCompositorClipList`
+ * below (the scene's clips and both native exports), and
  * `NativeCompositorOverlay.tsx`'s `nativeClips` (live preview) — previously these three each
  * hand-rolled their own sort+filter, acknowledged as needing to be "kept in lock-step".
  */
@@ -713,6 +713,57 @@ export function resolveVisibleClips(document: AxcutDocument): PlaybackSegment[] 
 	return resolvePlaybackSegments(document.timeline.clips, document.timeline.trimRanges)
 		.sort((a, b) => a.timelineStartSec - b.timelineStartSec)
 		.filter((clip) => clipAssetIsResolvable(clip, assetById));
+}
+
+/**
+ * The camera files the compositor decodes for a clip of `asset`. Pass the asset as the scene
+ * sees it (`withMainCamera`), so a main camera opens in camera 1's decoder; every producer of
+ * clip inputs (scene, preview, export dialog, CLI) goes through here.
+ */
+export function clipCameraInputs(
+	asset: AxcutAsset,
+): Pick<CompositorClipInput, "webcamPath" | "webcamOffsetSec" | "additionalCameras"> {
+	const camera = assetCameraSource(asset);
+	// Cameras 2-4, only sent when the asset has any.
+	const additionalCameras = assetAdditionalCameraSources(asset);
+	return {
+		webcamPath: camera.path,
+		webcamOffsetSec: camera.offsetSec,
+		...(additionalCameras.length > 0 ? { additionalCameras } : {}),
+	};
+}
+
+/**
+ * The clips the compositor plays, with their files: the scene's `clips` and the native export's
+ * input are this one list, so the decoders always hold the cameras the scene draws (with a main
+ * camera chosen, that camera in camera 1's place).
+ */
+export function buildCompositorClipList(source: AxcutDocument): CompositorClipInput[] {
+	const document = withMainCamera(source);
+	const assetById = new Map(document.assets.map((a) => [a.id, a]));
+	return resolveVisibleClips(document).flatMap((clip) => {
+		const asset = assetById.get(clip.assetId);
+		if (!asset?.originalPath) return [];
+		const { webcamPath, webcamOffsetSec, additionalCameras } = clipCameraInputs(asset);
+		// ponytail: `asset.audio` exists in the schema but the probe pipeline never
+		// populates it, so there is no per-asset "is there a track?" signal to read
+		// yet. Every consumer downstream degrades on a stream-less file (audio.rs
+		// returns Ok(None)), so this stays optimistic. NOT "recordings always carry
+		// audio" — a capture made with no mic and no system audio has no audio
+		// stream at all (issue #348). Swap to `Boolean(asset.audio)` the day the
+		// probe fills it in.
+		return [
+			{
+				screenPath: asset.originalPath,
+				webcamPath,
+				sourceStartSec: clip.sourceStartSec,
+				sourceEndSec: resolveClipSourceEndSec(clip, asset),
+				webcamOffsetSec,
+				hasAudio: true,
+				...(additionalCameras ? { additionalCameras } : {}),
+			},
+		];
+	});
 }
 
 /** A clip's screen source size in pixels: its recording × its crop (see `screenSourceSizeOf`). */
@@ -1201,32 +1252,9 @@ export function buildSceneDescription(
 		return entries;
 	});
 	const visibleClips = resolveVisibleClips(document);
-	const clips: CompositorClipInput[] = visibleClips.flatMap((clip) => {
-		const asset = assetById.get(clip.assetId);
-		if (!asset?.originalPath) return [];
-		const camera = assetCameraSource(asset);
-		const additionalCameras = assetAdditionalCameraSources(asset);
-		// ponytail: `asset.audio` exists in the schema but the probe pipeline never
-		// populates it, so there is no per-asset "is there a track?" signal to read
-		// yet. Every consumer downstream degrades on a stream-less file (audio.rs
-		// returns Ok(None)), so this stays optimistic. NOT "recordings always carry
-		// audio" — a capture made with no mic and no system audio has no audio
-		// stream at all (issue #348). Swap to `Boolean(asset.audio)` the day the
-		// probe fills it in.
-		return [
-			{
-				screenPath: asset.originalPath,
-				webcamPath: camera.path,
-				sourceStartSec: clip.sourceStartSec,
-				sourceEndSec: resolveClipSourceEndSec(clip, asset),
-				webcamOffsetSec: camera.offsetSec,
-				hasAudio: true,
-				...(additionalCameras.length > 0 ? { additionalCameras } : {}),
-				// A held segment has an empty source window and exists only for the frames it
-				// holds; every other clip holds nothing.
-			},
-		];
-	});
+	// `document` is already the scene's copy; the list swaps nothing twice (`withMainCamera`
+	// returns that copy unchanged).
+	const clips = buildCompositorClipList(document);
 	const cropByClip = visibleClips.map(
 		(clip): { x: number; y: number; width: number; height: number } | null => {
 			const cropRegion = clip.cropRegion;

@@ -363,4 +363,28 @@ describe("NativeCompositorOverlay with a main camera", () => {
 		expect(probe.get).toHaveBeenCalledWith("/cam-2.mp4");
 		expect(probe.get).not.toHaveBeenCalledWith("/cam-1.mp4");
 	});
+
+	// Choosing the main camera on the clip the view already shows must reopen its decoders: the
+	// scene alone only says what to draw, the view keeps decoding the files it was given.
+	it("sends the clip again when the main camera changes under the playhead", async () => {
+		const withMain = useProjectStore.getState().document as AxcutDocument;
+		useProjectStore.setState({ document: { ...withMain, legacyEditor: null } });
+		render(<NativeCompositorOverlay />);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(native.setActiveClip).toHaveBeenLastCalledWith(7, "/take.mp4", "/cam-1.mp4", 0, 0, 1, [
+			{ path: "/cam-2.mp4", offsetSec: 0.5 },
+		]);
+		native.setActiveClip.mockClear();
+
+		act(() => {
+			useProjectStore.setState({ document: withMain });
+		});
+
+		expect(native.setActiveClip).toHaveBeenCalledTimes(1);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "/cam-2.mp4", 0.5, 0, 1, [
+			{ path: "/cam-1.mp4", offsetSec: 0 },
+		]);
+	});
 });
