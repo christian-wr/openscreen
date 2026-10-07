@@ -93,6 +93,20 @@ describe("deskCameraIndex", () => {
 		expect(deskCameraIndex(null, camera1, recorded)).toBeUndefined();
 	});
 
+	it("tells two cameras of the same name apart when camera 1 has no id", () => {
+		const brio1 = { id: null, name: "Brio" };
+		const extras = [{ id: "brio-2", name: "Brio" }];
+		expect(deskCameraIndex({ id: "brio-2", name: "Brio" }, brio1, extras)).toBe(1);
+		// Camera 1 picked: misses every extra id and still reaches camera 1 by name.
+		expect(deskCameraIndex({ id: "brio-1", name: "Brio" }, brio1, extras)).toBe(0);
+	});
+
+	it("never matches an extra whose id differs from the pick's by name", () => {
+		expect(
+			deskCameraIndex({ id: "brio-3", name: "Brio" }, camera1, [{ id: "brio-2", name: "Brio" }]),
+		).toBeUndefined();
+	});
+
 	it("matches camera 1 by name when the live identity carries no id", () => {
 		// The HUD stores camera 1 under its enumerated id; a recorder that could not read the id
 		// off the track must still find it.

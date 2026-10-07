@@ -54,9 +54,12 @@ export function deskCameraIndex(
 	recorded: AdditionalCameraPick[],
 ): number | undefined {
 	if (!desk) return undefined;
-	if (camera1 && isSameCamera(desk, camera1)) return 0;
+	// The recorded extras first: they always carry real ids, so they match by id. Camera 1's live
+	// identity may have no id and so match by name alone -- checked first, a second camera of the
+	// same name (two identical webcams) would be taken for camera 1.
 	const index = recorded.findIndex((camera) => isSameCamera(desk, camera));
-	return index >= 0 ? index + 1 : undefined;
+	if (index >= 0) return index + 1;
+	return camera1 && isSameCamera(desk, camera1) ? 0 : undefined;
 }
 
 /**
