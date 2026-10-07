@@ -31,24 +31,6 @@ interface DeskCameraListProps {
 }
 
 /**
- * The cameras a take will record, in recorded order: camera 1, then the additional cameras exactly
- * as `resolveAdditionalCameraPicks` resolves them -- the same devices the additional cameras' list
- * checks and the recording request carries. The desk camera can only be one of them.
- */
-function recordedCameras(
-	devices: CameraDevice[],
-	primaryDeviceId: string | undefined,
-	additional: AdditionalCameraChoice[],
-): CameraDevice[] {
-	const camera1 = devices.find((device) => device.deviceId === primaryDeviceId);
-	if (!camera1) return [];
-	const extras = resolveAdditionalCameraPicks(additional, devices, primaryDeviceId).map(
-		(entry) => entry.device,
-	);
-	return [camera1, ...extras];
-}
-
-/**
  * Radio list for the desk camera: "None" or one of the cameras the take records. Stored by the
  * camera's current id and name, like the additional cameras, and resolved by `deskCameraIndex`
  * like the recording request. A stored pick that resolves to none of the recorded cameras reads as
@@ -64,16 +46,23 @@ export function DeskCameraList({
 	labels,
 	classes,
 }: DeskCameraListProps) {
-	const cameras = recordedCameras(devices, primaryDeviceId, additional);
+	// The cameras the take records, in recorded order: camera 1, then the additional cameras exactly
+	// as `resolveAdditionalCameraPicks` pairs them -- the devices the additional cameras' list checks
+	// and the recording request carries. The desk camera can only be one of them.
+	const camera1 = devices.find((device) => device.deviceId === primaryDeviceId);
+	if (!camera1) return null;
+	const extras = resolveAdditionalCameraPicks(additional, devices, primaryDeviceId);
 	// A single camera is all of the take: there is nothing to tell apart.
-	if (cameras.length < 2) return null;
-	// The desk pick resolved exactly as the recording request resolves it (a stale id falls back
-	// to the name), so the checked row is the camera the take marks as the desk camera.
-	const [camera1, ...extras] = cameras.map((device) => ({
-		id: device.deviceId,
-		name: device.label,
-	}));
-	const chosenIndex = deskCameraIndex(selected, camera1, extras, devices);
+	if (extras.length === 0) return null;
+	const cameras = [camera1, ...extras.map((entry) => entry.device)];
+	// The desk pick resolved exactly as the recording request resolves it, so the checked row is
+	// the camera the take marks as the desk camera.
+	const chosenIndex = deskCameraIndex(
+		selected,
+		{ id: camera1.deviceId, name: camera1.label },
+		extras,
+		devices,
+	);
 	const chosen = chosenIndex !== undefined ? cameras[chosenIndex] : null;
 
 	const entries: Array<{ key: string; label: string; device: CameraDevice | null }> = [

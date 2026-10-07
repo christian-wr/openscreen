@@ -58,12 +58,11 @@ export function resolveAdditionalWebcams(
  */
 function camera1IdFromPresent(
 	camera1: AdditionalCameraPick,
-	recorded: AdditionalCameraPick[],
+	recordedIds: string[],
 	present: PresentCamera[],
 ): string | null | undefined {
 	const candidates = present.filter(
-		(device) =>
-			device.label === camera1.name && !recorded.some((extra) => extra.id === device.deviceId),
+		(device) => device.label === camera1.name && !recordedIds.includes(device.deviceId),
 	);
 	if (candidates.length === 0) return undefined;
 	return candidates.length === 1 ? candidates[0].deviceId : null;
@@ -74,42 +73,54 @@ function camera1IdFromPresent(
  * the k-th additional camera. Undefined when there is no desk camera or it is not recorded.
  *
  * This is the one place the desk pick is resolved: the HUD's desk list and the recording request
- * both read it. It follows `resolveAdditionalCameraPicks`: by id first, and by name only once the
- * id is gone (no plugged-in camera carries it). By name, the recorded extras come first in recorded
- * order, then camera 1 -- and camera 1 only while no other plugged-in camera shares its name.
- * `present` is the plugged-in cameras; it also settles camera 1's id when its live identity has
- * none (no track to read it off).
+ * both read it. `extras` are the additional cameras exactly as `resolveAdditionalCameraPicks`
+ * paired them, in recorded order; `present` is the plugged-in cameras in enumeration order.
+ *
+ * - By id first: a recorded extra, then camera 1. While a plugged-in camera carries the pick's id,
+ *   the pick names that camera and nothing else (undefined when it is not recorded).
+ * - Once the id is gone (no plugged-in camera carries it), or for a pick without one, by name as
+ *   the resolver would: the extra whose saved pick has the desk pick's id (the resolver already
+ *   placed that pick), else the first recorded extra of that name in enumeration order, else
+ *   camera 1 -- and camera 1 only while no other plugged-in camera shares its name.
+ *
+ * Camera 1's live identity can lack an id (no track to read it off); `present` then supplies it.
  */
 export function deskCameraIndex(
 	desk: AdditionalCameraPick | null,
 	camera1: AdditionalCameraPick | null,
-	recorded: AdditionalCameraPick[],
-	present: PresentCamera[] = [],
+	extras: Array<{ pick: AdditionalCameraPick; device: PresentCamera }>,
+	present: PresentCamera[],
 ): number | undefined {
 	if (!desk) return undefined;
+	const recordedIds = extras.map((entry) => entry.device.deviceId);
 	const camera1Id = camera1
-		? (camera1.id ?? camera1IdFromPresent(camera1, recorded, present))
+		? (camera1.id ?? camera1IdFromPresent(camera1, recordedIds, present))
 		: null;
 	if (desk.id !== null) {
-		const index = recorded.findIndex((camera) => camera.id === desk.id);
+		const index = recordedIds.indexOf(desk.id);
 		if (index >= 0) return index + 1;
-		if (camera1 && camera1Id === desk.id) return 0;
-		// Camera 1's id cannot be told (no id, and no plugged-in camera of its name): it may be the
-		// pick's id, so the name decides as it always did.
-		if (camera1 && camera1Id === undefined) return camera1.name === desk.name ? 0 : undefined;
-		// Camera 1 could be either of two identical webcams: no guess.
-		if (camera1 && camera1Id === null) return undefined;
-		// The id is on a plugged-in camera that is not recorded: that camera is the pick.
-		if (present.some((device) => device.deviceId === desk.id)) return undefined;
+		if (present.some((device) => device.deviceId === desk.id)) {
+			if (camera1 && camera1Id === desk.id) return 0;
+			// Camera 1's id cannot be told (no id, and no plugged-in camera of its name): it may be
+			// the pick's id, so the name decides as it always did.
+			if (camera1 && camera1Id === undefined) return camera1.name === desk.name ? 0 : undefined;
+			// A plugged-in camera that is not recorded, or one of two identical webcams: no guess.
+			return undefined;
+		}
+		const own = extras.findIndex((entry) => entry.pick.id === desk.id);
+		if (own >= 0) return own + 1;
 	}
-	const byName = recorded.findIndex((camera) => camera.name === desk.name);
-	if (byName >= 0) return byName + 1;
+	for (const device of present) {
+		if (device.label !== desk.name) continue;
+		const index = recordedIds.indexOf(device.deviceId);
+		if (index >= 0) return index + 1;
+	}
 	if (!camera1 || camera1.name !== desk.name || camera1Id === null) return undefined;
 	const sharesName = present.some(
 		(device) =>
 			device.label === desk.name &&
 			device.deviceId !== camera1Id &&
-			!recorded.some((extra) => extra.id === device.deviceId),
+			!recordedIds.includes(device.deviceId),
 	);
 	return sharesName ? undefined : 0;
 }
@@ -128,14 +139,18 @@ export function nativeRequestCameraFields(
 	additionalWebcams?: Array<{ deviceId: string; deviceName: string }>;
 	deskCamera?: number;
 } {
-	const additionalWebcams = resolveAdditionalWebcams(additionalPicks, present, camera1.deviceId);
+	const extras = resolveAdditionalCameraPicks(additionalPicks, present, camera1.deviceId);
+	const additionalWebcams = extras.map(({ device }) => ({
+		deviceId: device.deviceId,
+		deviceName: device.label,
+	}));
 	// A desk camera needs a second camera to be one: a take with camera 1 alone has none.
 	const deskCamera =
-		additionalWebcams.length > 0
+		extras.length > 0
 			? deskCameraIndex(
 					deskPick,
 					{ id: camera1.deviceId ?? null, name: camera1.deviceName ?? "" },
-					additionalWebcams.map((extra) => ({ id: extra.deviceId, name: extra.deviceName })),
+					extras,
 					present,
 				)
 			: undefined;

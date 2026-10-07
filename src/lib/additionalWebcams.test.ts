@@ -64,44 +64,52 @@ describe("resolveAdditionalWebcams", () => {
 	});
 });
 
+/** Extras as the resolver pairs them, for picks that resolve to the camera under their own id. */
+const asResolved = (picks: Array<{ id: string; name: string }>) =>
+	picks.map((pick) => ({ pick, device: { deviceId: pick.id, label: pick.name } }));
+
 describe("deskCameraIndex", () => {
 	const camera1 = { id: "a", name: "Cam A" };
-	const recorded = [
+	const recorded = asResolved([
 		{ id: "b", name: "Cam B" },
 		{ id: "c", name: "Cam C" },
-	];
+	]);
 
 	it("answers 0 for camera 1", () => {
-		expect(deskCameraIndex({ id: "a", name: "Cam A" }, camera1, recorded)).toBe(0);
+		expect(deskCameraIndex({ id: "a", name: "Cam A" }, camera1, recorded, present)).toBe(0);
 	});
 
 	it("answers k for the k-th additional camera recorded", () => {
-		expect(deskCameraIndex({ id: "b", name: "Cam B" }, camera1, recorded)).toBe(1);
-		expect(deskCameraIndex({ id: "c", name: "Cam C" }, camera1, recorded)).toBe(2);
+		expect(deskCameraIndex({ id: "b", name: "Cam B" }, camera1, recorded, present)).toBe(1);
+		expect(deskCameraIndex({ id: "c", name: "Cam C" }, camera1, recorded, present)).toBe(2);
 	});
 
 	it("matches by name when the pick has no id, and by id while that id is plugged in", () => {
-		expect(deskCameraIndex({ id: null, name: "Cam C" }, camera1, recorded)).toBe(2);
+		expect(deskCameraIndex({ id: null, name: "Cam C" }, camera1, recorded, present)).toBe(2);
 		// zz is plugged in but not recorded: the pick names that camera, not Cam C.
 		const withZz = [...present, { deviceId: "zz", label: "Cam C" }];
 		expect(deskCameraIndex({ id: "zz", name: "Cam C" }, camera1, recorded, withZz)).toBeUndefined();
 	});
 
 	it("answers undefined for a camera that is not recorded", () => {
-		expect(deskCameraIndex({ id: "d", name: "Cam D" }, camera1, recorded)).toBeUndefined();
-		expect(deskCameraIndex({ id: "a", name: "Cam A" }, null, recorded)).toBe(undefined);
+		expect(deskCameraIndex({ id: "d", name: "Cam D" }, camera1, recorded, present)).toBeUndefined();
+		expect(deskCameraIndex({ id: "a", name: "Cam A" }, null, recorded, present)).toBe(undefined);
 	});
 
 	it("answers undefined without a desk camera", () => {
-		expect(deskCameraIndex(null, camera1, recorded)).toBeUndefined();
+		expect(deskCameraIndex(null, camera1, recorded, present)).toBeUndefined();
 	});
 
 	it("tells two cameras of the same name apart when camera 1 has no id", () => {
 		const brio1 = { id: null, name: "Brio" };
-		const extras = [{ id: "brio-2", name: "Brio" }];
-		expect(deskCameraIndex({ id: "brio-2", name: "Brio" }, brio1, extras)).toBe(1);
-		// Camera 1 picked: misses every extra id and still reaches camera 1 by name.
-		expect(deskCameraIndex({ id: "brio-1", name: "Brio" }, brio1, extras)).toBe(0);
+		const extras = asResolved([{ id: "brio-2", name: "Brio" }]);
+		const brios = [
+			{ deviceId: "brio-1", label: "Brio" },
+			{ deviceId: "brio-2", label: "Brio" },
+		];
+		expect(deskCameraIndex({ id: "brio-2", name: "Brio" }, brio1, extras, brios)).toBe(1);
+		// Camera 1 picked: misses every extra id and still reaches camera 1.
+		expect(deskCameraIndex({ id: "brio-1", name: "Brio" }, brio1, extras, brios)).toBe(0);
 	});
 
 	it("never matches an extra by name while the pick's own id is plugged in", () => {
@@ -114,7 +122,7 @@ describe("deskCameraIndex", () => {
 			deskCameraIndex(
 				{ id: "brio-3", name: "Brio" },
 				camera1,
-				[{ id: "brio-2", name: "Brio" }],
+				asResolved([{ id: "brio-2", name: "Brio" }]),
 				brios,
 			),
 		).toBeUndefined();
@@ -129,13 +137,32 @@ describe("deskCameraIndex", () => {
 			deskCameraIndex(
 				{ id: "old-id", name: "USB Camera" },
 				camera1,
-				[{ id: "new-id", name: "USB Camera" }],
+				asResolved([{ id: "new-id", name: "USB Camera" }]),
 				usbPresent,
 			),
 		).toBe(1);
 	});
 
-	it("resolves a stale id among same-name extras to the first recorded, extras before camera 1", () => {
+	it("resolves a stale id to the extra its own saved pick resolved to", () => {
+		// The reviewer's case: the resolver sends old-2 to brio-2, recorded after brio-3.
+		const brios = [
+			{ deviceId: "a", label: "Cam A" },
+			{ deviceId: "brio-2", label: "Brio" },
+			{ deviceId: "brio-3", label: "Brio" },
+		];
+		const extras = resolveAdditionalCameraPicks(
+			[
+				{ id: "brio-3", name: "Brio" },
+				{ id: "old-2", name: "Brio" },
+			],
+			brios,
+			"a",
+		);
+		expect(extras.map((entry) => entry.device.deviceId)).toEqual(["brio-3", "brio-2"]);
+		expect(deskCameraIndex({ id: "old-2", name: "Brio" }, camera1, extras, brios)).toBe(2);
+	});
+
+	it("resolves a stale id among same-name extras to the first enumerated, extras before camera 1", () => {
 		const brios = [
 			{ deviceId: "brio-1", label: "Brio" },
 			{ deviceId: "brio-2", label: "Brio" },
@@ -145,10 +172,27 @@ describe("deskCameraIndex", () => {
 			deskCameraIndex(
 				{ id: "old-id", name: "Brio" },
 				{ id: "brio-1", name: "Brio" },
-				[
+				asResolved([
 					{ id: "brio-3", name: "Brio" },
 					{ id: "brio-2", name: "Brio" },
-				],
+				]),
+				brios,
+			),
+		).toBe(2);
+	});
+
+	it("reaches the extras by name when camera 1 has no id and an unrecorded twin", () => {
+		// Camera 1 could be brio-1 or brio-3; the stale pick is neither, so the extras decide.
+		const brios = [
+			{ deviceId: "brio-1", label: "Brio" },
+			{ deviceId: "brio-2", label: "Brio" },
+			{ deviceId: "brio-3", label: "Brio" },
+		];
+		expect(
+			deskCameraIndex(
+				{ id: "old-x", name: "Brio" },
+				{ id: null, name: "Brio" },
+				asResolved([{ id: "brio-2", name: "Brio" }]),
 				brios,
 			),
 		).toBe(1);
@@ -160,7 +204,7 @@ describe("deskCameraIndex", () => {
 			{ deviceId: "b", label: "Cam B" },
 		];
 		const brio1 = { id: "brio-1", name: "Brio" };
-		const extras = [{ id: "b", name: "Cam B" }];
+		const extras = asResolved([{ id: "b", name: "Cam B" }]);
 		expect(deskCameraIndex({ id: "old-id", name: "Brio" }, brio1, extras, brioPresent)).toBe(0);
 		// A second Brio plugged in but not recorded: the stale pick could be either one.
 		expect(
@@ -177,10 +221,10 @@ describe("deskCameraIndex", () => {
 			{ deviceId: "brio-2", label: "Brio" },
 			{ deviceId: "brio-3", label: "Brio" },
 		];
-		const extras = [
+		const extras = asResolved([
 			{ id: "brio-2", name: "Brio" },
 			{ id: "brio-3", name: "Brio" },
-		];
+		]);
 		expect(deskCameraIndex({ id: "brio-3", name: "Brio" }, camera1, extras, brios)).toBe(2);
 		expect(deskCameraIndex({ id: "brio-2", name: "Brio" }, camera1, extras, brios)).toBe(1);
 	});
@@ -199,7 +243,7 @@ describe("deskCameraIndex", () => {
 			deskCameraIndex(
 				{ id: "brio-1", name: "Brio" },
 				{ id: null, name: "Brio" },
-				[{ id: "brio-2", name: "Brio" }],
+				asResolved([{ id: "brio-2", name: "Brio" }]),
 				brioPresent,
 			),
 		).toBe(0);
@@ -208,9 +252,9 @@ describe("deskCameraIndex", () => {
 	it("matches camera 1 by name when the live identity carries no id", () => {
 		// The HUD stores camera 1 under its enumerated id; a recorder that could not read the id
 		// off the track must still find it.
-		expect(deskCameraIndex({ id: "a", name: "Cam A" }, { id: null, name: "Cam A" }, recorded)).toBe(
-			0,
-		);
+		expect(
+			deskCameraIndex({ id: "a", name: "Cam A" }, { id: null, name: "Cam A" }, recorded, present),
+		).toBe(0);
 	});
 });
 
@@ -254,6 +298,24 @@ describe("nativeRequestCameraFields", () => {
 		expect(nativeRequestCameraFields([stale], stale, usbPresent, camera1)).toEqual({
 			additionalWebcams: [{ deviceId: "new-id", deviceName: "USB Camera" }],
 			deskCamera: 1,
+		});
+	});
+
+	it("sends the index of the extra a stale desk pick's own saved pick resolved to", () => {
+		const brios = [
+			{ deviceId: "a", label: "Cam A" },
+			{ deviceId: "brio-2", label: "Brio" },
+			{ deviceId: "brio-3", label: "Brio" },
+		];
+		const stale = { id: "old-2", name: "Brio" };
+		expect(
+			nativeRequestCameraFields([{ id: "brio-3", name: "Brio" }, stale], stale, brios, camera1),
+		).toEqual({
+			additionalWebcams: [
+				{ deviceId: "brio-3", deviceName: "Brio" },
+				{ deviceId: "brio-2", deviceName: "Brio" },
+			],
+			deskCamera: 2,
 		});
 	});
 

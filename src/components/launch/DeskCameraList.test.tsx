@@ -146,6 +146,22 @@ describe("DeskCameraList", () => {
 		expect(checked).toEqual(["false", "false", "false", "true"]);
 	});
 
+	it("checks the extra a stale desk pick's own saved pick resolved to", () => {
+		const brio = (id: string) => ({ deviceId: id, label: "Brio", groupId: id });
+		renderList({
+			devices: [device("A"), brio("brio-2"), brio("brio-3")],
+			additional: [
+				{ id: "brio-3", name: "Brio" },
+				{ id: "old-2", name: "Brio" },
+			],
+			selected: { id: "old-2", name: "Brio" },
+		});
+
+		// None, Camera A, brio-3, brio-2 (recorded order): the stale pick is brio-2.
+		const checked = screen.getAllByRole("radio").map((item) => item.getAttribute("aria-checked"));
+		expect(checked).toEqual(["false", "false", "false", "true"]);
+	});
+
 	it("is disabled with a hint without native Windows recording", () => {
 		const onChange = renderList({ disabled: true });
 
