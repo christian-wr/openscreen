@@ -111,6 +111,41 @@ describe("DeskCameraList", () => {
 		expect(onChange).toHaveBeenLastCalledWith({ id: "new-id", name: "USB Camera" });
 	});
 
+	it("checks the extra a stale desk pick resolves to by name", () => {
+		renderList({
+			devices: [device("A"), { deviceId: "new-id", label: "USB Camera", groupId: "g" }],
+			additional: [{ id: "old-id", name: "USB Camera" }],
+			selected: { id: "old-id", name: "USB Camera" },
+		});
+
+		expect(screen.getByRole("radio", { name: "USB Camera" })).toHaveAttribute(
+			"aria-checked",
+			"true",
+		);
+		expect(screen.getByRole("radio", { name: "None" })).toHaveAttribute("aria-checked", "false");
+	});
+
+	it("checks camera 1 for a stale desk pick of its name while no other camera shares it", () => {
+		renderList({ selected: { id: "old-id", name: "Camera A" } });
+
+		expect(screen.getByRole("radio", { name: "Camera A" })).toHaveAttribute("aria-checked", "true");
+	});
+
+	it("keeps a valid desk pick on its own camera among two extras of the same name", () => {
+		const brio = (id: string) => ({ deviceId: id, label: "Brio", groupId: id });
+		renderList({
+			devices: [device("A"), brio("brio-2"), brio("brio-3")],
+			additional: [
+				{ id: "brio-2", name: "Brio" },
+				{ id: "brio-3", name: "Brio" },
+			],
+			selected: { id: "brio-3", name: "Brio" },
+		});
+
+		const checked = screen.getAllByRole("radio").map((item) => item.getAttribute("aria-checked"));
+		expect(checked).toEqual(["false", "false", "false", "true"]);
+	});
+
 	it("is disabled with a hint without native Windows recording", () => {
 		const onChange = renderList({ disabled: true });
 

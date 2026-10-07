@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import { isDeskPickCamera, resolveAdditionalCameraPicks } from "@/lib/additionalWebcams";
+import { deskCameraIndex, resolveAdditionalCameraPicks } from "@/lib/additionalWebcams";
 import type { CameraDevice } from "../../hooks/useCameraDevices";
 import type { AdditionalCameraChoice, AdditionalCamerasClasses } from "./AdditionalCamerasList";
 import styles from "./LaunchWindow.module.css";
@@ -50,8 +50,9 @@ function recordedCameras(
 
 /**
  * Radio list for the desk camera: "None" or one of the cameras the take records. Stored by the
- * camera's current id and name, like the additional cameras. A stored pick that is not among the
- * recorded cameras reads as "None": the recorder will not find it either.
+ * camera's current id and name, like the additional cameras, and resolved by `deskCameraIndex`
+ * like the recording request. A stored pick that resolves to none of the recorded cameras reads as
+ * "None": the recorder will not find it either.
  */
 export function DeskCameraList({
 	devices,
@@ -66,11 +67,14 @@ export function DeskCameraList({
 	const cameras = recordedCameras(devices, primaryDeviceId, additional);
 	// A single camera is all of the take: there is nothing to tell apart.
 	if (cameras.length < 2) return null;
-	const chosen = selected
-		? (cameras.find((device) =>
-				isDeskPickCamera(selected, { id: device.deviceId, name: device.label }),
-			) ?? null)
-		: null;
+	// The desk pick resolved exactly as the recording request resolves it (a stale id falls back
+	// to the name), so the checked row is the camera the take marks as the desk camera.
+	const [camera1, ...extras] = cameras.map((device) => ({
+		id: device.deviceId,
+		name: device.label,
+	}));
+	const chosenIndex = deskCameraIndex(selected, camera1, extras, devices);
+	const chosen = chosenIndex !== undefined ? cameras[chosenIndex] : null;
 
 	const entries: Array<{ key: string; label: string; device: CameraDevice | null }> = [
 		{ key: "none", label: labels.none, device: null },

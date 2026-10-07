@@ -52,19 +52,6 @@ export function resolveAdditionalWebcams(
 }
 
 /**
- * Whether the desk pick names this camera: by id when both carry one, else by name. By name when
- * the camera has no id because camera 1's live identity can lack one (no track to read it off),
- * while the HUD always stores the pick under the id it enumerated. Only for the desk pick: the
- * additional cameras are resolved by `resolveAdditionalCameraPicks`.
- */
-export function isDeskPickCamera(
-	pick: AdditionalCameraPick,
-	camera: AdditionalCameraPick,
-): boolean {
-	return pick.id !== null && camera.id !== null ? pick.id === camera.id : pick.name === camera.name;
-}
-
-/**
  * Camera 1's id when its live identity has none: the one plugged-in camera of its name that is
  * not recorded as an extra. `null` when that is ambiguous (two identical webcams), `undefined`
  * when the plugged-in cameras do not say (none of them carries the name).
@@ -85,8 +72,13 @@ function camera1IdFromPresent(
 /**
  * Index of the desk camera among the cameras of a take, in recorded order: 0 for camera 1, k for
  * the k-th additional camera. Undefined when there is no desk camera or it is not recorded.
- * `present` (the plugged-in cameras) settles camera 1 when its live identity has no id: a pick
- * with an id then reaches camera 1 by name only while no other plugged-in camera shares it.
+ *
+ * This is the one place the desk pick is resolved: the HUD's desk list and the recording request
+ * both read it. It follows `resolveAdditionalCameraPicks`: by id first, and by name only once the
+ * id is gone (no plugged-in camera carries it). By name, the recorded extras come first in recorded
+ * order, then camera 1 -- and camera 1 only while no other plugged-in camera shares its name.
+ * `present` is the plugged-in cameras; it also settles camera 1's id when its live identity has
+ * none (no track to read it off).
  */
 export function deskCameraIndex(
 	desk: AdditionalCameraPick | null,
@@ -95,18 +87,31 @@ export function deskCameraIndex(
 	present: PresentCamera[] = [],
 ): number | undefined {
 	if (!desk) return undefined;
-	// The recorded extras first: they always carry real ids, so they match by id. Camera 1's live
-	// identity may have no id and so match by name alone -- checked first, a second camera of the
-	// same name (two identical webcams) would be taken for camera 1.
-	const index = recorded.findIndex((camera) => isDeskPickCamera(desk, camera));
-	if (index >= 0) return index + 1;
-	if (!camera1) return undefined;
-	if (desk.id !== null && camera1.id === null) {
-		const id = camera1IdFromPresent(camera1, recorded, present);
-		if (id === null) return undefined;
-		if (id !== undefined) return id === desk.id ? 0 : undefined;
+	const camera1Id = camera1
+		? (camera1.id ?? camera1IdFromPresent(camera1, recorded, present))
+		: null;
+	if (desk.id !== null) {
+		const index = recorded.findIndex((camera) => camera.id === desk.id);
+		if (index >= 0) return index + 1;
+		if (camera1 && camera1Id === desk.id) return 0;
+		// Camera 1's id cannot be told (no id, and no plugged-in camera of its name): it may be the
+		// pick's id, so the name decides as it always did.
+		if (camera1 && camera1Id === undefined) return camera1.name === desk.name ? 0 : undefined;
+		// Camera 1 could be either of two identical webcams: no guess.
+		if (camera1 && camera1Id === null) return undefined;
+		// The id is on a plugged-in camera that is not recorded: that camera is the pick.
+		if (present.some((device) => device.deviceId === desk.id)) return undefined;
 	}
-	return isDeskPickCamera(desk, camera1) ? 0 : undefined;
+	const byName = recorded.findIndex((camera) => camera.name === desk.name);
+	if (byName >= 0) return byName + 1;
+	if (!camera1 || camera1.name !== desk.name || camera1Id === null) return undefined;
+	const sharesName = present.some(
+		(device) =>
+			device.label === desk.name &&
+			device.deviceId !== camera1Id &&
+			!recorded.some((extra) => extra.id === device.deviceId),
+	);
+	return sharesName ? undefined : 0;
 }
 
 /**
