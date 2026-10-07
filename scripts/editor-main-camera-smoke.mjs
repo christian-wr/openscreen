@@ -102,6 +102,25 @@ const source = JSON.parse(fs.readFileSync(path.join(PROJECTS, `${SOURCE_ID}.open
 source.project.id = COPY_ID;
 source.project.title = `Main camera smoke ${new Date().toISOString()}`;
 source.project.updatedAt = new Date().toISOString();
+// A camera-full section of camera 2 near the end of the clip, stored as a layout row (camera 1
+// is still the main camera here): after camera 2 becomes the main camera it must stay visible
+// and selectable on the lane.
+const seedClip = source.timeline.clips[0];
+source.legacyEditor = source.legacyEditor ?? {};
+source.legacyEditor.cameraLayoutRegions = [
+	...(source.legacyEditor.cameraLayoutRegions ?? []),
+	{
+		id: "camlayout_smoke_full2",
+		startMs: 44000,
+		endMs: 46000,
+		clipId: seedClip.id,
+		assetId: seedClip.assetId,
+		sourceStartSec: 44 - seedClip.timelineStartSec + seedClip.sourceStartSec,
+		sourceEndSec: 46 - seedClip.timelineStartSec + seedClip.sourceStartSec,
+		template: "camera-full",
+		slots: [{ camera: 1 }],
+	},
+];
 fs.writeFileSync(COPY_FILE, JSON.stringify(source));
 console.log(`copy: ${COPY_FILE}`);
 
@@ -250,6 +269,29 @@ try {
 	shots.push(await d.shot("A-plain-camera-2"));
 	const pipDiff = meanDifference(after, before2);
 	note("A: the PiP outside sections changed", pipDiff > 1, `mean difference ${pipDiff.toFixed(2)}`);
+
+	// A2. The seeded camera-full section of camera 2 is still on the lane and selectable.
+	const fullTwo = editor.getByText(/^Full camera · Camera 2/);
+	note(
+		"A2: the camera-full section of the main camera stays on the lane",
+		(await fullTwo.count()) > 0,
+	);
+	if ((await fullTwo.count()) > 0) {
+		await fullTwo.first().click();
+		await sleep(600);
+		note(
+			"A2: selecting it opens its inspector",
+			(await editor.getByRole("button", { name: "Delete region" }).count()) > 0,
+		);
+	}
+
+	// Back to the Cameras section: a click on the ruler clears the selection; the rail button
+	// toggles the pane, so click it only until the Cameras section shows.
+	await d.seekTo(plainAt);
+	for (let k = 0; k < 2 && !(await editor.getByTestId("camera-row-0").isVisible()); k++) {
+		await editor.getByRole("button", { name: "Camera layout", exact: true }).click();
+		await sleep(600);
+	}
 
 	// B. Camera 1 now has its own controls in the Cameras section; camera 2 has the note.
 	const row0 = editor.getByTestId("camera-row-0");
