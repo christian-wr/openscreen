@@ -221,3 +221,50 @@ describe("app settings store", () => {
 		);
 	});
 });
+
+describe("desk camera preference", () => {
+	it("defaults to no desk camera", () => {
+		expect(new AppSettingsStore(temp()).getSnapshot().recording.camDeskDevice).toBeNull();
+	});
+
+	it("stores and clears the desk camera", () => {
+		const dir = temp();
+		const store = new AppSettingsStore(dir);
+		store.setRecordingPreferences({ camDeskDevice: { id: "b", name: "Cam B" } });
+		expect(new AppSettingsStore(dir).getSnapshot().recording.camDeskDevice).toEqual({
+			id: "b",
+			name: "Cam B",
+		});
+
+		store.setRecordingPreferences({ camDeskDevice: null });
+		expect(new AppSettingsStore(dir).getSnapshot().recording.camDeskDevice).toBeNull();
+	});
+
+	it("reads a stored desk camera without a name as none", () => {
+		const dir = temp();
+		writeFileSync(
+			path.join(dir, "recording-settings.json"),
+			JSON.stringify({ camDeskDevice: { id: 7, name: "" } }),
+			"utf8",
+		);
+		expect(new AppSettingsStore(dir).getSnapshot().recording.camDeskDevice).toBeNull();
+
+		writeFileSync(
+			path.join(dir, "recording-settings.json"),
+			JSON.stringify({ camDeskDevice: { id: 7, name: "Kept" } }),
+			"utf8",
+		);
+		expect(new AppSettingsStore(dir).getSnapshot().recording.camDeskDevice).toEqual({
+			id: null,
+			name: "Kept",
+		});
+	});
+
+	it("rejects a desk camera that is not a camera", () => {
+		const store = new AppSettingsStore(temp());
+		expect(() => store.setRecordingPreferences({ camDeskDevice: "x" as never })).toThrow(TypeError);
+		expect(() => store.setRecordingPreferences({ camDeskDevice: { id: "x" } as never })).toThrow(
+			TypeError,
+		);
+	});
+});

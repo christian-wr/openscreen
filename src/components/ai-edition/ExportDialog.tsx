@@ -19,8 +19,6 @@ import {
 } from "@/lib/ai-edition/document/outputFormat";
 import type { AxcutDocument } from "@/lib/ai-edition/schema";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
-import { assetCameraSource } from "@/lib/ai-edition/timeline/camera";
-import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import {
 	type ExportFormat,
 	type ExportProgress,
@@ -39,8 +37,7 @@ import {
 	useIsCpuCompositor,
 } from "@/native";
 import { NativeBridgeRequestError } from "@/native/client";
-import type { CompositorClipInput } from "@/native/contracts";
-import { buildSceneDescription, resolveVisibleClips } from "@/native/sceneDescription";
+import { buildCompositorClipList, buildSceneDescription } from "@/native/sceneDescription";
 import { ModalShell } from "./Modals";
 import styles from "./NewEditorShell.module.css";
 import { Toggle } from "./RightPanes";
@@ -102,39 +99,6 @@ function revealExportedFile(filePath: string): void {
 		.catch((err) => {
 			console.warn("[export] failed to reveal the file in its folder:", err);
 		});
-}
-
-/** Maps the document's timeline to the native multiclip export contract: ordered,
- *  trim-narrowed clips (`resolveVisibleClips` — shared with `buildSceneDescription` and
- *  `NativeCompositorOverlay`, so export/preview/scene all see the exact same clip stream),
- *  each with its asset's screen file + camera file (falls back to the screen when a clip has
- *  no camera — the no-webcam layout is a later step) and its source trim. */
-function buildNativeClipList(document: AxcutDocument): CompositorClipInput[] {
-	const assetById = new Map(document.assets.map((a) => [a.id, a]));
-	return resolveVisibleClips(document).flatMap((clip) => {
-		const asset = assetById.get(clip.assetId);
-		if (!asset?.originalPath) {
-			return [];
-		}
-		const camera = assetCameraSource(asset);
-		// sourceEndSec is optional in the schema (unknown until probed) — fall back through
-		// the single canonical precedence used by every consumer (clip.probe → asset.duration
-		// → timeline-length guess). See `resolveClipSourceEndSec` for the full order.
-		const sourceEndSec = resolveClipSourceEndSec(clip, asset);
-		// ponytail: `hasAudio` stays optimistic for the same reason as in
-		// `buildSceneDescription` — nothing populates `asset.audio` yet, and the
-		// native side degrades cleanly on a stream-less file.
-		return [
-			{
-				screenPath: asset.originalPath,
-				webcamPath: camera.path,
-				sourceStartSec: clip.sourceStartSec,
-				sourceEndSec,
-				webcamOffsetSec: camera.offsetSec,
-				hasAudio: true,
-			},
-		];
-	});
 }
 
 const QUALITY_OPTIONS: Array<{
@@ -374,7 +338,7 @@ export function ExportDialog({ open, onClose, document }: ExportDialogProps) {
 			activeExport.current = job;
 			setPhase("rendering");
 			// Render the real timeline when there are clips; else fall back to the fixture.
-			const clips = buildNativeClipList(document);
+			const clips = buildCompositorClipList(document);
 			// GIF runs at its own frame rate, so the progress total has to use it.
 			const outFps = format === "gif" ? gifFrameRate : fps;
 			// Total frames the encoder will produce, known upfront from the timeline — the

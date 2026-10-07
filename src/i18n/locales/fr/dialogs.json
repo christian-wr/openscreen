@@ -88,5 +88,46 @@
 		"audioFiles": "Fichiers audio",
 		"openscreenProject": "Projet OpenScreen",
 		"allFiles": "Tous les fichiers"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Corriger la perspective – {{camera}}",
+		"titleCrop": "Recadrer – {{camera}}",
+		"loading": "Chargement de l'image de la caméra…",
+		"loadFailed": "Impossible de charger l'image de la caméra.",
+		"perspectiveHelp": "Faites glisser les quatre coins sur ceux de la feuille ou du bureau. Les flèches déplacent le coin choisi d'un pixel, de dix avec Maj.",
+		"cropIgnored": "Cette caméra a un recadrage ; il est ignoré tant qu'une perspective est définie.",
+		"cropHelp": "Faites glisser le cadre ou ses poignées sur la partie de l'image à garder. Les flèches le déplacent, Maj + flèches le redimensionnent.",
+		"corners": {
+			"topLeft": "Coin supérieur gauche",
+			"topRight": "Coin supérieur droit",
+			"bottomRight": "Coin inférieur droit",
+			"bottomLeft": "Coin inférieur gauche"
+		},
+		"format": "Format cible",
+		"formats": {
+			"a4Portrait": "A4 portrait",
+			"a4Landscape": "A4 paysage",
+			"free": "Libre"
+		},
+		"freeRatio": "Rapport (largeur ÷ hauteur)",
+		"margin": "Marge",
+		"preview": "Aperçu",
+		"loupe": "Loupe",
+		"cropArea": "Zone de recadrage",
+		"invalidQuad": "Les coins se croisent, sont alignés ou forment une figure rentrante (non convexe). Disposez-les en quadrilatère convexe pour appliquer.",
+		"reset": "Réinitialiser",
+		"apply": "Appliquer",
+		"invalidRatio": "Saisissez un rapport entre {{min}} et {{max}}.",
+		"detectMarkers": "Détecter les marqueurs",
+		"printMarkerSheet": "Imprimer la feuille de marqueurs",
+		"planeFound": "Les quatre marqueurs ont été trouvés ; le bureau est redressé. Placez-y le cadrage.",
+		"planeHelp": "Faites glisser le cadrage sur le bureau redressé. Les poignées d'angle le redimensionnent (en « Libre », les bords aussi), tout comme Maj + les flèches.",
+		"handMode": "Quatre coins à la main",
+		"planeMode": "Cadrage sur le bureau redressé",
+		"noPlane": "Les quatre marqueurs ont été trouvés, mais le plan du bureau n'a pas pu être déterminé ; les coins y ont été placés.",
+		"cropSize": "Cadrage : environ {{width}} × {{height}} cm",
+		"cropOutside": "Le cadrage dépasse l'image de la caméra ; cette partie reste noire.",
+		"markersNotFound": "Les quatre marqueurs (0–3) n’ont pas tous été trouvés. Vérifiez qu’ils sont entièrement dans l’image, à plat et éclairés uniformément. Les coins n’ont pas été modifiés.",
+		"markerSheetInstruction": "Découpez selon les pointillés. Posez le coin intérieur de chaque marqueur sur son coin."
 	}
 }

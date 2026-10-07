@@ -38,6 +38,12 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: () => (key: string) => key,
 }));
 
+const probe = vi.hoisted(() => ({ get: vi.fn((_path: string) => null) }));
+vi.mock("@/native/webcamSizeCache", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/native/webcamSizeCache")>()),
+	getWebcamNativeSize: probe.get,
+}));
+
 import { NativeCompositorOverlay } from "./NativeCompositorOverlay";
 
 /** One take cut in two: source 0-5 s, then 7-12 s after a 2 s cut. */
@@ -157,8 +163,29 @@ describe("NativeCompositorOverlay while playing", () => {
 
 		setPlayhead(8, true);
 
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 10);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 10, []);
 		expect(native.setNativePlaying).not.toHaveBeenCalledWith(false);
+	});
+
+	it("sends the asset's extra cameras with the clip", async () => {
+		const document = makeDocument();
+		document.assets[0] = {
+			...document.assets[0],
+			additionalCameraTracks: [
+				{ sourcePath: "/cam-2.mp4", startMs: 500, offsetMs: 0, visible: true, label: "" },
+				{ sourcePath: "/cam-3.mp4", startMs: 0, offsetMs: 0, visible: false, label: "" },
+			],
+		};
+		useProjectStore.setState({ document });
+		await mountAtFirstClip();
+		publishNativePosition({ clipIndex: 0, sourceTimeSec: 4.9 }, now);
+
+		setPlayhead(8, true);
+
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 10, [
+			{ path: "/cam-2.mp4", offsetSec: 0.5 },
+			{ path: "", offsetSec: 0 },
+		]);
 	});
 
 	it("re-anchors a view that stays behind, once the gap holds", async () => {
@@ -173,7 +200,7 @@ describe("NativeCompositorOverlay while playing", () => {
 		setPlayhead(2.52, true);
 
 		expect(native.setActiveClip).toHaveBeenCalledTimes(1);
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 2.52);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 2.52, []);
 	});
 
 	// At 16× a frame that takes 30 ms to arrive shows the playhead 0.48 s of programme ago.
@@ -228,8 +255,8 @@ describe("NativeCompositorOverlay while playing", () => {
 			setPlayhead(time, false);
 		}
 
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 14.4);
-		expect(native.setActiveClip).toHaveBeenLastCalledWith(7, "/take.mp4", "", 0, 0, 14.4);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 0, 14.4, []);
+		expect(native.setActiveClip).toHaveBeenLastCalledWith(7, "/take.mp4", "", 0, 0, 14.4, []);
 	});
 
 	it("still sends the clip on a change while paused", async () => {
@@ -239,7 +266,7 @@ describe("NativeCompositorOverlay while playing", () => {
 
 		setPlayhead(6, false);
 
-		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 8);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "", 0, 1, 8, []);
 	});
 
 	// An addon that reports no position cannot be read, so it is driven as before.
@@ -290,5 +317,74 @@ describe("NativeCompositorOverlay on a language change", () => {
 		rerender(<NativeCompositorOverlay />);
 
 		expect(native.setNativeScene).toHaveBeenCalledTimes(1);
+	});
+});
+
+// With another camera in camera 1's role, the view decodes that camera as its webcam and the
+// scene sizes the PiP from that camera's probed size, exactly as the scene draws it.
+describe("NativeCompositorOverlay with a main camera", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		const document = makeDocument();
+		document.assets[0] = {
+			...document.assets[0],
+			cameraTrack: { sourcePath: "/cam-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [
+				{ sourcePath: "/cam-2.mp4", startMs: 500, offsetMs: 0, visible: true, label: "" },
+			],
+		};
+		useProjectStore.setState({
+			projectId: "proj_sync",
+			document: { ...document, legacyEditor: { mainCamera: 1 } },
+			revision: 1,
+			status: "ready",
+			error: null,
+			sourceDurationSec: 12,
+			currentTimeSec: 1,
+			playing: false,
+			dirty: false,
+			lastSavedAt: new Date(),
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		useProjectStore.getState().clear();
+	});
+
+	it("sends the main camera as the clip's webcam and probes its size", async () => {
+		render(<NativeCompositorOverlay />);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "/cam-2.mp4", 0.5, 0, 1, [
+			{ path: "/cam-1.mp4", offsetSec: 0 },
+		]);
+		expect(probe.get).toHaveBeenCalledWith("/cam-2.mp4");
+		expect(probe.get).not.toHaveBeenCalledWith("/cam-1.mp4");
+	});
+
+	// Choosing the main camera on the clip the view already shows must reopen its decoders: the
+	// scene alone only says what to draw, the view keeps decoding the files it was given.
+	it("sends the clip again when the main camera changes under the playhead", async () => {
+		const withMain = useProjectStore.getState().document as AxcutDocument;
+		useProjectStore.setState({ document: { ...withMain, legacyEditor: null } });
+		render(<NativeCompositorOverlay />);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(native.setActiveClip).toHaveBeenLastCalledWith(7, "/take.mp4", "/cam-1.mp4", 0, 0, 1, [
+			{ path: "/cam-2.mp4", offsetSec: 0.5 },
+		]);
+		native.setActiveClip.mockClear();
+
+		act(() => {
+			useProjectStore.setState({ document: withMain });
+		});
+
+		expect(native.setActiveClip).toHaveBeenCalledTimes(1);
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "/cam-2.mp4", 0.5, 0, 1, [
+			{ path: "/cam-1.mp4", offsetSec: 0 },
+		]);
 	});
 });

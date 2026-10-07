@@ -192,6 +192,14 @@ export interface CompositorSharedFrameReceipt extends CompositorSharedFrameMeta 
 	shared: true;
 }
 
+/** An additional camera (2-4) of a clip. Index k-1 in `additionalCameras` = camera k. */
+export interface CompositorClipCamera {
+	/** "" = no camera in this slot (hidden or missing), exactly like `webcamPath`. */
+	path: string;
+	/** Camera source time = screen source time − this. */
+	offsetSec: number;
+}
+
 /** Un clip de la timeline pour l'export multiclip natif (fichiers screen+webcam + trim). */
 export interface CompositorClipInput {
 	screenPath: string;
@@ -206,6 +214,8 @@ export interface CompositorClipInput {
 	 *  convention). Populated by `buildSceneDescription` and `buildNativeClipList`;
 	 *  see the comment on the producer side for the exact rule. */
 	hasAudio: boolean;
+	/** Cameras 2-4; omitted when the clip has none. */
+	additionalCameras?: CompositorClipCamera[];
 }
 
 /** Bilan d'un export natif (mesure enveloppante §10 : frames, durée, fps). */
@@ -906,6 +916,8 @@ export type NativeBridgeRequest =
 				clipIndex: number;
 				/** Current screen-source time within the active clip's source window. */
 				sourceTimeSec: number;
+				/** Cameras 2-4 of the clip; the view decodes only those its layout regions show. */
+				additionalCameras?: CompositorClipCamera[];
 			};
 			requestId?: string;
 	  }

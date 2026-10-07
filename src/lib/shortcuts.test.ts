@@ -40,6 +40,16 @@ describe("shortcut registry", () => {
 		});
 	});
 
+	// D adds a desk section; Ctrl+D (delete) stays its own binding because the modifiers differ.
+	it("binds D to the desk section without clashing with Ctrl+D", () => {
+		expect(DEFAULT_SHORTCUTS.addDeskSection).toEqual({ key: "d" });
+		expect(findConflict({ key: "d" }, "addDeskSection", DEFAULT_SHORTCUTS)).toBeNull();
+		expect(findConflict({ key: "d", ctrl: true }, "addDeskSection", DEFAULT_SHORTCUTS)).toEqual({
+			type: "configurable",
+			action: "deleteSelected",
+		});
+	});
+
 	it("ignores stored bindings for actions that no longer exist", () => {
 		// mergeWithDefaults iterates SHORTCUT_ACTIONS, so a config saved before an
 		// action was dropped loads without a migration.

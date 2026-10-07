@@ -67,12 +67,12 @@ fn layer_source(models: bool) -> String {
 /// en parcourant les 18 wallpapers livres) en laissant le jeu actif resident.
 const IMG_CACHE_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Taille du buffer uniforme d'un calque : `LayerCB` entier (192 octets), le `struct Layer` de
+/// Taille du buffer uniforme d'un calque : `LayerCB` entier (256 octets), le `struct Layer` de
 /// `layer.wgsl`. `blur.wgsl` n'en lit que les 128 premiers.
 const LAYER_BYTES: u64 = std::mem::size_of::<LayerCB>() as u64;
 
 /// `&LayerCB` -> ses octets. `LayerCB` est `#[repr(C, align(16))]`, son layout EST le buffer
-/// uniforme WGSL (douze vec4 = 192 octets).
+/// uniforme WGSL (seize vec4 = 256 octets).
 fn layer_bytes(cb: &LayerCB) -> &[u8] {
     unsafe { std::slice::from_raw_parts(cb as *const LayerCB as *const u8, LAYER_BYTES as usize) }
 }
@@ -349,6 +349,9 @@ pub struct Compositor {
     readback_yuv: RefCell<ReadbackRing>,
 
     // Etat pilote par live.rs (interior mutability : les methodes sont `&self`).
+    /// The frames of cameras 1..=3 (`set_extra_camera_frames`), as addresses (0 = none) so
+    /// the compositor's auto traits stay what they were without the raw pointers.
+    extra_camera_frames: std::cell::Cell<[usize; crate::camera_layers::MAX_EXTRA_CAMERAS]>,
     live_params: RefCell<LiveParams>,
     scene: RefCell<Option<Scene>>,
     cursor: RefCell<Option<crate::cursor::CursorTrack>>,
@@ -745,6 +748,7 @@ impl Compositor {
             readback,
             yuv: RefCell::new(None),
             readback_yuv,
+            extra_camera_frames: std::cell::Cell::new([0; crate::camera_layers::MAX_EXTRA_CAMERAS]),
             live_params: RefCell::new(LiveParams::default()),
             scene: RefCell::new(None),
             cursor: RefCell::new(None),
@@ -1166,6 +1170,9 @@ impl Compositor {
 
     pub fn set_scene(&self, s: Option<Scene>) {
         *self.scene.borrow_mut() = s;
+        // A new scene can drop the regions that drew an extra camera: forget its frames so a
+        // stale pointer is never drawn before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
     }
 
     pub fn set_cursor(&self, track: crate::cursor::CursorTrack) {
@@ -1200,8 +1207,29 @@ impl Compositor {
     }
 
     /// Pas de cache de SRV cote wgpu (les `TextureView`s sont recreees a chaque
-    /// draw depuis le carrier) -- no-op conserve pour la symetrie d'API.
-    pub fn clear_srv_cache(&self) {}
+    /// draw depuis le carrier). Only the extra cameras' frame slots are reset.
+    pub fn clear_srv_cache(&self) {
+        // The extra cameras' frames belong to the decoders just closed: forget them too, so
+        // a stale pointer is never read before the next `set_extra_camera_frames`.
+        self.extra_camera_frames.set([0; crate::camera_layers::MAX_EXTRA_CAMERAS]);
+    }
+
+    /// Frames for cameras 1..=3 (index 0 = scene camera 1). A null or missing entry means that
+    /// camera is not drawn this frame. The compositor keeps the pointers and reads them in every
+    /// `compose_frame` until the next call, so they must stay valid until then.
+    pub unsafe fn set_extra_camera_frames(&self, frames: &[*const AVFrame]) {
+        let mut slots = [0usize; crate::camera_layers::MAX_EXTRA_CAMERAS];
+        for (slot, frame) in slots.iter_mut().zip(frames) {
+            *slot = *frame as usize;
+        }
+        self.extra_camera_frames.set(slots);
+    }
+
+    /// The frame set for scene camera `camera` (1..=3), null when there is none.
+    fn extra_camera_frame(&self, camera: usize) -> *const AVFrame {
+        let slots = self.extra_camera_frames.get();
+        camera.checked_sub(1).and_then(|k| slots.get(k).copied()).unwrap_or(0) as *const AVFrame
+    }
 
     // -- seam frame (lit le carrier `data[0]`) --
 
@@ -1568,7 +1596,8 @@ impl Compositor {
     /// son propre repli, et un echec silencieux redonnerait le noir qu'on corrige.
     ///
     /// `motion` anime l'image au temps programme `programme_t` ; la bulle webcam
-    /// passe `WallpaperMotion::None`.
+    /// passe `WallpaperMotion::None`. `transparency` = `layer_fx.x` (0 = opaque): a camera
+    /// layer's background box fades with the layer.
     #[allow(clippy::too_many_arguments)]
     fn image_bg_draw(
         &self,
@@ -1579,6 +1608,7 @@ impl Compositor {
         aspect: f32,
         motion: WallpaperMotion,
         programme_t: f32,
+        transparency: f32,
         dummy: &wgpu::TextureView,
     ) -> Result<BgDraw> {
         let (tex, iw, ih) = self.cached_image(path)?;
@@ -1600,6 +1630,7 @@ impl Compositor {
             mode: 6.0,
             fx: [0.0, 0.0, anim[0], anim[1]],
             mb,
+            layer_fx: [transparency, 0.0, 0.0, 0.0],
             ..Default::default()
         };
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1620,15 +1651,19 @@ impl Compositor {
     ///
     /// `quad_px` / `radius_px` sont ceux de la bulle : le fond doit epouser ses
     /// coins arrondis, sinon un rectangle deborde derriere la camera.
+    ///
+    /// `transparency` = the camera layer's `layer_fx.x`: the box fades with the camera.
     fn webcam_bg_draw(
         &self,
         bg: Option<&SceneBackground>,
         dst: [f32; 4],
         quad_px: [f32; 2],
         radius_px: f32,
+        transparency: f32,
         dummy: &wgpu::TextureView,
     ) -> BgDraw {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+        let layer_fx = [transparency, 0.0, 0.0, 0.0];
         let flat = |cb: LayerCB| BgDraw { layer: self.make_bind(&cb, None, dummy), _tex: None, _view: None };
         let solid = |color: [f32; 4]| LayerCB {
             dst,
@@ -1636,6 +1671,7 @@ impl Compositor {
             radius_px,
             mode: 1.0,
             color,
+            layer_fx,
             ..Default::default()
         };
         match bg {
@@ -1653,6 +1689,7 @@ impl Compositor {
                     quad_px,
                     radius_px,
                     fx: [a.sin(), -a.cos(), 0.0, 0.0],
+                    layer_fx,
                     ..crate::frame_geometry::gradient_layer(stops, offsets, BLACK)
                 })
             }
@@ -1661,7 +1698,10 @@ impl Compositor {
                 // elle que l'image doit remplir sans etirement.
                 let aspect = if quad_px[1] > 0.0 { quad_px[0] / quad_px[1] } else { 1.0 };
                 let still = WallpaperMotion::None;
-                match self.image_bg_draw(path, dst, quad_px, radius_px, aspect, still, 0.0, dummy) {
+                let drawn = self.image_bg_draw(
+                    path, dst, quad_px, radius_px, aspect, still, 0.0, transparency, dummy,
+                );
+                match drawn {
                     Ok(d) => d,
                     Err(e) => {
                         // Meme contrat que le fond d'ecran : un chemin casse est
@@ -2397,7 +2437,10 @@ impl Compositor {
             BgLayer::Image(path, motion) => {
                 let full = [0.0, 0.0, 1.0, 1.0];
                 let t = g.programme_t;
-                match self.image_bg_draw(&path, full, [0.0, 0.0], 0.0, rw / rh, motion, t, &dummy) {
+                let drawn = self.image_bg_draw(
+                    &path, full, [0.0, 0.0], 0.0, rw / rh, motion, t, 0.0, &dummy,
+                );
+                match drawn {
                     Ok(d) => Some(d),
                     Err(e) => {
                         eprintln!("[fond image] \"{path}\" : {e:#}");
@@ -2429,7 +2472,10 @@ impl Compositor {
         // lancement gracieux, le temps que l'inference rende son premier masque.
         //
         // Calcule ICI, avant le draw comme avant l'ombre : les deux en dependent.
-        let (effect_code, blur_intensity, webcam_bg) = {
+        // Without layout regions camera 0 is drawn from `w_dst` (`webcam_bg`, `webcam_draw`,
+        // `webcam_shadow` below); with them every planned layer is (`camera_layer_draws`).
+        let unplanned = g.camera_layers.is_empty();
+        let (effect_code, blur_intensity, custom_bg) = {
             let has_mask = self.webcam_mask.borrow().is_some();
             let effect = scene_ref
                 .as_ref()
@@ -2445,24 +2491,16 @@ impl Compositor {
                 // fond. Le shader ne sait peindre qu'une couleur plate sous le
                 // masque ; degrades et images y tombaient sur du noir, et le defaut
                 // EST une image.
-                Some((code, e)) if code > 2.5 => {
-                    // Sans piste webcam le fond peindrait un rectangle seul dans le
-                    // cadre : il ne se prepare que si la camera se dessine.
-                    let bg = webcam_planes.is_some().then(|| {
-                        self.webcam_bg_draw(
-                            e.background.as_ref(),
-                            g.w_dst,
-                            g.w_px,
-                            g.w_radius,
-                            &dummy,
-                        )
-                    });
-                    (1.0, 0.0, bg)
-                }
+                Some((code, e)) if code > 2.5 => (1.0, 0.0, Some(e.background.as_ref())),
                 Some((code, e)) => (code, e.blur_intensity.clamp(0.0, 1.0), None),
                 None => (0.0, 0.0, None),
             }
         };
+        // Sans piste webcam le fond peindrait un rectangle seul dans le cadre : il ne se
+        // prepare que si la camera se dessine.
+        let webcam_bg = custom_bg
+            .filter(|_| unplanned && webcam_planes.is_some())
+            .map(|bg| self.webcam_bg_draw(bg, g.w_dst, g.w_px, g.w_radius, 0.0, &dummy));
         // L'ombre se juge sur le mode DE LA SCENE, pas sur `effect_code` : le fond
         // personnalise se compose desormais en detourage (code 1) tout en gardant
         // sa bulle, et tester le code compose la lui retirerait. Meme lecture que
@@ -2471,7 +2509,10 @@ impl Compositor {
             scene_ref.as_ref().and_then(|s| s.webcam_effect.as_ref()),
             Some(e) if e.shader_code() == 1.0
         ) && self.webcam_mask.borrow().is_some();
-        let webcam_draw = webcam_planes.as_ref().map(|(wy, wu, wv)| {
+        // Camera 0's crop, mirror and desk turn as camera settings, plus its homography
+        // (`Scene::camera(0)`): with one, `src` is not read and the crop is dropped.
+        let cam0 = g.camera0_settings(scene_ref.as_ref());
+        let webcam_draw = webcam_planes.as_ref().filter(|_| unplanned).map(|(wy, wu, wv)| {
             // COVER-CROP. `src` etait cable a [0,0,1,1], donc la texture entiere
             // etait etiree sur la boite quelle que soit sa forme : le facteur de
             // deformation valait exactement `box_ar / cam_ar`. Invisible en PiP
@@ -2481,45 +2522,27 @@ impl Compositor {
             //
             // `cover_crop_uv` est la primitive partagee que macOS et Windows
             // utilisent ; elle rend le rect inchange quand il a deja le bon
-            // ratio, donc aucun placement correct ne bouge.
-            let [cu0, cv0, cu1, cv1] = crate::frame_geometry::webcam_source_rect(
+            // ratio, donc aucun placement correct ne bouge. Mirror and the desk-shot
+            // turn are both bound swaps: u for horizontal, v for vertical.
+            let src = crate::frame_geometry::camera_source_rect(
+                Some(&cam0),
                 [wcw, wch],
                 [wtw as f32, wth as f32],
-                if g.webcam.full_frame {
-                    None
-                } else {
-                    scene_ref.as_ref().and_then(|scene| scene.layout.webcam_crop)
-                },
                 g.w_px[0] / g.w_px[1].max(0.0001),
             );
-            // Mirror and the desk-shot turn are both bound swaps: u for horizontal, v for vertical.
-            let (u0, u1) = if g.webcam.flip_u { (cu1, cu0) } else { (cu0, cu1) };
-            let (v0, v1) = if g.webcam.flip_v { (cv1, cv0) } else { (cv0, cv1) };
             // `src_prev` doit valoir EXACTEMENT le `src` de ce draw, miroir
             // compris : le shader s'en sert pour reconstruire l'UV de la frame
             // precedente, et un rect source qui ne correspond pas au calque
             // dessine ferait diverger la trainee vers une zone de la texture qui
             // n'a jamais ete affichee. Seul `dst_prev` porte le mouvement.
-            let cb = LayerCB {
-                dst: g.w_dst,
-                src: [u0, v0, u1, v1],
-                quad_px: g.w_px,
-                radius_px: g.w_radius,
-                mode: 0.0,
-                // `color.a` porte l'alpha du decoupage (`color.a * personne`) ; le
-                // RGB n'est plus lu, le fond ayant deja ete peint sous la camera.
-                color: [0.0, 0.0, 0.0, 1.0],
-                // `fx.xy` = etendue valide de la texture webcam, par quoi le
-                // shader divise `uv` pour retomber dans l'espace du masque ;
-                // `fx.z` = mode, `fx.w` = intensite du flou. Contrat commun aux
-                // trois back-ends, cf. `layer.wgsl` et `webcam-segmentation.md`.
-                fx: [w_valid[0], w_valid[1], effect_code, blur_intensity],
-                src_prev: [u0, v0, u1, v1],
-                dst_prev: g.w_dst_prev,
-                mb: [g.mb_taps, g.mb_amount, 1.0, 0.0],
-                cover: [g.webcam_cover, 0.04 * g.w_px[0].min(g.w_px[1]) * g.webcam_cover, 0.35, 0.0],
-                ..Default::default()
-            };
+            // `fx.xy` = etendue valide de la texture webcam, par quoi le
+            // shader divise `uv` pour retomber dans l'espace du masque ;
+            // `fx.z` = mode, `fx.w` = intensite du flou. Contrat commun aux
+            // trois back-ends, cf. `layer.wgsl` et `webcam-segmentation.md`.
+            let cb = crate::frame_geometry::with_camera_homography(
+                g.webcam_video_cb(src, w_valid, effect_code, blur_intensity),
+                Some(&cam0),
+            );
             // Le masque est lie par `make_bind` sur tous les draws, pas seulement
             // celui-ci : le layout l'exige (cf. `tex_entry(4)`).
             self.make_bind(&cb, Some((wy, wu, wv)), &dummy)
@@ -2552,6 +2575,71 @@ impl Compositor {
             );
             self.make_bind(&cb, None, &dummy)
         });
+
+        // Every planned camera layer, in order, each as shadow, then (camera 0) the custom
+        // background, then the video: one uniform buffer and bind group per draw, drawn in
+        // the "webcam-pass" below. Camera 0 keeps its frame, effects and mask; the extra
+        // cameras draw from `set_extra_camera_frames` without effects, and a camera without a
+        // frame is skipped. `extra_planes` keeps their views alive until the pass is encoded.
+        let mut camera_layer_draws: Vec<BgDraw> = Vec::new();
+        let mut extra_planes = Vec::new();
+        let render = [rw, rh];
+        let cam0_base = g.webcam_video_cb([0.0; 4], w_valid, effect_code, blur_intensity);
+        let plain = |layer: LayerBind| BgDraw { layer, _tex: None, _view: None };
+        for plan in &g.camera_layers {
+            if plan.camera == 0 {
+                // `webcam_planes` is already gated on `lp.has_webcam`.
+                let Some((wy, wu, wv)) = webcam_planes.as_ref() else { continue };
+                let video = crate::frame_geometry::camera_layer_cb(
+                    plan,
+                    Some(&cam0),
+                    [wcw, wch],
+                    [wtw as f32, wth as f32],
+                    render,
+                    &cam0_base,
+                );
+                if let Some(shadow) =
+                    g.camera_layer_shadow(plan, &video, render, cfg.shadow, is_cutout)
+                {
+                    camera_layer_draws.push(plain(self.make_bind(&shadow, None, &dummy)));
+                }
+                if let Some(bg) = custom_bg {
+                    let (dst, quad_px, radius_px) = (video.dst, video.quad_px, video.radius_px);
+                    let t = video.layer_fx[0];
+                    let bg = self.webcam_bg_draw(bg, dst, quad_px, radius_px, t, &dummy);
+                    camera_layer_draws.push(bg);
+                }
+                let bind = self.make_bind(&video, Some((wy, wu, wv)), &dummy);
+                camera_layer_draws.push(plain(bind));
+            } else {
+                let frame = self.extra_camera_frame(plan.camera);
+                if Self::pixel_buffer_of(frame).is_none() {
+                    continue;
+                }
+                let Ok(planes) = self.nv12_srvs(frame) else { continue };
+                let (tw, th) = self.tex_dims(frame);
+                let visible = [(*frame).width as f32, (*frame).height as f32];
+                let tex = [tw as f32, th as f32];
+                let valid = [visible[0] / tex[0].max(1.0), visible[1] / tex[1].max(1.0)];
+                let video = crate::frame_geometry::camera_layer_cb(
+                    plan,
+                    scene_ref.as_ref().and_then(|s| s.camera(plan.camera)),
+                    visible,
+                    tex,
+                    render,
+                    &crate::frame_geometry::extra_camera_base_cb(valid),
+                );
+                if let Some(shadow) =
+                    g.camera_layer_shadow(plan, &video, render, cfg.shadow, false)
+                {
+                    camera_layer_draws.push(plain(self.make_bind(&shadow, None, &dummy)));
+                }
+                let (ey, eu, ev) = &planes;
+                let bind = self.make_bind(&video, Some((ey, eu, ev)), &dummy);
+                camera_layer_draws.push(plain(bind));
+                extra_planes.push(planes);
+            }
+        }
 
         // ANNOTATIONS -- calque le plus haut, place relativement au rect ecran
         // (les coords x/y/w/h de l'annotation sont des fractions de ce rect, cf.
@@ -3416,6 +3504,9 @@ impl Compositor {
             }
             if let Some(layer) = &webcam_draw {
                 self.draw_layer(&mut rpass, layer, false);
+            }
+            for draw in &camera_layer_draws {
+                self.draw_layer(&mut rpass, &draw.layer, false);
             }
         }
         // Passe 3 : les autres annotations, par-dessus tout le reste (les flous sont passes avant
@@ -4776,12 +4867,37 @@ mod tests {
 
     /// `compose_pip` sur une scene deja construite, pour les tests qui la retouchent.
     fn compose_pip_scene(comp: &Compositor, gpu: &Gpu, scene: Scene, shadow: bool) -> Vec<u8> {
+        let screen = FakeFrame::new(gpu, 128, 128, |_, _| 126);
+        let webcam = FakeFrame::new(gpu, 64, 64, |_, _| Y_WHITE);
+        compose_pip_frames(comp, scene, shadow, &screen, &webcam)
+    }
+
+    /// `compose_pip_scene` with the caller's own screen and camera frames.
+    fn compose_pip_frames(
+        comp: &Compositor,
+        scene: Scene,
+        shadow: bool,
+        screen: &FakeFrame,
+        webcam: &FakeFrame,
+    ) -> Vec<u8> {
+        compose_pip_frames_with_extras(comp, scene, shadow, screen, webcam, &[])
+    }
+
+    /// `compose_pip_frames` with extra camera frames. They are handed over AFTER `set_scene`,
+    /// which forgets the previous ones, and before the compose, as the product code does.
+    fn compose_pip_frames_with_extras(
+        comp: &Compositor,
+        scene: Scene,
+        shadow: bool,
+        screen: &FakeFrame,
+        webcam: &FakeFrame,
+        extra: &[*const AVFrame],
+    ) -> Vec<u8> {
         comp.set_live_params(live_params_from_scene(&scene));
         comp.set_has_webcam(true);
         comp.set_scene(Some(scene));
+        unsafe { comp.set_extra_camera_frames(extra) };
 
-        let screen = FakeFrame::new(gpu, 128, 128, |_, _| 126);
-        let webcam = FakeFrame::new(gpu, 64, 64, |_, _| Y_WHITE);
         let mut cfg = Cfg::c8();
         cfg.bg_blur = 0.0;
         cfg.zoom = false;
@@ -4908,6 +5024,336 @@ mod tests {
             camera > frame * 95 / 100,
             "palier Full Camera : {camera} pixels de camera sur {frame}"
         );
+    }
+
+    /// `pip_scene_json` on a black background: with a black screen too, the camera is drawn over
+    /// black wherever it lands, so its colour can be read without knowing where the PiP is.
+    fn black_pip_scene() -> Scene {
+        let json = pip_scene_json(NO_EFFECT).replace("#0080ff", "#000000");
+        Scene::from_json(&json).expect("scene json")
+    }
+
+    /// The x of every pixel of a `width`-wide RGBA image that `pred` accepts.
+    fn xs_where(rgba: &[u8], width: usize, pred: impl Fn(&[u8]) -> bool) -> Vec<usize> {
+        rgba.chunks_exact(4)
+            .enumerate()
+            .filter(|(_, px)| pred(px))
+            .map(|(i, _)| i % width)
+            .collect()
+    }
+
+    /// The RGBA of pixel (x, y) of a 320-wide readback.
+    fn pixel_at(rgba: &[u8], x: usize, y: usize) -> [u8; 4] {
+        let i = (y * 320 + x) * 4;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    }
+
+    /// A 64x64 camera frame of one RGB colour (BT.709 limited, `rgb_to_nv12`).
+    fn solid_camera(gpu: &Gpu, rgb: [u8; 3]) -> FakeFrame {
+        let (w, h) = (64u32, 64u32);
+        let pixels: Vec<u8> = (0..w * h).flat_map(|_| rgb).collect();
+        let (y, uv) = rgb_to_nv12(&pixels, w, h);
+        FakeFrame::from_planes(gpu, w, h, &y, &uv)
+    }
+
+    /// Camera 1 over the whole frame, and camera 0 as a PiP in the bottom-right corner
+    /// (x 224..304, y 126..171 of a 320x180 frame).
+    const CAMERA_1_FULL: &str = r#"{"camera":1,"rect":{"x":0,"y":0,"width":1,"height":1},"shape":"rectangle","fillsFrame":true}"#;
+    const CAMERA_0_PIP: &str = r#"{"camera":0,"rect":{"x":0.7,"y":0.7,"width":0.25,"height":0.25},"shape":"rectangle"}"#;
+
+    /// A camera layout region from 2 s to 8 s with these layers (JSON objects, comma-separated).
+    fn layout_region(layers: &str) -> crate::scene::SceneCameraLayoutRegion {
+        serde_json::from_str(&format!(r#"{{"startSec":2.0,"endSec":8.0,"layers":[{layers}]}}"#))
+            .expect("region json")
+    }
+
+    /// The time in the lead-in of `layout_region` where a layer only the region shows is drawn
+    /// at opacity 0.5 (and one only the default shows, at 0.5 too). Checked against the plan.
+    fn half_way_in(region: &crate::scene::SceneCameraLayoutRegion) -> f32 {
+        let (mut lo, mut hi) = (0.0f32, 1.0f32);
+        for _ in 0..40 {
+            let mid = 0.5 * (lo + hi);
+            if crate::regions::ease_out_screen_studio(mid) < 0.5 {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        let t = 2.0 + lo * crate::regions::TRANSITION_WINDOW_S;
+        let default_cam0 = crate::camera_layers::CameraLayerPlan {
+            camera: 0,
+            dst: [0.7, 0.7, 0.25, 0.25],
+            radius_frac: 0.0,
+            shape: 0,
+            opacity: 1.0,
+            fills_frame: false,
+        };
+        let clock = crate::regions::ScreenClock::new(&[], 0);
+        let layers = crate::camera_layers::camera_layers_at(
+            std::slice::from_ref(region),
+            &[],
+            t,
+            &clock,
+            Some(default_cam0),
+        );
+        assert!(
+            layers.iter().any(|l| (l.opacity - 0.5).abs() < 1e-3),
+            "no layer at half opacity at {t}: {layers:?}"
+        );
+        t
+    }
+
+    /// `compose_pip_frames` at source time `t`, with these extra camera frames set (and cleared
+    /// again afterwards).
+    fn compose_layers(
+        comp: &Compositor,
+        scene: Scene,
+        t: f32,
+        screen: &FakeFrame,
+        camera_0: &FakeFrame,
+        extra: &[*const AVFrame],
+    ) -> Vec<u8> {
+        comp.set_timeline_time(Some(t));
+        let rgba = compose_pip_frames_with_extras(comp, scene, false, screen, camera_0, extra);
+        unsafe { comp.set_extra_camera_frames(&[]) };
+        rgba
+    }
+
+    fn is_green(px: [u8; 4]) -> bool {
+        px[1] > 200 && px[0] < 60 && px[2] < 60
+    }
+
+    /// A `camera-full-pip` region: camera 1 (green) fills the frame, camera 0 (white) is the PiP
+    /// over it. The centre shows camera 1, the PiP rect camera 0.
+    #[test]
+    fn two_cameras_draw_in_their_planned_rects() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| Y_BLACK);
+        let white = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let green = solid_camera(&gpu, [0, 255, 0]);
+        let mut scene = black_pip_scene();
+        scene.camera_layout_regions.push(layout_region(&format!("{CAMERA_1_FULL},{CAMERA_0_PIP}")));
+        // 5 s: past the lead-in, before the lead-out.
+        let rgba = compose_layers(&comp, scene, 5.0, &screen, &white, &[green.as_ptr()]);
+        let centre = pixel_at(&rgba, 160, 90);
+        assert!(is_green(centre), "the centre is not camera 1: {centre:?}");
+        let pip = pixel_at(&rgba, 264, 148);
+        assert!(pip[..3].iter().all(|&c| c > 240), "the PiP rect is not camera 0: {pip:?}");
+        let corner = pixel_at(&rgba, 10, 10);
+        assert!(is_green(corner), "camera 1 does not fill the frame: {corner:?}");
+    }
+
+    /// Without a frame for camera 1 its layer is skipped, empty slice or null pointer alike:
+    /// the centre shows the screen, as it does without any region.
+    #[test]
+    fn a_missing_extra_camera_skips_its_layer() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| 126);
+        let white = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let control = compose_layers(&comp, black_pip_scene(), 5.0, &screen, &white, &[]);
+        let screen_px = pixel_at(&control, 160, 90);
+        assert!(screen_px[1] > 100 && screen_px[1] < 160, "control: the centre is not the screen");
+
+        let mut scene = black_pip_scene();
+        scene.camera_layout_regions.push(layout_region(&format!("{CAMERA_1_FULL},{CAMERA_0_PIP}")));
+        for extra in [&[][..], &[std::ptr::null()][..]] {
+            let rgba = compose_layers(&comp, scene.clone(), 5.0, &screen, &white, extra);
+            assert_eq!(pixel_at(&rgba, 160, 90), screen_px, "{} frames set", extra.len());
+            let pip = pixel_at(&rgba, 264, 148);
+            assert!(pip[..3].iter().all(|&c| c > 240), "camera 0 is no longer drawn: {pip:?}");
+        }
+    }
+
+    /// Half-way into the lead-in camera 1 fades in at opacity 0.5: over the black screen the
+    /// centre is half as green as in the hold.
+    #[test]
+    fn a_fading_extra_camera_is_half_transparent() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| Y_BLACK);
+        let white = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let green = solid_camera(&gpu, [0, 255, 0]);
+        let region = layout_region(&format!("{CAMERA_1_FULL},{CAMERA_0_PIP}"));
+        let t = half_way_in(&region);
+        let mut scene = black_pip_scene();
+        scene.camera_layout_regions.push(region);
+
+        let hold = compose_layers(&comp, scene.clone(), 5.0, &screen, &white, &[green.as_ptr()]);
+        let full = pixel_at(&hold, 160, 90);
+        assert!(is_green(full), "control: the centre is not camera 1 in the hold: {full:?}");
+        let half = compose_layers(&comp, scene, t, &screen, &white, &[green.as_ptr()]);
+        let px = pixel_at(&half, 160, 90);
+        let expected = full[1] as i32 / 2;
+        assert!(
+            (px[1] as i32 - expected).abs() <= 8 && px[0] < 30 && px[2] < 30,
+            "half-way in: {px:?}, expected green near {expected}"
+        );
+    }
+
+    /// Camera 0 fading out at opacity 0.5 (a region that shows only camera 1, which has no
+    /// frame) draws the (white) camera at half strength over the (black) screen: every camera
+    /// pixel is mid grey, none of them is white any more.
+    #[test]
+    fn transparency_half_halves_the_camera_over_the_screen() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| Y_BLACK);
+        let webcam = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let opaque = compose_pip_frames(&comp, black_pip_scene(), false, &screen, &webcam);
+        let whole = camera_pixels(&opaque);
+        assert!(whole > 200, "the camera is not on screen, the test proves nothing");
+
+        let region = layout_region(CAMERA_1_FULL);
+        let t = half_way_in(&region);
+        let mut scene = black_pip_scene();
+        scene.camera_layout_regions.push(region);
+        let half = compose_layers(&comp, scene, t, &screen, &webcam, &[]);
+        assert_eq!(camera_pixels(&half), 0, "a half transparent camera still has white pixels");
+        let grey = half
+            .chunks_exact(4)
+            .filter(|px| px[..3].iter().all(|&c| (126..=130).contains(&c)))
+            .count();
+        assert!(
+            grey as f32 >= whole as f32 * 0.9,
+            "{grey} mid-grey pixels for {whole} camera pixels drawn opaque"
+        );
+    }
+
+    /// Camera 0's perspective applies without any layout region. A homography that flips the
+    /// camera horizontally draws its right half on the left of the layer: a camera red on the
+    /// left and blue on the right shows blue left of red. The control (no perspective) shows it
+    /// the other way round, so the flip is the homography's doing.
+    #[test]
+    fn camera_0_perspective_applies_without_layout_regions() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| Y_BLACK);
+        // BT.709 limited: red = (Y 63, Cb 102, Cr 240), blue = (Y 32, Cb 240, Cr 118).
+        let (w, h) = (64u32, 64u32);
+        let y: Vec<u8> = (0..w * h).map(|i| if i % w < w / 2 { 63 } else { 32 }).collect();
+        let uv: Vec<u8> = (0..h / 2)
+            .flat_map(|_| (0..w / 2).flat_map(|j| if j < w / 4 { [102, 240] } else { [240, 118] }))
+            .collect();
+        let webcam = FakeFrame::from_planes(&gpu, w, h, &y, &uv);
+        let red = |px: &[u8]| px[0] > 200 && px[1] < 60 && px[2] < 60;
+        let blue = |px: &[u8]| px[2] > 200 && px[0] < 60 && px[1] < 60;
+
+        let plain = compose_pip_frames(&comp, black_pip_scene(), false, &screen, &webcam);
+        let (r, b) = (xs_where(&plain, 320, red), xs_where(&plain, 320, blue));
+        assert!(r.len() > 50 && b.len() > 50, "control: {} red, {} blue pixels", r.len(), b.len());
+        assert!(r.iter().max() < b.iter().min(), "control: the camera's red half is on the left");
+
+        let mut scene = black_pip_scene();
+        assert!(scene.camera_layout_regions.is_empty());
+        scene.cameras.push(crate::scene::SceneCamera {
+            index: 0,
+            rotation: 0,
+            mirror: None,
+            crop: None,
+            homography: Some([-1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+            aspect: None,
+        });
+        let flipped = compose_pip_frames(&comp, scene, false, &screen, &webcam);
+        let (r, b) = (xs_where(&flipped, 320, red), xs_where(&flipped, 320, blue));
+        assert!(r.len() > 50 && b.len() > 50, "flipped: {} red, {} blue pixels", r.len(), b.len());
+        assert!(b.iter().max() < r.iter().min(), "flipped: the left half of the layer is blue");
+    }
+
+    /// The homography `cam.x = 2 u - 0.5`: the outer quarters of the layer (u < 0.25, u > 0.75)
+    /// find no camera point, the middle half shows the whole camera stretched.
+    const PAST_THE_PICTURE: [f32; 9] = [2.0, 0.0, -0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+
+    fn corrected(index: usize, homography: [f32; 9]) -> crate::scene::SceneCamera {
+        crate::scene::SceneCamera {
+            index,
+            rotation: 0,
+            mirror: None,
+            crop: None,
+            homography: Some(homography),
+            aspect: None,
+        }
+    }
+
+    fn is_opaque_black(px: [u8; 4]) -> bool {
+        px[..3].iter().all(|&c| c < 20) && px[3] == 255
+    }
+
+    /// Camera 0 corrected past its picture (spec: "der Rand wird schwarz"): where the
+    /// homography finds no camera point the PiP is opaque black, not the blue background
+    /// behind it. The PiP rect comes from the uncorrected control.
+    #[test]
+    fn camera_0_corrected_past_its_picture_is_black_there() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| 126);
+        let green = solid_camera(&gpu, [0, 255, 0]);
+        let scene = Scene::from_json(&pip_scene_json(NO_EFFECT)).expect("scene json");
+
+        let plain = compose_pip_frames(&comp, scene.clone(), false, &screen, &green);
+        let pip: Vec<(usize, usize)> = plain
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(_, px)| is_green([px[0], px[1], px[2], px[3]]))
+            .map(|(i, _)| (i % 320, i / 320))
+            .collect();
+        assert!(pip.len() > 200, "control: {} camera pixels", pip.len());
+        let x0 = pip.iter().map(|p| p.0).min().unwrap();
+        let x1 = pip.iter().map(|p| p.0).max().unwrap();
+        let y0 = pip.iter().map(|p| p.1).min().unwrap();
+        let y1 = pip.iter().map(|p| p.1).max().unwrap();
+        let (w, y) = ((x1 - x0) as f32, (y0 + y1) / 2);
+        let at = |f: f32| x0 + (w * f).round() as usize;
+
+        let mut scene = scene;
+        scene.cameras.push(corrected(0, PAST_THE_PICTURE));
+        let rgba = compose_pip_frames(&comp, scene, false, &screen, &green);
+        for f in [0.1, 0.9] {
+            let px = pixel_at(&rgba, at(f), y);
+            assert!(is_opaque_black(px), "at {f} of the PiP, past the picture: {px:?}");
+        }
+        let mid = pixel_at(&rgba, at(0.5), y);
+        assert!(is_green(mid), "the middle of the PiP is not the camera: {mid:?}");
+    }
+
+    /// A frame-filling camera layer corrected past its picture: opaque black in the outer
+    /// quarters (the blue background no longer shows through), the camera in the middle.
+    /// Half-way into the lead-in the black is drawn at opacity 0.5 like the rest of the layer:
+    /// what is behind it shows at half strength.
+    #[test]
+    fn a_camera_layer_corrected_past_its_picture_is_black_there() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| 126);
+        let white = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let green = solid_camera(&gpu, [0, 255, 0]);
+        let region = layout_region(CAMERA_1_FULL);
+        let mut scene = Scene::from_json(&pip_scene_json(NO_EFFECT)).expect("scene json");
+        scene.cameras.push(corrected(1, PAST_THE_PICTURE));
+        let mut layered = scene.clone();
+        layered.camera_layout_regions.push(region.clone());
+
+        let hold = compose_layers(&comp, layered.clone(), 5.0, &screen, &white, &[green.as_ptr()]);
+        for x in [10, 300] {
+            let px = pixel_at(&hold, x, 90);
+            assert!(is_opaque_black(px), "x {x}, past the picture: {px:?}");
+        }
+        let mid = pixel_at(&hold, 160, 90);
+        assert!(is_green(mid), "the middle is not camera 1: {mid:?}");
+
+        let t = half_way_in(&region);
+        let under = compose_layers(&comp, scene, t, &screen, &white, &[green.as_ptr()]);
+        let half = compose_layers(&comp, layered, t, &screen, &white, &[green.as_ptr()]);
+        let (below, px) = (pixel_at(&under, 10, 90), pixel_at(&half, 10, 90));
+        assert!(below[..3].iter().any(|&c| c > 60), "control: nothing visible under the layer");
+        for (&got, &under) in px[..3].iter().zip(&below[..3]) {
+            let expected = under as i32 / 2;
+            assert!(
+                (got as i32 - expected).abs() <= 8,
+                "half-way in, past the picture: {px:?}, expected half of {below:?}"
+            );
+        }
     }
 
     /// Le tour complet, celui qui a besoin d'ONNX Runtime : capture -> inference

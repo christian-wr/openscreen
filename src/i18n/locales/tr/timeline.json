@@ -7,7 +7,9 @@
 		"addTrim": "Kırpma ekle: videonun bir bölümünü şu anki zamanda çıkarır",
 		"addAnnotation": "Şu anki zamanda metin, ok, resim veya bulanıklık ekle",
 		"addSpeed": "Şu anki zamanda hız değişikliği ekle",
-		"addCameraFullscreen": "Tam Ekran Kamera ekle: kamerayı şu anki zamanda tam ekran gösterir"
+		"addCameraFullscreen": "Tam Ekran Kamera ekle: kamerayı şu anki zamanda tam ekran gösterir",
+		"addDesk": "Masa bölümü ekle: masa kamerasını şu anki zamanda tam ekran gösterir",
+		"addLayout": "Düzen ekle: bir bölüm için ekran ve kamera yerleşimi"
 	},
 	"hints": {
 		"pressZoom": "Yakınlaştırma eklemek için {{key}} tuşuna basın",
@@ -15,7 +17,8 @@
 		"pressAnnotation": "Açıklama eklemek için {{key}} tuşuna basın",
 		"pressAudio": "Ses eklemek için {{audioKey}}, seslendirme kaydetmek için {{voiceoverKey}} tuşuna basın",
 		"pressSpeed": "Hız eklemek için {{key}} tuşuna basın",
-		"pressCameraFullscreen": "Tam Ekran Kamera bölümü eklemek için {{key}} tuşuna basın"
+		"pressCameraFullscreen": "Tam Ekran Kamera bölümü eklemek için {{key}} tuşuna basın",
+		"pressDesk": "Masa bölümü eklemek için {{key}} tuşuna basın"
 	},
 	"labels": {
 		"pan": "Kaydır",
@@ -31,7 +34,12 @@
 		"imageItem": "Görüntü",
 		"emptyText": "Boş metin",
 		"cameraFullscreen": "Tam Ekran Kamera",
-		"cameraFullscreenItem": "Tam Ekran Kamera {{index}}"
+		"cameraFullscreenItem": "Tam Ekran Kamera {{index}}",
+		"desk": "Masa",
+		"layoutScreenPip": "Ekran + kamera",
+		"layoutCameraFull": "Tam ekran kamera",
+		"layoutCameraFullPip": "Kamera + küçük pencere",
+		"layoutSideBySide": "Yan yana"
 	},
 	"emptyState": {
 		"noVideo": "Video Yüklenmedi",
@@ -54,7 +62,12 @@
 		"cannotPlaceSpeed": "Buraya hız yerleştirilemiyor",
 		"speedExistsAtLocation": "Bu konumda zaten bir hız bölgesi var veya yeterli alan yok.",
 		"cannotPlaceCameraFullscreen": "Buraya Tam Ekran Kamera yerleştirilemiyor",
-		"cameraFullscreenExistsAtLocation": "Bu konumda zaten bir Tam Ekran Kamera bölümü var veya yeterli alan yok."
+		"cameraFullscreenExistsAtLocation": "Bu konumda zaten bir Tam Ekran Kamera bölümü var veya yeterli alan yok.",
+		"tooFewCameras": "Bu düzen, burada bulunandan daha fazla kamera gerektirir",
+		"cannotPlaceCameraSection": "Buraya kamera bölümü yerleştirilemez",
+		"cameraSectionExistsAtLocation": "Burada zaten bir kamera bölümü var.",
+		"noCamera": "Bu projede kamera yok",
+		"noDeskCamera": "Masa kamerası yok — Kameralar bölümünde bir tane seçin"
 	},
 	"success": {
 		"addedZoomSuggestions": "{{count}} imleç tabanlı yakınlaştırma önerisi eklendi",
@@ -103,5 +116,9 @@
 		"recordingUnavailable": "Burada kayıt kullanılamıyor",
 		"saveFailed": "Kayıt kaydedilemedi",
 		"importFailed": "Ses dosyası içe aktarılamadı"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Bu düzen ön ayarıyla kullanılamaz",
+		"needsCamerasHint": "Daha fazla kamera gerekir"
 	}
 }

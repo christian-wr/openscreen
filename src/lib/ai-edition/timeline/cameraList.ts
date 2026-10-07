@@ -1,0 +1,121 @@
+// The cameras of a project, as the editor lists them: index 0 = camera 1 (`asset.cameraTrack`),
+// index k >= 1 = `asset.additionalCameraTracks[k - 1]`.
+
+import { MAX_CAMERAS } from "@/lib/cameraLayouts";
+import type { AxcutAsset, AxcutDocument } from "../schema";
+import { locateVirtualPosition } from "./virtual-preview";
+
+export interface ProjectCamera {
+	index: number;
+	label: string;
+	path: string;
+	available: boolean;
+	width?: number;
+	height?: number;
+}
+
+type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
+/**
+ * Every camera is named by its ordinal ("Camera 2"); an extra camera with a device label adds
+ * it ("Camera 2 · Logitech C920"), so two cameras of the same model stay apart. Camera 1
+ * carries no label.
+ */
+export function projectCameras(asset: AxcutAsset | undefined, t: Translate): ProjectCamera[] {
+	if (!asset) return [];
+	const tracks = [asset.cameraTrack, ...(asset.additionalCameraTracks ?? [])].slice(0, MAX_CAMERAS);
+	const cameras: ProjectCamera[] = [];
+	tracks.forEach((track, index) => {
+		if (!track) return;
+		const own = index > 0 ? String((track as { label?: string }).label ?? "").trim() : "";
+		const camera: ProjectCamera = {
+			index,
+			label: own
+				? t("cameras.cameraNamed", { n: index + 1, label: own })
+				: t("cameras.cameraN", { n: index + 1 }),
+			path: track.sourcePath,
+			available: track.visible && track.sourcePath.length > 0,
+		};
+		if (track.width !== undefined) camera.width = track.width;
+		if (track.height !== undefined) camera.height = track.height;
+		cameras.push(camera);
+	});
+	return cameras;
+}
+
+/**
+ * How many cameras the project has: those of its asset with the most, camera 1 included. An
+ * extra camera keeps its index (`additionalCameraTracks[k - 1]` is camera k + 1) even when the
+ * asset has no camera 1.
+ */
+export function projectCameraCount(assets: readonly AxcutAsset[]): number {
+	let count = 0;
+	for (const asset of assets) {
+		const extra = asset.additionalCameraTracks?.length ?? 0;
+		const own = extra > 0 ? extra + 1 : asset.cameraTrack ? 1 : 0;
+		count = Math.max(count, Math.min(own, MAX_CAMERAS));
+	}
+	return count;
+}
+
+/**
+ * Whether camera `index` (0 = camera 1) would be drawn anywhere in the project: some asset has
+ * it visible and with a file. The same rule as `ProjectCamera.available` and as the scene's
+ * camera sources (`assetCameraSource`), read project-wide for a choice like the desk camera.
+ */
+export function projectCameraAvailable(assets: readonly AxcutAsset[], index: number): boolean {
+	if (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS) return false;
+	return assets.some((asset) => {
+		const track = index === 0 ? asset.cameraTrack : asset.additionalCameraTracks?.[index - 1];
+		return Boolean(track?.visible && track.sourcePath.length > 0);
+	});
+}
+
+/**
+ * The name of camera `index` (0 = camera 1) for a project-wide choice like the desk camera:
+ * read from the first asset that has that camera, `null` when none has it.
+ */
+export function projectCameraLabel(
+	assets: readonly AxcutAsset[],
+	index: number,
+	t: Translate,
+): string | null {
+	for (const asset of assets) {
+		const camera = projectCameras(asset, t).find((c) => c.index === index);
+		if (camera) return camera.label;
+	}
+	return null;
+}
+
+/** The cameras of the asset whose clip is under the playhead (empty without a clip). */
+export function camerasForClipAt(
+	document: AxcutDocument,
+	timelineSec: number,
+	t: Translate,
+): ProjectCamera[] {
+	const position = locateVirtualPosition(document.timeline.clips, timelineSec);
+	if (!position) return [];
+	return projectCameras(
+		document.assets.find((a) => a.id === position.clip.assetId),
+		t,
+	);
+}
+
+/**
+ * The cameras of the asset a camera section is anchored to (its row's `assetId`). A row
+ * without an anchor (hand-written or legacy) falls back to the clip under its middle, so a
+ * section touching a cut is not taken for its neighbour's.
+ */
+export function camerasOfSection(
+	document: AxcutDocument,
+	row: { assetId?: string; startMs: number; endMs: number },
+	t: Translate,
+): ProjectCamera[] {
+	if (row.assetId !== undefined) {
+		return projectCameras(
+			document.assets.find((a) => a.id === row.assetId),
+			t,
+		);
+	}
+	return camerasForClipAt(document, (row.startMs + row.endMs) / 2000, t);
+}

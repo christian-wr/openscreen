@@ -50,6 +50,8 @@
 		"quality": "カメラの画質",
 		"additionalCameras": "追加のカメラ",
 		"additionalCamerasHint": "Windows のネイティブ録画でのみ使用できます",
+		"deskCamera": "机上カメラ",
+		"deskCameraNone": "なし",
 		"camerasNotRecorded": "録画されませんでした: {{names}}",
 		"camerasStoppedEarly": "途中で停止しました: {{names}}",
 		"quality1080p": "1080p",

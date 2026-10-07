@@ -267,3 +267,67 @@ export function labelsOfWebcamsStoppedEarly(input: {
 		)
 		.map((camera) => camera.label);
 }
+
+/**
+ * The file the desk camera of a native take records into, or null. `deskCamera` is the
+ * request's index (0 camera 1, k the k-th requested extra) and crosses IPC, so anything that is
+ * not an index is ignored. `kept` holds the requested extras that survived
+ * {@link dedupeAdditionalWebcams} (the same objects), `keptPaths` their files in that order.
+ */
+export function deskWebcamPath<T>(input: {
+	deskCamera: unknown;
+	camera1Path: string | null;
+	requested: readonly T[];
+	kept: readonly T[];
+	keptPaths: readonly string[];
+}): string | null {
+	const { deskCamera } = input;
+	if (typeof deskCamera !== "number" || !Number.isInteger(deskCamera) || deskCamera < 0) {
+		return null;
+	}
+	if (deskCamera === 0) {
+		return input.camera1Path;
+	}
+	const extra = input.requested[deskCamera - 1];
+	const index = extra === undefined ? -1 : input.kept.indexOf(extra);
+	return index >= 0 ? (input.keptPaths[index] ?? null) : null;
+}
+
+/**
+ * The session's `deskCamera` once a take has stopped: the desk camera's index among the cameras
+ * that were actually kept (0 camera 1, k the k-th of `additional`). Undefined when its file was
+ * lost, or when camera 1 was, since every index is relative to it.
+ */
+export function recordedDeskCamera(
+	deskPath: string | null,
+	camera1Path: string | undefined,
+	additional: readonly AdditionalWebcam[],
+): number | undefined {
+	if (!deskPath || !camera1Path) {
+		return undefined;
+	}
+	if (deskPath === camera1Path) {
+		return 0;
+	}
+	const index = additional.findIndex((camera) => camera.path === deskPath);
+	return index >= 0 ? index + 1 : undefined;
+}
+
+/**
+ * A restored session's `deskCamera` after some of its cameras were dropped. `keptExtraIndices`
+ * are the positions, in the old `additionalWebcams`, of the extras that were kept, in order.
+ */
+export function remapDeskCamera(
+	deskCamera: number | undefined,
+	camera1Kept: boolean,
+	keptExtraIndices: readonly number[],
+): number | undefined {
+	if (deskCamera === undefined || !camera1Kept) {
+		return undefined;
+	}
+	if (deskCamera === 0) {
+		return 0;
+	}
+	const index = keptExtraIndices.indexOf(deskCamera - 1);
+	return index >= 0 ? index + 1 : undefined;
+}

@@ -281,6 +281,8 @@
 		"mute": "كتم"
 	},
 	"layout": {
+		"mainCamera": "الكاميرا الرئيسية",
+		"mainCameraUnavailable": "غير متاح — يتم استخدام {{camera}}",
 		"help": "طريقة دمج كاميرا الويب مع الشاشة: صورة داخل صورة، أو تكديس عمودي، أو إطار مزدوج، والشكل والاستدارة والحجم والموضع والانعكاس.",
 		"mirrorWebcam": "عكس كاميرا الويب",
 		"webcamFraming": "تأطير كاميرا الويب",
@@ -462,5 +464,41 @@
 		"dark": "داكنة",
 		"light": "فاتحة",
 		"custom": "مخصصة"
+	},
+	"cameraLayout": {
+		"template": "التخطيط",
+		"placeLarge": "المكان {{n}} · كبير",
+		"placeSmall": "المكان {{n}} · صغير",
+		"placeLeft": "المكان {{n}} · يسار",
+		"placeRight": "المكان {{n}} · يمين",
+		"cameraUnavailable": "{{name}} (غير متاح)",
+		"resetWindows": "إعادة ضبط النوافذ"
+	},
+	"layoutSection": {
+		"minOneCamera": "كاميرا واحدة على الأقل",
+		"maxThreeWindows": "ثلاث نوافذ على الأكثر"
+	},
+	"cameras": {
+		"cameraN": "الكاميرا {{n}}",
+		"cameraNamed": "الكاميرا {{n}} · {{label}}",
+		"title": "الكاميرات",
+		"unavailable": "غير متاح",
+		"camera1Hint": "تدوير الكاميرا الرئيسية وقلبها وقصها في عناصر التحكم أعلاه.",
+		"rotation": "التدوير",
+		"mirror": "قلب",
+		"crop": "قص…",
+		"perspective": "تصحيح المنظور…",
+		"reset": "إعادة تعيين",
+		"cropOffWithPerspective": "لا يكون للقص أي تأثير ما دام المنظور مضبوطًا.",
+		"deskCamera": "كاميرا المكتب",
+		"deskCameraAuto": "(تلقائي)"
+	},
+	"desk": {
+		"title": "المكتب",
+		"camera": "كاميرا المكتب",
+		"change": "تغيير",
+		"showLabel": "إظهار التسمية",
+		"unavailable": "غير متاح",
+		"unavailableUsing": "غير متاح — يتم استخدام {{camera}}"
 	}
 }

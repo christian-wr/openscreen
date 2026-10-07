@@ -281,6 +281,8 @@
 		"mute": "Muto"
 	},
 	"layout": {
+		"mainCamera": "Fotocamera principale",
+		"mainCameraUnavailable": "Non disponibile — in uso {{camera}}",
 		"help": "Come la webcam viene composta con lo schermo: picture-in-picture, pila verticale, doppio riquadro, forma, arrotondamento, dimensione, posizione e effetto specchio.",
 		"mirrorWebcam": "Specchia webcam",
 		"webcamFraming": "Inquadratura webcam",
@@ -462,5 +464,41 @@
 		"dark": "Scura",
 		"light": "Chiara",
 		"custom": "Personalizzata"
+	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Posizione {{n}} · grande",
+		"placeSmall": "Posizione {{n}} · piccola",
+		"placeLeft": "Posizione {{n}} · sinistra",
+		"placeRight": "Posizione {{n}} · destra",
+		"cameraUnavailable": "{{name}} (non disponibile)",
+		"resetWindows": "Reimposta finestre"
+	},
+	"layoutSection": {
+		"minOneCamera": "Almeno una fotocamera",
+		"maxThreeWindows": "Al massimo tre finestre"
+	},
+	"cameras": {
+		"cameraN": "Fotocamera {{n}}",
+		"cameraNamed": "Fotocamera {{n}} · {{label}}",
+		"title": "Fotocamere",
+		"unavailable": "Non disponibile",
+		"camera1Hint": "Rotazione, specchio e ritaglio della fotocamera principale sono nei controlli qui sopra.",
+		"rotation": "Rotazione",
+		"mirror": "Specchio",
+		"crop": "Ritaglio…",
+		"perspective": "Correggi prospettiva…",
+		"reset": "Ripristina",
+		"cropOffWithPerspective": "Il ritaglio non ha effetto finché è impostata una prospettiva.",
+		"deskCamera": "Fotocamera da scrivania",
+		"deskCameraAuto": "(automatica)"
+	},
+	"desk": {
+		"title": "Scrivania",
+		"camera": "Fotocamera da scrivania",
+		"change": "Cambia",
+		"showLabel": "Mostra etichetta",
+		"unavailable": "Non disponibile",
+		"unavailableUsing": "Non disponibile — in uso {{camera}}"
 	}
 }

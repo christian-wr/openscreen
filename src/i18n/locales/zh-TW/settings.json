@@ -281,6 +281,8 @@
 		"mute": "靜音"
 	},
 	"layout": {
+		"mainCamera": "主攝影機",
+		"mainCameraUnavailable": "無法使用 — 正在使用 {{camera}}",
 		"help": "攝影機與螢幕的合成方式：子母畫面、垂直堆疊、雙畫面、形狀、圓角、大小、位置與鏡像。",
 		"mirrorWebcam": "鏡像攝影機",
 		"webcamFraming": "攝影機構圖",
@@ -462,5 +464,41 @@
 		"dark": "深色",
 		"light": "淺色",
 		"custom": "自訂"
+	},
+	"cameraLayout": {
+		"template": "版面配置",
+		"placeLarge": "位置 {{n}} · 大",
+		"placeSmall": "位置 {{n}} · 小",
+		"placeLeft": "位置 {{n}} · 左",
+		"placeRight": "位置 {{n}} · 右",
+		"cameraUnavailable": "{{name}}（無法使用）",
+		"resetWindows": "重設視窗"
+	},
+	"layoutSection": {
+		"minOneCamera": "至少需要一部攝影機",
+		"maxThreeWindows": "最多三個視窗"
+	},
+	"cameras": {
+		"cameraN": "攝影機 {{n}}",
+		"cameraNamed": "攝影機 {{n}} · {{label}}",
+		"title": "攝影機",
+		"unavailable": "無法使用",
+		"camera1Hint": "主攝影機的旋轉、鏡像與裁切在上方的控制項中設定。",
+		"rotation": "旋轉",
+		"mirror": "鏡像",
+		"crop": "裁切…",
+		"perspective": "校正透視…",
+		"reset": "重設",
+		"cropOffWithPerspective": "設定了透視校正時，裁切不會生效。",
+		"deskCamera": "書桌攝影機",
+		"deskCameraAuto": "（自動）"
+	},
+	"desk": {
+		"title": "書桌",
+		"camera": "書桌攝影機",
+		"change": "變更",
+		"showLabel": "顯示標籤",
+		"unavailable": "無法使用",
+		"unavailableUsing": "無法使用 — 正在使用 {{camera}}"
 	}
 }

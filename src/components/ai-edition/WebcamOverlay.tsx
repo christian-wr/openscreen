@@ -4,6 +4,9 @@
 // disappears when the playhead moves onto a clip whose asset has no camera, and reappears
 // when it moves onto one that does.
 //
+// With a main camera chosen it is that camera's file, read off the assets as the scene sees
+// them (`withMainCamera`): the PiP box is sized for the camera that fills it.
+//
 // The native compositor draws the camera; this element never shows a pixel. What it is for
 // is `loadedmetadata`: the camera's real width and height shape the PiP box the scene asks
 // the compositor for (`webcamSizeCache`). It is never played, because playing it decoded the
@@ -14,6 +17,7 @@ import { toFileUrl } from "@/components/video-editor/projectPersistence";
 import type { AxcutClip } from "@/lib/ai-edition/schema";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { resolveActiveCameraTrack } from "@/lib/ai-edition/timeline/camera";
+import { withMainCamera } from "@/lib/mainCamera";
 import { setWebcamNativeSize } from "@/native/webcamSizeCache";
 import styles from "./NewEditorShell.module.css";
 
@@ -23,10 +27,11 @@ interface WebcamOverlayProps {
 }
 
 export function WebcamOverlay(props: WebcamOverlayProps) {
-	const assets = useProjectStore((s) => s.document?.assets ?? null);
+	const document = useProjectStore((s) => s.document);
+	const assets = useMemo(() => (document ? withMainCamera(document).assets : []), [document]);
 
 	const cameraTrack = useMemo(
-		() => resolveActiveCameraTrack(assets ?? [], props.clips, props.currentTimeSec),
+		() => resolveActiveCameraTrack(assets, props.clips, props.currentTimeSec),
 		[assets, props.clips, props.currentTimeSec],
 	);
 

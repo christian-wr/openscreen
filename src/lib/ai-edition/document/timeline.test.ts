@@ -7,6 +7,8 @@ import {
 } from "../schema";
 import {
 	buildTimelineFromIntervals,
+	clearEditRegions,
+	countEditRegions,
 	duplicateClip,
 	invertIntervals,
 	moveClip,
@@ -1759,5 +1761,171 @@ describe("readSpeedRegions", () => {
 		expect(read([{ id: "a", startMs: 0, endMs: 1000, speed: "fast" }])).toEqual([]);
 		expect(read(undefined)).toEqual([]);
 		expect(readSpeedRegions({ legacyEditor: null })).toEqual([]);
+	});
+});
+
+describe("camera layout regions", () => {
+	const layoutRow = {
+		id: "camlayout_1",
+		clipId: "clip_b",
+		assetId: "asset_1",
+		sourceStartSec: 22,
+		sourceEndSec: 24,
+		startMs: 12000,
+		endMs: 14000,
+		template: "screen-pip",
+		slots: [{ camera: 1 }],
+	};
+	const twoClips = () => ({
+		...makeDoc().timeline,
+		clips: [
+			makeClip({ id: "clip_a", sourceStartSec: 0, sourceEndSec: 10, timelineEndSec: 10 }),
+			makeClip({
+				id: "clip_b",
+				sourceStartSec: 20,
+				sourceEndSec: 30,
+				timelineStartSec: 10,
+				timelineEndSec: 20,
+			}),
+		],
+	});
+	type Layouts = { cameraLayoutRegions: Array<typeof layoutRow> };
+
+	it("mapAllRegionCollections re-anchors layout regions", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { cameraLayoutRegions: [layoutRow] },
+		});
+		// clip_b moves to the front (delta -10 s); the layout row follows its clip.
+		const next = moveClip(doc, "clip_b", 0);
+		expect((next.legacyEditor as Layouts).cameraLayoutRegions).toEqual([
+			{ ...layoutRow, startMs: 2000, endMs: 4000 },
+		]);
+	});
+
+	it("removeRegion removes a layout pill", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 0, endMs: 1000 }],
+				cameraLayoutRegions: [layoutRow],
+			},
+		});
+		const next = removeRegion(doc, "cameraLayout", "camlayout_1");
+		const legacy = next.legacyEditor as Layouts & { cameraFullscreenRegions: unknown[] };
+		expect(legacy.cameraLayoutRegions).toEqual([]);
+		expect(legacy.cameraFullscreenRegions).toHaveLength(1);
+	});
+
+	it("clearEditRegions clears layout regions", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { cameraLayoutRegions: [layoutRow] },
+		});
+		expect(countEditRegions(doc)).toBe(1);
+		const next = clearEditRegions(doc);
+		expect((next.legacyEditor as Layouts).cameraLayoutRegions).toEqual([]);
+		expect(countEditRegions(next)).toBe(0);
+	});
+});
+
+describe("desk regions", () => {
+	const deskRow = {
+		id: "desk_1",
+		clipId: "clip_b",
+		assetId: "asset_1",
+		sourceStartSec: 22,
+		sourceEndSec: 24,
+		startMs: 12000,
+		endMs: 14000,
+	};
+	const fullRow = { ...deskRow, id: "camfull_1" };
+	const twoClips = () => ({
+		...makeDoc().timeline,
+		clips: [
+			makeClip({ id: "clip_a", sourceStartSec: 0, sourceEndSec: 10, timelineEndSec: 10 }),
+			makeClip({
+				id: "clip_b",
+				sourceStartSec: 20,
+				sourceEndSec: 30,
+				timelineStartSec: 10,
+				timelineEndSec: 20,
+			}),
+		],
+	});
+	type Lists = {
+		deskRegions: Array<typeof deskRow>;
+		cameraFullscreenRegions: Array<typeof deskRow>;
+	};
+
+	it("moving a clip re-anchors a desk row like a full camera row", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { deskRegions: [deskRow], cameraFullscreenRegions: [fullRow] },
+		});
+		const next = moveClip(doc, "clip_b", 0);
+		const legacy = next.legacyEditor as Lists;
+		expect(legacy.deskRegions).toEqual([{ ...deskRow, startMs: 2000, endMs: 4000 }]);
+		expect(legacy.cameraFullscreenRegions).toEqual([{ ...fullRow, startMs: 2000, endMs: 4000 }]);
+	});
+
+	it("cutting a clip reflows a desk row behind it and drops one the cut removed", () => {
+		const cutAway = {
+			...deskRow,
+			id: "desk_2",
+			clipId: "clip_a",
+			sourceStartSec: 6,
+			sourceEndSec: 8,
+			startMs: 6000,
+			endMs: 8000,
+		};
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { deskRegions: [cutAway, deskRow] },
+		});
+		const next = setClipSourceRange(doc, "clip_a", 0, 4);
+		expect((next.legacyEditor as Lists).deskRegions).toEqual([
+			{ ...deskRow, startMs: 6000, endMs: 8000 },
+		]);
+	});
+
+	it("removing a clip drops the desk rows anchored to it", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { deskRegions: [deskRow] },
+		});
+		const next = removeClip(doc, "clip_b");
+		expect((next.legacyEditor as Lists).deskRegions).toEqual([]);
+	});
+
+	it("a document without desk rows gains no deskRegions key on a clip edit", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { cameraFullscreenRegions: [fullRow] },
+		});
+		const next = moveClip(doc, "clip_b", 0);
+		expect(next.legacyEditor).not.toHaveProperty("deskRegions");
+	});
+
+	it("removeRegion removes a desk pill and nothing else", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { deskRegions: [deskRow], cameraFullscreenRegions: [fullRow] },
+		});
+		const next = removeRegion(doc, "desk", "desk_1");
+		const legacy = next.legacyEditor as Lists;
+		expect(legacy.deskRegions).toEqual([]);
+		expect(legacy.cameraFullscreenRegions).toHaveLength(1);
+	});
+
+	it("clearEditRegions clears desk regions", () => {
+		const doc = makeDoc({
+			timeline: twoClips(),
+			legacyEditor: { deskRegions: [deskRow] },
+		});
+		expect(countEditRegions(doc)).toBe(1);
+		const next = clearEditRegions(doc);
+		expect((next.legacyEditor as Lists).deskRegions).toEqual([]);
+		expect(countEditRegions(next)).toBe(0);
 	});
 });

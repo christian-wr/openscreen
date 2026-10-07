@@ -281,6 +281,8 @@
 		"mute": "Silenciar"
 	},
 	"layout": {
+		"mainCamera": "Câmera principal",
+		"mainCameraUnavailable": "Indisponível — usando {{camera}}",
 		"help": "Como a webcam é composta com a tela: picture-in-picture, pilha vertical, quadro duplo, formato, arredondamento, tamanho, posição e espelhamento.",
 		"mirrorWebcam": "Espelhar Webcam",
 		"webcamFraming": "Enquadramento da webcam",
@@ -462,5 +464,41 @@
 		"dark": "Escura",
 		"light": "Clara",
 		"custom": "Personalizada"
+	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Posição {{n}} · grande",
+		"placeSmall": "Posição {{n}} · pequena",
+		"placeLeft": "Posição {{n}} · esquerda",
+		"placeRight": "Posição {{n}} · direita",
+		"cameraUnavailable": "{{name}} (indisponível)",
+		"resetWindows": "Redefinir janelas"
+	},
+	"layoutSection": {
+		"minOneCamera": "Pelo menos uma câmera",
+		"maxThreeWindows": "No máximo três janelas"
+	},
+	"cameras": {
+		"cameraN": "Câmera {{n}}",
+		"cameraNamed": "Câmera {{n}} · {{label}}",
+		"title": "Câmeras",
+		"unavailable": "Indisponível",
+		"camera1Hint": "Rotação, espelhamento e recorte da câmera principal ficam nos controles acima.",
+		"rotation": "Rotação",
+		"mirror": "Espelhar",
+		"crop": "Recorte…",
+		"perspective": "Corrigir perspectiva…",
+		"reset": "Redefinir",
+		"cropOffWithPerspective": "O recorte não tem efeito enquanto houver uma perspectiva definida.",
+		"deskCamera": "Câmera de mesa",
+		"deskCameraAuto": "(automática)"
+	},
+	"desk": {
+		"title": "Mesa",
+		"camera": "Câmera de mesa",
+		"change": "Alterar",
+		"showLabel": "Mostrar rótulo",
+		"unavailable": "Indisponível",
+		"unavailableUsing": "Indisponível — usando {{camera}}"
 	}
 }

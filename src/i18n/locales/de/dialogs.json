@@ -88,5 +88,46 @@
 		"audioFiles": "Audiodateien",
 		"openscreenProject": "OpenScreen-Projekt",
 		"allFiles": "Alle Dateien"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Perspektive korrigieren – {{camera}}",
+		"titleCrop": "Zuschneiden – {{camera}}",
+		"loading": "Kamerabild wird geladen…",
+		"loadFailed": "Das Kamerabild konnte nicht geladen werden.",
+		"perspectiveHelp": "Ziehe die vier Ecken auf die Ecken des Blatts oder Tischs. Die Pfeiltasten verschieben die gewählte Ecke um ein Pixel, mit Umschalt um zehn.",
+		"cropIgnored": "Diese Kamera hat einen Zuschnitt; er wird ignoriert, solange eine Perspektive gesetzt ist.",
+		"cropHelp": "Ziehe den Rahmen oder seine Griffe auf den Bildteil, der bleiben soll. Die Pfeiltasten verschieben ihn, Umschalt + Pfeiltasten ändern die Größe.",
+		"corners": {
+			"topLeft": "Ecke oben links",
+			"topRight": "Ecke oben rechts",
+			"bottomRight": "Ecke unten rechts",
+			"bottomLeft": "Ecke unten links"
+		},
+		"format": "Zielformat",
+		"formats": {
+			"a4Portrait": "A4 hoch",
+			"a4Landscape": "A4 quer",
+			"free": "Frei"
+		},
+		"freeRatio": "Verhältnis (Breite ÷ Höhe)",
+		"margin": "Rand",
+		"preview": "Vorschau",
+		"loupe": "Lupe",
+		"cropArea": "Zuschnittbereich",
+		"invalidQuad": "Die Ecken überkreuzen sich, liegen auf einer Linie oder bilden eine eingedellte (nicht konvexe) Form. Ordne sie zu einem konvexen Viereck an, um zu übernehmen.",
+		"reset": "Zurücksetzen",
+		"apply": "Übernehmen",
+		"invalidRatio": "Gib ein Verhältnis zwischen {{min}} und {{max}} ein.",
+		"detectMarkers": "Marker erkennen",
+		"printMarkerSheet": "Markerblatt drucken",
+		"planeFound": "Alle vier Marker gefunden; der Tisch ist entzerrt. Lege den Ausschnitt darauf fest.",
+		"planeHelp": "Ziehe den Ausschnitt auf dem entzerrten Tisch. Die Eckgriffe ändern die Größe (bei „Frei“ auch die Kanten), ebenso Umschalt + Pfeiltasten.",
+		"handMode": "Vier Ecken von Hand",
+		"planeMode": "Ausschnitt auf entzerrtem Tisch",
+		"noPlane": "Alle vier Marker gefunden, aber die Tischebene ließ sich nicht bestimmen; die Ecken wurden auf sie gesetzt.",
+		"cropSize": "Ausschnitt: ca. {{width}} × {{height}} cm",
+		"cropOutside": "Der Ausschnitt reicht über das Kamerabild hinaus; dort bleibt das Bild schwarz.",
+		"markersNotFound": "Nicht alle vier Marker (0–3) gefunden. Achte darauf, dass sie ganz im Bild, flach und gleichmäßig beleuchtet sind. Die Ecken bleiben unverändert.",
+		"markerSheetInstruction": "An den gestrichelten Linien ausschneiden. Innere Ecke jedes Markers auf seine Ecke legen."
 	}
 }

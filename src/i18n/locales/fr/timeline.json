@@ -7,7 +7,9 @@
 		"addTrim": "Ajouter une coupe : retire une partie de la vidéo à l'instant actuel",
 		"addAnnotation": "Ajouter du texte, une flèche, une image ou un flou à l'instant actuel",
 		"addSpeed": "Ajouter un changement de vitesse à l'instant actuel",
-		"addCameraFullscreen": "Ajouter Caméra plein écran : affiche la caméra en plein écran à l'instant actuel"
+		"addCameraFullscreen": "Ajouter Caméra plein écran : affiche la caméra en plein écran à l'instant actuel",
+		"addDesk": "Ajouter une section Bureau : affiche la caméra de bureau en plein écran à l'instant actuel",
+		"addLayout": "Ajouter une disposition : agencement de l'écran et des caméras pour une section"
 	},
 	"hints": {
 		"pressZoom": "Appuyez sur {{key}} pour ajouter un zoom",
@@ -15,7 +17,8 @@
 		"pressAnnotation": "Appuyez sur {{key}} pour ajouter une annotation",
 		"pressAudio": "Appuyez sur {{audioKey}} pour ajouter un audio, {{voiceoverKey}} pour enregistrer une voix off",
 		"pressSpeed": "Appuyez sur {{key}} pour ajouter une vitesse",
-		"pressCameraFullscreen": "Appuyez sur {{key}} pour ajouter un segment Caméra plein écran"
+		"pressCameraFullscreen": "Appuyez sur {{key}} pour ajouter un segment Caméra plein écran",
+		"pressDesk": "Appuyez sur {{key}} pour ajouter une section Bureau"
 	},
 	"labels": {
 		"pan": "Panoramique",
@@ -31,7 +34,12 @@
 		"imageItem": "Image",
 		"emptyText": "Texte vide",
 		"cameraFullscreen": "Caméra plein écran",
-		"cameraFullscreenItem": "Caméra plein écran {{index}}"
+		"cameraFullscreenItem": "Caméra plein écran {{index}}",
+		"desk": "Bureau",
+		"layoutScreenPip": "Écran + caméra",
+		"layoutCameraFull": "Caméra plein écran",
+		"layoutCameraFullPip": "Caméra + incrustation",
+		"layoutSideBySide": "Côte à côte"
 	},
 	"emptyState": {
 		"noVideo": "Aucune vidéo chargée",
@@ -54,7 +62,12 @@
 		"cannotPlaceSpeed": "Impossible de placer la vitesse ici",
 		"speedExistsAtLocation": "Une région de vitesse existe déjà à cet emplacement ou l'espace disponible est insuffisant.",
 		"cannotPlaceCameraFullscreen": "Impossible de placer la caméra plein écran ici",
-		"cameraFullscreenExistsAtLocation": "Un segment Caméra plein écran existe déjà à cet emplacement ou l'espace disponible est insuffisant."
+		"cameraFullscreenExistsAtLocation": "Un segment Caméra plein écran existe déjà à cet emplacement ou l'espace disponible est insuffisant.",
+		"tooFewCameras": "Cette disposition nécessite plus de caméras que celles disponibles ici",
+		"cannotPlaceCameraSection": "Impossible de placer une section caméra ici",
+		"cameraSectionExistsAtLocation": "Une section caméra se trouve déjà ici.",
+		"noCamera": "Ce projet n'a pas de caméra",
+		"noDeskCamera": "Aucune caméra de bureau — choisissez-en une dans la section Caméras"
 	},
 	"success": {
 		"addedZoomSuggestions": "{{count}} suggestion de zoom basée sur le curseur ajoutée",
@@ -103,5 +116,9 @@
 		"recordingUnavailable": "L'enregistrement n'est pas disponible ici",
 		"saveFailed": "Impossible d'enregistrer la capture",
 		"importFailed": "Impossible d'importer le fichier audio"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Indisponible avec ce préréglage de mise en page",
+		"needsCamerasHint": "Nécessite plus de caméras"
 	}
 }

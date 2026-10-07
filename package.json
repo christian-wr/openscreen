@@ -125,6 +125,7 @@
 		"clsx": "^2.1.1",
 		"electron-updater": "^6.8.9",
 		"i18next": "^23.16.0",
+		"js-aruco2": "2.0.0",
 		"langchain": "^1.2.39",
 		"lucide-react": "^0.545.0",
 		"mediabunny": "^1.40.1",

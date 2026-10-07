@@ -4,6 +4,7 @@ export const SHORTCUT_ACTIONS = [
 	"addTrim",
 	"addSpeed",
 	"addCameraFullscreen",
+	"addDeskSection",
 	"addAnnotation",
 	"addAudio",
 	"addVoiceover",
@@ -114,6 +115,8 @@ export const DEFAULT_SHORTCUTS: ShortcutsConfig = {
 	addTrim: { key: "t" },
 	addSpeed: { key: "s" },
 	addCameraFullscreen: { key: "c" },
+	// The desk camera full frame. Plain D: Ctrl+D (delete) differs by its modifier.
+	addDeskSection: { key: "d" },
 	addAnnotation: { key: "a" },
 	addAudio: { key: "m" },
 	// Record a voiceover over the timeline from the playhead.
@@ -130,6 +133,7 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
 	addTrim: "Add Trim",
 	addSpeed: "Add Speed",
 	addCameraFullscreen: "Add Full Camera",
+	addDeskSection: "Add Desk Section",
 	addAnnotation: "Add Annotation",
 	addAudio: "Add Audio",
 	addVoiceover: "Record Voiceover",

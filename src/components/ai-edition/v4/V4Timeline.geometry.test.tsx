@@ -119,6 +119,9 @@ function renderTimeline(
 		annotationRegions: [annotation],
 		speedRegions: [],
 		cameraFullscreenRegions: [],
+		cameraLayoutRegions: [],
+		deskRegions: [],
+		deskCamera: null,
 		zoomRegions: [],
 		trimRanges: [],
 		hasEditRegions: true,
@@ -454,7 +457,7 @@ describe("V4Timeline create-from-toolbar", () => {
 		expect(tl.clearTimeline).toHaveBeenCalledTimes(1);
 	});
 
-	it("puts Clear timeline last, behind a divider, after the Add Full Camera button", () => {
+	it("puts Clear timeline last, behind a divider, after the Add Full Camera and Add layout buttons", () => {
 		renderTimeline(undefined, undefined, [CAMERA_ASSET]);
 		const toolbar = toolbarOf();
 		const buttons = Array.from(toolbar.querySelectorAll("button"));
@@ -463,7 +466,8 @@ describe("V4Timeline create-from-toolbar", () => {
 
 		const divider = clear.previousElementSibling;
 		expect(divider?.className).toContain("tlToolSep");
-		expect(divider?.previousElementSibling).toBe(
+		expect(divider?.previousElementSibling).toBe(screen.getByLabelText("buttons.addLayout"));
+		expect(divider?.previousElementSibling?.previousElementSibling).toBe(
 			screen.getByLabelText("buttons.addCameraFullscreen"),
 		);
 		expect(dividersIn(toolbar)).toHaveLength(2);
@@ -658,6 +662,9 @@ describe("V4Timeline audio lane drag", () => {
 			annotationRegions: [],
 			speedRegions: [],
 			cameraFullscreenRegions: [],
+			cameraLayoutRegions: [],
+			deskRegions: [],
+			deskCamera: null,
 			zoomRegions: [],
 			trimRanges: [],
 			selection: null,

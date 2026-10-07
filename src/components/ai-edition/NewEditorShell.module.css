@@ -763,6 +763,26 @@
 	visibility: hidden;
 	display: block;
 }
+.layoutPlace {
+	/* Move/resize hitbox of a layout section's camera window, over the native-drawn picture. */
+	position: absolute;
+	z-index: 3;
+	box-sizing: border-box;
+	border: 1px dashed var(--accent);
+	cursor: move;
+	touch-action: none;
+}
+.layoutPlaceHandle {
+	position: absolute;
+	width: 12px;
+	height: 12px;
+	transform: translate(-50%, -50%);
+	box-sizing: border-box;
+	border: 2px solid var(--accent);
+	border-radius: 2px;
+	background: #fff;
+	touch-action: none;
+}
 /* ─── transport bar (lives inside .timelineHead, next to the tool icons) ─ */
 .transport {
 	display: flex;

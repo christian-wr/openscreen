@@ -50,6 +50,8 @@
 		"quality": "Качество камеры",
 		"additionalCameras": "Дополнительные камеры",
 		"additionalCamerasHint": "Только при встроенной записи в Windows",
+		"deskCamera": "Камера стола",
+		"deskCameraNone": "Нет",
 		"camerasNotRecorded": "Не записаны: {{names}}",
 		"camerasStoppedEarly": "Остановились раньше времени: {{names}}",
 		"quality1080p": "1080p",

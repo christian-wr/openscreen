@@ -2,7 +2,7 @@ import { fixWebmDuration } from "@fix-webm-duration/fix";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useScopedT } from "@/contexts/I18nContext";
-import { type AdditionalCameraPick, resolveAdditionalWebcams } from "@/lib/additionalWebcams";
+import { type AdditionalCameraPick, nativeRequestCameraFields } from "@/lib/additionalWebcams";
 import { mixAudioTracks, nativeMicrophoneGain } from "@/lib/audioMix";
 import {
 	type NativeLinuxRecordingRequest,
@@ -124,6 +124,9 @@ type UseScreenRecorderReturn = {
 	/** Cameras 2-4, in pick order. Recorded only by the native Windows path. */
 	webcamAdditionalDevices: AdditionalCameraPick[];
 	setWebcamAdditionalDevices: (devices: AdditionalCameraPick[]) => void;
+	/** The camera filming the desk, or null. Its index rides along in the native Windows request. */
+	webcamDeskDevice: AdditionalCameraPick | null;
+	setWebcamDeskDevice: (device: AdditionalCameraPick | null) => void;
 	systemAudioEnabled: boolean;
 	setSystemAudioEnabled: (enabled: boolean) => void;
 	webcamEnabled: boolean;
@@ -305,6 +308,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const [webcamAdditionalDevices, setWebcamAdditionalDevices] = useState<AdditionalCameraPick[]>(
 		[],
 	);
+	const [webcamDeskDevice, setWebcamDeskDevice] = useState<AdditionalCameraPick | null>(null);
 	const [systemAudioEnabled, setSystemAudioEnabled] = useState(false);
 	const [webcamEnabled, setWebcamEnabledState] = useState(false);
 	const [cursorCaptureMode, setCursorCaptureMode] = useState<CursorCaptureMode>("editable-overlay");
@@ -330,6 +334,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			camDeviceName?: string | null;
 			camQuality?: WebcamQualityId | null;
 			camAdditionalDevices?: AdditionalCameraPick[] | null;
+			camDeskDevice?: AdditionalCameraPick | null;
 			systemAudioEnabled: boolean;
 			cursorCaptureMode: CursorCaptureMode;
 		}) => {
@@ -349,6 +354,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			}
 			setWebcamQuality(webcamQualityFrom(prefs.camQuality));
 			setWebcamAdditionalDevices(prefs.camAdditionalDevices ?? []);
+			setWebcamDeskDevice(prefs.camDeskDevice ?? null);
 			setSystemAudioEnabled(prefs.systemAudioEnabled);
 			setCursorCaptureMode(prefs.cursorCaptureMode);
 			setRecordingPrefsLoaded(true);
@@ -1298,13 +1304,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				// MediaRecorder against the helper's own process-spawn/WGC-init latency.
 				stopWebcamPreviewStream();
 			}
-			const additionalWebcams = webcamEnabled
-				? resolveAdditionalWebcams(
+			const cameraFields = webcamEnabled
+				? nativeRequestCameraFields(
 						webcamAdditionalDevices,
+						webcamDeskDevice,
 						await listPresentCameras(),
-						webcamIdentity.deviceId,
+						webcamIdentity,
 					)
-				: [];
+				: {};
 			const request: NativeWindowsRecordingRequest = {
 				recordingId: activeRecordingId,
 				preferSoftwareEncoder: loadUserPreferences().preferSoftwareEncoder,
@@ -1339,8 +1346,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					height: webcamPresetFor(webcamQuality).height,
 					fps: WEBCAM_TARGET_FRAME_RATE,
 				},
-				// Cameras 2-4 ride along only with camera 1: with it off the helper gets no extras.
-				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
+				// Cameras 2-4 and the desk camera ride along only with camera 1: with it off the
+				// helper gets neither.
+				...cameraFields,
 				cursor: {
 					mode: cursorCaptureMode,
 				},
@@ -2510,6 +2518,8 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		setWebcamDeviceName,
 		webcamAdditionalDevices,
 		setWebcamAdditionalDevices,
+		webcamDeskDevice,
+		setWebcamDeskDevice,
 		systemAudioEnabled,
 		setSystemAudioEnabled,
 		webcamEnabled,

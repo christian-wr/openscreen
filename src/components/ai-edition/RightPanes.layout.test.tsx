@@ -404,3 +404,89 @@ describe("LayoutPane webcam crop pan", () => {
 		}
 	});
 });
+
+describe("LayoutPane main camera", () => {
+	const extra = (sourcePath: string, label: string, visible = true) => ({
+		sourcePath,
+		startMs: 0,
+		offsetMs: 0,
+		visible,
+		label,
+	});
+	function withCameras(
+		additionalCameraTracks: ReturnType<typeof extra>[],
+		legacy: Record<string, unknown> = {},
+	): AxcutDocument {
+		const base = seedProject(true);
+		return {
+			...base,
+			assets: [{ ...base.assets[0], additionalCameraTracks }],
+			legacyEditor: { ...base.legacyEditor, ...legacy },
+		};
+	}
+	function renderMain(doc: AxcutDocument, camera: number, chosen: number | null) {
+		const setMainCamera = vi.fn();
+		useProjectStore.setState({
+			projectId: doc.project.id,
+			document: doc,
+			revision: 1,
+			status: "ready",
+		});
+		render(
+			<I18nProvider>
+				<LayoutPane
+					cameras={{
+						cameraSettings: [],
+						setCameraSettings: vi.fn(),
+						main: { camera, chosen, setMainCamera },
+					}}
+				/>
+			</I18nProvider>,
+		);
+		return { setMainCamera };
+	}
+
+	it("offers no main camera choice to a one-camera project", () => {
+		renderMain(seedProject(true), 0, null);
+		expect(screen.queryByRole("group", { name: "Main camera" })).toBeNull();
+	});
+
+	it("lists the cameras by name and picks one by index", () => {
+		const { setMainCamera } = renderMain(
+			withCameras([extra("/tmp/cam2.webm", "Desk"), extra("/tmp/cam3.webm", "")]),
+			0,
+			null,
+		);
+		const group = screen.getByRole("group", { name: "Main camera" });
+		expect(within(group).getByRole("button", { name: "Camera 1" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		fireEvent.click(within(group).getByRole("button", { name: "Camera 2 · Desk" }));
+		expect(setMainCamera).toHaveBeenCalledWith(1);
+		fireEvent.click(within(group).getByRole("button", { name: "Camera 3" }));
+		expect(setMainCamera).toHaveBeenCalledWith(2);
+	});
+
+	it("disables an unavailable camera and says when the chosen one is lost", () => {
+		renderMain(
+			withCameras([extra("/tmp/cam2.webm", "Desk", false), extra("/tmp/cam3.webm", "")], {
+				mainCamera: 1,
+			}),
+			0,
+			1,
+		);
+		const group = screen.getByRole("group", { name: "Main camera" });
+		expect(within(group).getByRole("button", { name: "Camera 2 · Desk" })).toBeDisabled();
+		expect(within(group).getByRole("button", { name: "Camera 1" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		expect(screen.getByText("Not available — using Camera 1")).toBeInTheDocument();
+	});
+
+	it("says nothing while the chosen main camera is in use", () => {
+		renderMain(withCameras([extra("/tmp/cam2.webm", "Desk")], { mainCamera: 1 }), 1, 1);
+		expect(screen.queryByText(/Not available/)).toBeNull();
+	});
+});

@@ -7,7 +7,9 @@
 		"addTrim": "Přidat oříznutí: odstraní část videa v aktuálním čase",
 		"addAnnotation": "Přidat text, šipku, obrázek nebo rozmazání v aktuálním čase",
 		"addSpeed": "Přidat změnu rychlosti v aktuálním čase",
-		"addCameraFullscreen": "Přidat Celou kameru: zobrazí kameru na celou obrazovku v aktuálním čase"
+		"addCameraFullscreen": "Přidat Celou kameru: zobrazí kameru na celou obrazovku v aktuálním čase",
+		"addDesk": "Přidat úsek stolu: zobrazí stolní kameru na celou obrazovku v aktuálním čase",
+		"addLayout": "Přidat rozvržení: uspořádání obrazovky a kamer pro úsek"
 	},
 	"hints": {
 		"pressZoom": "Stiskněte {{key}} pro přidání přiblížení",
@@ -15,7 +17,8 @@
 		"pressAnnotation": "Stiskněte {{key}} pro přidání anotace",
 		"pressAudio": "Stiskněte {{audioKey}} pro přidání zvuku, {{voiceoverKey}} pro nahrání komentáře",
 		"pressSpeed": "Stiskněte {{key}} pro přidání rychlosti",
-		"pressCameraFullscreen": "Stiskněte {{key}} pro přidání segmentu celé kamery"
+		"pressCameraFullscreen": "Stiskněte {{key}} pro přidání segmentu celé kamery",
+		"pressDesk": "Stiskněte {{key}} pro přidání úseku stolu"
 	},
 	"labels": {
 		"pan": "Posun",
@@ -31,7 +34,12 @@
 		"imageItem": "Obrázek",
 		"emptyText": "Prázdný text",
 		"cameraFullscreen": "Celá kamera",
-		"cameraFullscreenItem": "Celá kamera {{index}}"
+		"cameraFullscreenItem": "Celá kamera {{index}}",
+		"desk": "Stůl",
+		"layoutScreenPip": "Obrazovka + kamera",
+		"layoutCameraFull": "Kamera na celou obrazovku",
+		"layoutCameraFullPip": "Kamera + vložené okno",
+		"layoutSideBySide": "Vedle sebe"
 	},
 	"emptyState": {
 		"noVideo": "Žádné video nenačteno",
@@ -54,7 +62,12 @@
 		"cannotPlaceSpeed": "Rychlost zde nelze umístit",
 		"speedExistsAtLocation": "Oblast rychlosti na tomto místě již existuje nebo není dostatek místa.",
 		"cannotPlaceCameraFullscreen": "Celou kameru zde nelze umístit",
-		"cameraFullscreenExistsAtLocation": "Segment celé kamery na tomto místě již existuje nebo není dostatek místa."
+		"cameraFullscreenExistsAtLocation": "Segment celé kamery na tomto místě již existuje nebo není dostatek místa.",
+		"tooFewCameras": "Toto rozvržení vyžaduje více kamer, než je zde k dispozici",
+		"cannotPlaceCameraSection": "Sem nelze umístit úsek kamery",
+		"cameraSectionExistsAtLocation": "Zde už je úsek kamery.",
+		"noCamera": "Tento projekt nemá kameru",
+		"noDeskCamera": "Žádná stolní kamera — vyberte ji v části Kamery"
 	},
 	"success": {
 		"addedZoomSuggestions": "Přidán {{count}} návrh přiblížení na základě kurzoru",
@@ -103,5 +116,9 @@
 		"recordingUnavailable": "Nahrávání zde není dostupné",
 		"saveFailed": "Nepodařilo se uložit nahrávku",
 		"importFailed": "Nepodařilo se importovat zvukový soubor"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "Není k dispozici s touto předvolbou rozvržení",
+		"needsCamerasHint": "Vyžaduje více kamer"
 	}
 }

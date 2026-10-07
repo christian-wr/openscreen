@@ -281,6 +281,8 @@
 		"mute": "Muet"
 	},
 	"layout": {
+		"mainCamera": "Caméra principale",
+		"mainCameraUnavailable": "Indisponible — utilise {{camera}}",
 		"help": "Composition de la webcam avec l'écran : incrustation, empilement vertical, double cadre, forme, arrondi, taille, position et effet miroir.",
 		"mirrorWebcam": "Inverser la webcam",
 		"webcamFraming": "Cadrage de la webcam",
@@ -462,5 +464,41 @@
 		"dark": "Sombre",
 		"light": "Claire",
 		"custom": "Personnalisée"
+	},
+	"cameraLayout": {
+		"template": "Disposition",
+		"placeLarge": "Emplacement {{n}} · grand",
+		"placeSmall": "Emplacement {{n}} · petit",
+		"placeLeft": "Emplacement {{n}} · gauche",
+		"placeRight": "Emplacement {{n}} · droite",
+		"cameraUnavailable": "{{name}} (indisponible)",
+		"resetWindows": "Réinitialiser les fenêtres"
+	},
+	"layoutSection": {
+		"minOneCamera": "Au moins une caméra",
+		"maxThreeWindows": "Trois fenêtres au maximum"
+	},
+	"cameras": {
+		"cameraN": "Caméra {{n}}",
+		"cameraNamed": "Caméra {{n}} · {{label}}",
+		"title": "Caméras",
+		"unavailable": "Indisponible",
+		"camera1Hint": "La rotation, le miroir et le recadrage de la caméra principale sont dans les réglages ci-dessus.",
+		"rotation": "Rotation",
+		"mirror": "Miroir",
+		"crop": "Recadrage…",
+		"perspective": "Corriger la perspective…",
+		"reset": "Réinitialiser",
+		"cropOffWithPerspective": "Le recadrage est sans effet tant qu'une perspective est définie.",
+		"deskCamera": "Caméra de bureau",
+		"deskCameraAuto": "(automatique)"
+	},
+	"desk": {
+		"title": "Bureau",
+		"camera": "Caméra de bureau",
+		"change": "Modifier",
+		"showLabel": "Afficher le titre",
+		"unavailable": "Indisponible",
+		"unavailableUsing": "Indisponible — utilise {{camera}}"
 	}
 }

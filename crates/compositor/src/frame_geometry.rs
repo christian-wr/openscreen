@@ -27,7 +27,7 @@
 use crate::config::Cfg;
 use crate::scene::{Scene, SceneCrop};
 
-/// Constant buffer d'un calque : **192 octets**, un par draw.
+/// Constant buffer d'un calque : **256 octets**, un par draw.
 ///
 /// C'est le contrat partagé par les trois côtés — `cbuffer Layer` dans `shaders.hlsl`,
 /// `struct Layer` dans `shaders.metal` et `vk_shaders/layer.wgsl`, et ce struct. Ils doivent
@@ -42,6 +42,8 @@ use crate::scene::{Scene, SceneCrop};
 ///
 /// (Le commentaire d'origine annonçait « 64 octets ». Il n'a jamais été juste : dix champs,
 /// trente-deux `f32`. Les trois suivants, le flou de mouvement de l'écran incliné, en font 176, et `cover`, le voile de la vue bureau, 192.)
+/// (The camera layers' homography `persp` and transparency `layer_fx` make it 256: offsets 192
+/// and 240.)
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Default)]
 pub struct LayerCB {
@@ -65,6 +67,14 @@ pub struct LayerCB {
     /// Desk-view cover of the webcam layer: x = strength 0..1, y = blur radius (quad px),
     /// z = dim factor, w unused. Zero everywhere else.
     pub cover: [f32; 4],
+    /// Camera (mode 0) only: the rows of the homography H that maps a point of the layer's
+    /// `dst` quad (0..1, top-left origin) to the camera frame (0..1 of its valid part):
+    /// `[h0, h1, h2, 0], [h3, h4, h5, 0], [h6, h7, h8, 0]`. Read only when `layer_fx.y` is 1;
+    /// `src` is then ignored. Every other mode ignores it.
+    pub persp: [[f32; 4]; 3],
+    /// x = transparency 0..1 (0 = opaque), applied to the output of every mode; y = 1 when
+    /// `persp` applies; z, w = 0. All zero = the layer draws exactly as before the lanes.
+    pub layer_fx: [f32; 4],
 }
 
 impl LayerCB {
@@ -374,6 +384,140 @@ pub(crate) fn webcam_source_rect(
         screen_source_rect(u_max, v_max, crop, 1.0, [0.5, 0.5]),
         tex,
         box_ar,
+    )
+}
+
+/// The camera's perspective correction, when it has one whose nine values are all finite. A
+/// matrix with a NaN or an infinity would draw garbage (or nothing), so it counts as none.
+pub(crate) fn camera_homography(camera: Option<&crate::scene::SceneCamera>) -> Option<[f32; 9]> {
+    camera
+        .and_then(|c| c.homography)
+        .filter(|h| h.iter().all(|v| v.is_finite()))
+}
+
+/// The source rect a camera is drawn from: its crop, then a cover-crop to `box_ar`, then its
+/// rotation (180° = both bounds swapped) and mirror (u bounds swapped), `flip_u = mirror ^
+/// turned` as `webcam_orientation` does. A camera without settings is drawn upright and
+/// unmirrored. With a homography, crop, rotation and mirror are all ignored: the corner order
+/// already defines the picture (the shader then does not read `src` at all).
+pub(crate) fn camera_source_rect(
+    camera: Option<&crate::scene::SceneCamera>,
+    visible: [f32; 2],
+    tex: [f32; 2],
+    box_ar: f32,
+) -> [f32; 4] {
+    let corrected = camera_homography(camera).is_some();
+    let settings = camera.filter(|_| !corrected);
+    let [u0, v0, u1, v1] = webcam_source_rect(visible, tex, settings.and_then(|c| c.crop), box_ar);
+    let turned = settings.is_some_and(|c| c.rotation == 180);
+    let mirror = settings.and_then(|c| c.mirror).unwrap_or(false);
+    let (u0, u1) = if mirror ^ turned { (u1, u0) } else { (u0, u1) };
+    let (v0, v1) = if turned { (v1, v0) } else { (v0, v1) };
+    [u0, v0, u1, v1]
+}
+
+/// The window of a corrected picture (`aspect` = its width/height) a box of ratio `box_ar`
+/// shows, as `[u0, v0, du, dv]` of the picture's unit square: centred and cover-fitted, so the
+/// picture is cropped, never stretched — what `cover_uv_rect` does for an uncorrected camera,
+/// whose `src` the shader stops reading once a homography is set. The whole picture without a
+/// usable aspect or box.
+pub(crate) fn corrected_cover_window(aspect: Option<f32>, box_ar: f32) -> [f32; 4] {
+    let Some(aspect) = aspect.filter(|a| a.is_finite() && *a > 0.0) else {
+        return [0.0, 0.0, 1.0, 1.0];
+    };
+    if !(box_ar.is_finite() && box_ar > 0.0) {
+        return [0.0, 0.0, 1.0, 1.0];
+    }
+    if box_ar > aspect {
+        let dv = aspect / box_ar;
+        [0.0, (1.0 - dv) * 0.5, 1.0, dv]
+    } else {
+        let du = box_ar / aspect;
+        [(1.0 - du) * 0.5, 0.0, du, 1.0]
+    }
+}
+
+/// `cb` with the camera's homography in `persp` and `layer_fx.y = 1`; unchanged without one.
+/// The matrix is composed with `corrected_cover_window` for the box `cb.quad_px`, so a box
+/// whose ratio is not the camera's `aspect` (a frame-filling layer, a half of side-by-side)
+/// crops the corrected picture instead of stretching it.
+pub(crate) fn with_camera_homography(
+    mut cb: LayerCB,
+    camera: Option<&crate::scene::SceneCamera>,
+) -> LayerCB {
+    if let Some(h) = camera_homography(camera) {
+        let box_ar = cb.quad_px[0] / cb.quad_px[1];
+        let [u0, v0, du, dv] = corrected_cover_window(camera.and_then(|c| c.aspect), box_ar);
+        // H * C, with C = [[du, 0, u0], [0, dv, v0], [0, 0, 1]] taking box uv to picture uv.
+        let h: [f32; 9] = std::array::from_fn(|i| {
+            let (r, c) = (i / 3, i % 3);
+            match c {
+                0 => h[r * 3] * du,
+                1 => h[r * 3 + 1] * dv,
+                _ => h[r * 3] * u0 + h[r * 3 + 1] * v0 + h[r * 3 + 2],
+            }
+        });
+        cb.persp = [
+            [h[0], h[1], h[2], 0.0],
+            [h[3], h[4], h[5], 0.0],
+            [h[6], h[7], h[8], 0.0],
+        ];
+        cb.layer_fx[1] = 1.0;
+    }
+    cb
+}
+
+/// The video draw of an extra camera before `camera_layer_cb` places it: mode 0, no background
+/// effect (`fx.zw = 0`), `valid` = the valid fraction of its decoder texture, no motion trail.
+pub(crate) fn extra_camera_base_cb(valid: [f32; 2]) -> LayerCB {
+    LayerCB {
+        mode: 0.0,
+        color: [0.0, 0.0, 0.0, 1.0],
+        fx: [valid[0], valid[1], 0.0, 0.0],
+        mb: [1.0, 0.0, 1.0, 0.0],
+        ..Default::default()
+    }
+}
+
+/// The video draw of one planned camera layer: `base` (camera 0's `webcam_video_cb`, or
+/// `extra_camera_base_cb` for the others) moved to the plan's rect, with its corners, its
+/// source rect (`camera_source_rect`), its homography and its transparency (`1 - opacity`).
+/// Planned layers have no motion trail: `dst_prev = dst` and one tap. The exception is camera
+/// 0's untouched default layer (the plan's rect is `base.dst`, fully opaque — what a frame
+/// outside every layout region plans): it keeps `base`'s trail, as on today's path.
+pub(crate) fn camera_layer_cb(
+    plan: &crate::camera_layers::CameraLayerPlan,
+    camera: Option<&crate::scene::SceneCamera>,
+    visible_px: [f32; 2],
+    tex_px: [f32; 2],
+    render: [f32; 2],
+    base: &LayerCB,
+) -> LayerCB {
+    let quad_px = [plan.dst[2] * render[0], plan.dst[3] * render[1]];
+    let min_px = quad_px[0].min(quad_px[1]);
+    let src = camera_source_rect(camera, visible_px, tex_px, quad_px[0] / quad_px[1].max(0.0001));
+    let cover = base.cover[0];
+    let untouched = plan.dst == base.dst && plan.opacity >= 1.0;
+    let (dst_prev, mb) = if untouched {
+        (base.dst_prev, base.mb)
+    } else {
+        (plan.dst, [1.0, 0.0, base.mb[2], base.mb[3]])
+    };
+    with_camera_homography(
+        LayerCB {
+            dst: plan.dst,
+            src,
+            quad_px,
+            radius_px: plan.radius_frac * min_px,
+            src_prev: src,
+            dst_prev,
+            mb,
+            cover: [cover, 0.04 * min_px * cover, base.cover[2], base.cover[3]],
+            persp: [[0.0; 4]; 3],
+            layer_fx: [1.0 - plan.opacity.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            ..*base
+        },
+        camera,
     )
 }
 /// Rétrécit un rect SOURCE déjà exprimé en UV (`[u0, v0, u1, v1]`) autour de son
@@ -1942,6 +2086,10 @@ pub struct FrameGeometry {
     pub webcam: WebcamOrientation,
     /// Desk-view cover strength of the webcam this frame, 0..1 (`camera_fullscreen_cover_at`).
     pub webcam_cover: f32,
+    /// Every camera layer to draw this frame, in draw order (`camera_layers::camera_layers_at`).
+    /// Empty when the scene has no camera layout regions: the backends then draw camera 0 from
+    /// `w_dst` as before. Otherwise camera 0 is in here too, and its `dst`/opacity come from it.
+    pub camera_layers: Vec<crate::camera_layers::CameraLayerPlan>,
     /// Cadre autour de l'écran : chrome de fenêtre plat (mode 14) ou appareil modelé (mode 17).
     /// `None` : aucun, et le rendu est celui d'avant le cadre, à l'octet. `Some` : `s_dst` est
     /// déjà la boîte rétrécie, et `s_radius` le rayon des coins de l'écran — des seuls coins BAS
@@ -2178,6 +2326,109 @@ impl FrameGeometry {
     /// flous étalent le secret sur le même chemin.
     pub fn tilt_pixel_trail(&self, render_px: [f32; 2]) -> Option<TiltTrail> {
         self.tilt_trail(render_px).filter(|_| !self.screen_trail(render_px))
+    }
+
+    /// The camera-0 video draw (mode 0), the same on every backend. `src` = the source rect with
+    /// the mirror / desk turn already applied as swapped bounds (it is also `src_prev`: only
+    /// `dst_prev` carries the motion), `valid` = the valid fraction of the decoder texture,
+    /// `effect_code` / `blur_intensity` = the background effect sent to the shader.
+    pub fn webcam_video_cb(
+        &self,
+        src: [f32; 4],
+        valid: [f32; 2],
+        effect_code: f32,
+        blur_intensity: f32,
+    ) -> LayerCB {
+        LayerCB {
+            dst: self.w_dst,
+            src,
+            quad_px: self.w_px,
+            radius_px: self.w_radius,
+            mode: 0.0,
+            // `color.a` carries the cutout alpha (`color.a * person`); the RGB is not read, the
+            // background has already been painted under the camera.
+            color: [0.0, 0.0, 0.0, 1.0],
+            fx: [valid[0], valid[1], effect_code, blur_intensity],
+            src_prev: src,
+            dst_prev: self.w_dst_prev,
+            mb: [self.mb_taps, self.mb_amount, 1.0, 0.0],
+            cover: [
+                self.webcam_cover,
+                0.04 * self.w_px[0].min(self.w_px[1]) * self.webcam_cover,
+                0.35,
+                0.0,
+            ],
+            ..Default::default()
+        }
+    }
+
+    /// Camera 0's settings as a `SceneCamera`, for `camera_source_rect` / `camera_layer_cb`:
+    /// its orientation is the project mirror and the desk-view turn (`self.webcam`, expressed so
+    /// that `mirror ^ turned` gives back `flip_u`), its crop is the layout's (none for a
+    /// full-frame desk shot), and only its homography and the corrected picture's aspect (so a
+    /// box of another ratio cover-crops it, `with_camera_homography`) come from
+    /// `Scene::camera(0)`.
+    pub(crate) fn camera0_settings(&self, scene: Option<&Scene>) -> crate::scene::SceneCamera {
+        let turned = self.webcam.flip_v;
+        let settings = scene.and_then(|s| s.camera(0));
+        crate::scene::SceneCamera {
+            index: 0,
+            rotation: if turned { 180 } else { 0 },
+            mirror: Some(self.webcam.flip_u ^ turned),
+            crop: if self.webcam.full_frame {
+                None
+            } else {
+                scene.and_then(|s| s.layout.webcam_crop)
+            },
+            homography: settings.and_then(|c| c.homography),
+            aspect: settings.and_then(|c| c.aspect),
+        }
+    }
+
+    /// The drop shadow under a planned camera layer, `video` being its `camera_layer_cb`. Same
+    /// constants as camera 0's PiP shadow, and it fades with the layer (`video.layer_fx.x`).
+    /// None when `shadows_on` is off or the layer fills the frame. Camera 0 also keeps today's
+    /// rules: no shadow in the block presets nor in cutout (`camera0_cutout`), and it leaves
+    /// with the bubble (`shape_fade`).
+    pub(crate) fn camera_layer_shadow(
+        &self,
+        plan: &crate::camera_layers::CameraLayerPlan,
+        video: &LayerCB,
+        render: [f32; 2],
+        shadows_on: bool,
+        camera0_cutout: bool,
+    ) -> Option<LayerCB> {
+        let strength = if plan.camera == 0 {
+            let block = matches!(
+                self.scene_preset.as_deref(),
+                Some("dual-frame") | Some("vertical-stack")
+            );
+            if block || camera0_cutout {
+                return None;
+            }
+            WEBCAM_SHADOW_OPACITY * self.shape_fade
+        } else {
+            WEBCAM_SHADOW_OPACITY
+        };
+        if !shadows_on || plan.fills_frame || strength <= 0.0 {
+            return None;
+        }
+        let spread = WEBCAM_SHADOW_SPREAD_FRAC * self.frame_min_px;
+        let offset = WEBCAM_SHADOW_OFFSET_FRAC * self.frame_min_px;
+        let (sx, sy) = (spread / render[0].max(1.0), spread / render[1].max(1.0));
+        let oy = offset / render[1].max(1.0);
+        let dst = video.dst;
+        Some(LayerCB {
+            dst: [dst[0] - sx, dst[1] - sy + oy, dst[2] + 2.0 * sx, dst[3] + 2.0 * sy],
+            quad_px: [video.quad_px[0] + 2.0 * spread, video.quad_px[1] + 2.0 * spread],
+            radius_px: video.radius_px,
+            mode: 2.0,
+            color: [0.0, 0.0, 0.0, strength],
+            fx: [spread, 0.0, 0.0, 0.0],
+            mb: [0.0, 1.0, 1.0, 0.0],
+            layer_fx: [video.layer_fx[0], 0.0, 0.0, 0.0],
+            ..Default::default()
+        })
     }
 
     /// Le calque du mode 18 : le rendu isolé de l'écran cadré (t2), recomposé le long de sa
@@ -3019,6 +3270,9 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         let zoom_regions = scene.map(|s| &s.zoom_regions).unwrap_or(&empty_zoom);
         let cam_regions =
             scene.map(|s| &s.camera_fullscreen_regions).unwrap_or(&empty_cam);
+        // The layout regions, for the seams a Full Camera region shares with them.
+        let empty_layouts: Vec<crate::scene::SceneCameraLayoutRegion> = Vec::new();
+        let layouts = scene.map(|s| &s.camera_layout_regions).unwrap_or(&empty_layouts);
         let webcam_reactive = scene.map(|s| s.layout.webcam_reactive_zoom).unwrap_or(false);
         let source_t = input.timeline_t_override.unwrap_or(frame / FPS);
         // Les transitions se mesurent à l'écran (`ScreenClock`), la frame précédente aussi : une
@@ -3090,16 +3344,22 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         // Full Camera ignore le rétrécissement réactif de la webcam (design web : mélanger
         // "rétrécit pour le zoom" et "grandit en plein cadre" dans la même frame n'a pas de sens).
         let cam_progress =
-            crate::regions::camera_fullscreen_progress_at(cam_regions, source_t, &clock);
+            crate::regions::camera_fullscreen_progress_at(cam_regions, source_t, &clock, layouts);
         let cam_progress_prev =
-            crate::regions::camera_fullscreen_progress_at(cam_regions, source_t_prev, &clock);
+            crate::regions::camera_fullscreen_progress_at(
+                cam_regions,
+                source_t_prev,
+                &clock,
+                layouts,
+            );
         let shape_fade =
-            crate::regions::camera_fullscreen_shape_at(cam_regions, source_t, &clock);
+            crate::regions::camera_fullscreen_shape_at(cam_regions, source_t, &clock, layouts);
         let webcam = webcam_orientation(
-            crate::regions::camera_fullscreen_region_at(cam_regions, source_t, &clock),
+            crate::regions::camera_fullscreen_region_at(cam_regions, source_t, &clock, layouts),
             lp.webcam_mirror,
         );
-        let webcam_cover = crate::regions::camera_fullscreen_cover_at(cam_regions, source_t, &clock);
+        let webcam_cover =
+            crate::regions::camera_fullscreen_cover_at(cam_regions, source_t, &clock, layouts);
         // rétrécissement réactif : la webcam garde 70 % de sa taille pendant un zoom actif, quel
         // que soit son niveau (elle suivait 1/zoom, et rétrécissait donc d'autant plus que le zoom
         // était profond : ×0,6 au zoom maximal). L'enveloppe est celle de la région : elle descend
@@ -3512,6 +3772,30 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
                     _ => 0.12,
                 },
             };
+        // Camera layout regions: every camera layer of this frame, camera 0 included, on the
+        // same time and clock as Full Camera. Camera 0's default is the layer just planned
+        // above, so a region glides from and back to exactly where `w_dst` puts it. Without
+        // regions nothing is planned, and the backends keep drawing camera 0 from `w_dst`.
+        let camera_layers = match scene {
+            Some(s) if !s.camera_layout_regions.is_empty() => {
+                let default_cam0 = lp.has_webcam.then(|| crate::camera_layers::CameraLayerPlan {
+                    camera: 0,
+                    dst: w_dst,
+                    radius_frac: w_radius / w_px[0].min(w_px[1]).max(1.0),
+                    shape: lp.webcam_shape,
+                    opacity: 1.0,
+                    fills_frame: cam_progress >= 1.0,
+                });
+                crate::camera_layers::camera_layers_at(
+                    &s.camera_layout_regions,
+                    &s.camera_fullscreen_regions,
+                    source_t,
+                    &clock,
+                    default_cam0,
+                )
+            }
+            _ => Vec::new(),
+        };
 
     FrameGeometry {
         scene_preset,
@@ -3545,6 +3829,7 @@ pub fn plan_frame(input: &FrameGeometryInput) -> FrameGeometry {
         shape_fade,
         webcam,
         webcam_cover,
+        camera_layers,
         window_frame,
         screen_mask,
     }
@@ -7344,7 +7629,7 @@ mod tests {
     #[test]
     fn layer_cb_matches_the_shader_constant_buffer() {
         use std::mem::{align_of, offset_of, size_of};
-        assert_eq!(size_of::<LayerCB>(), 192);
+        assert_eq!(size_of::<LayerCB>(), 256);
         assert_eq!(align_of::<LayerCB>(), 16);
         for (name, got, want) in [
             ("dst", offset_of!(LayerCB, dst), 0),
@@ -7361,9 +7646,331 @@ mod tests {
             ("trail_b", offset_of!(LayerCB, trail_b), 144),
             ("trail_mb", offset_of!(LayerCB, trail_mb), 160),
             ("cover", offset_of!(LayerCB, cover), 176),
+            ("persp", offset_of!(LayerCB, persp), 192),
+            ("layer_fx", offset_of!(LayerCB, layer_fx), 240),
         ] {
             assert_eq!(got, want, "offset de `{name}`");
         }
+    }
+
+    /// The camera-0 draw as every backend builds it today leaves both new lanes at zero: no
+    /// homography (`layer_fx.y = 0`) and opaque (`layer_fx.x = 0`), so the shaders take exactly
+    /// the path they took before the lanes existed. The other fields are the ones the three
+    /// backends used to spell out inline.
+    #[test]
+    fn the_webcam_draw_leaves_the_homography_and_transparency_lanes_at_zero() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let scene = golden_scene();
+        let g = plan_frame(&golden_input(&scene, &cfg));
+        let src = [0.1, 0.2, 0.9, 0.8];
+        let cb = g.webcam_video_cb(src, [1.0, 0.75], 2.0, 0.4);
+        assert_eq!(cb.persp, [[0.0; 4]; 3]);
+        assert_eq!(cb.layer_fx, [0.0; 4]);
+        assert_eq!(cb.dst, g.w_dst);
+        assert_eq!(cb.src, src);
+        assert_eq!(cb.src_prev, src);
+        assert_eq!(cb.quad_px, g.w_px);
+        assert_eq!(cb.radius_px, g.w_radius);
+        assert_eq!(cb.mode, 0.0);
+        assert_eq!(cb.color, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(cb.fx, [1.0, 0.75, 2.0, 0.4]);
+        assert_eq!(cb.dst_prev, g.w_dst_prev);
+        assert_eq!(cb.mb, [g.mb_taps, g.mb_amount, 1.0, 0.0]);
+        let min_px = g.w_px[0].min(g.w_px[1]);
+        assert_eq!(cb.cover, [g.webcam_cover, 0.04 * min_px * g.webcam_cover, 0.35, 0.0]);
+    }
+
+    fn extra_camera(index: usize) -> crate::scene::SceneCamera {
+        crate::scene::SceneCamera {
+            index,
+            rotation: 0,
+            mirror: None,
+            crop: None,
+            homography: None,
+            aspect: None,
+        }
+    }
+
+    fn planned(camera: usize, opacity: f32) -> crate::camera_layers::CameraLayerPlan {
+        crate::camera_layers::CameraLayerPlan {
+            camera,
+            dst: [0.5, 0.25, 0.25, 0.5],
+            radius_frac: 0.2,
+            shape: 0,
+            opacity,
+            fills_frame: false,
+        }
+    }
+
+    /// One planned layer's video draw: placed at the plan's rect with its corners, no trail,
+    /// the transparency is `1 - opacity`, and the camera's homography replaces its crop.
+    #[test]
+    fn camera_layer_cb_places_the_layer_and_carries_its_lanes() {
+        let render = [1920.0, 1080.0];
+        let (visible, tex) = ([1280.0, 720.0], [1280.0, 736.0]);
+        let base = extra_camera_base_cb([1.0, 720.0 / 736.0]);
+        let plan = planned(1, 0.25);
+        let plain = camera_layer_cb(&plan, None, visible, tex, render, &base);
+        assert_eq!(plain.dst, plan.dst);
+        assert_eq!(plain.dst_prev, plan.dst);
+        assert_eq!(plain.quad_px, [480.0, 540.0]);
+        assert_eq!(plain.radius_px, 0.2 * 480.0);
+        assert_eq!(plain.layer_fx, [0.75, 0.0, 0.0, 0.0]);
+        assert_eq!(plain.persp, [[0.0; 4]; 3]);
+        assert_eq!(plain.src_prev, plain.src);
+        assert_eq!(plain.mb[0], 1.0);
+        assert_eq!(plain.fx, base.fx);
+
+        // A crop moves the source rect; with a homography as well, the crop is ignored.
+        let crop = SceneCrop { x: 0.5, y: 0.0, width: 0.5, height: 1.0 };
+        let cropped = extra_camera(1);
+        let cropped = crate::scene::SceneCamera { crop: Some(crop), ..cropped };
+        let with_crop = camera_layer_cb(&plan, Some(&cropped), visible, tex, render, &base);
+        assert_ne!(with_crop.src, plain.src);
+        let h = [-1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let corrected = crate::scene::SceneCamera { homography: Some(h), ..cropped.clone() };
+        let warped = camera_layer_cb(&plan, Some(&corrected), visible, tex, render, &base);
+        assert_eq!(warped.layer_fx[1], 1.0);
+        assert_eq!(warped.layer_fx[0], 0.75);
+        let rows = [[-1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
+        assert_eq!(warped.persp, rows);
+        assert_eq!(warped.src, plain.src);
+
+        // Mirror swaps the u bounds only; 180° swaps both, and mirror on top of it un-swaps u.
+        let mirrored = crate::scene::SceneCamera { mirror: Some(true), ..extra_camera(1) };
+        let m = camera_layer_cb(&plan, Some(&mirrored), visible, tex, render, &base).src;
+        assert_eq!(m, [plain.src[2], plain.src[1], plain.src[0], plain.src[3]]);
+        let turned = crate::scene::SceneCamera { rotation: 180, ..extra_camera(1) };
+        let t = camera_layer_cb(&plan, Some(&turned), visible, tex, render, &base).src;
+        assert_eq!(t, [plain.src[2], plain.src[3], plain.src[0], plain.src[1]]);
+        let both = crate::scene::SceneCamera { mirror: Some(true), ..turned.clone() };
+        let b = camera_layer_cb(&plan, Some(&both), visible, tex, render, &base).src;
+        assert_eq!(b, [plain.src[0], plain.src[3], plain.src[2], plain.src[1]]);
+    }
+
+    /// Camera 0's default layer, planned outside every layout region at its own rect and fully
+    /// opaque, keeps its motion trail; moved or faded, it draws without one (R8).
+    #[test]
+    fn camera_0s_untouched_layer_keeps_its_trail() {
+        let render = [1920.0, 1080.0];
+        let base = LayerCB {
+            dst: [0.7, 0.7, 0.2, 0.2],
+            dst_prev: [0.65, 0.7, 0.2, 0.2],
+            mb: [8.0, 0.5, 1.0, 0.0],
+            ..Default::default()
+        };
+        let plan = crate::camera_layers::CameraLayerPlan {
+            camera: 0,
+            dst: base.dst,
+            radius_frac: 0.2,
+            shape: 0,
+            opacity: 1.0,
+            fills_frame: false,
+        };
+        let kept = camera_layer_cb(&plan, None, [64.0; 2], [64.0; 2], render, &base);
+        assert_eq!(kept.dst_prev, base.dst_prev);
+        assert_eq!(kept.mb, base.mb);
+
+        let moved = crate::camera_layers::CameraLayerPlan { dst: [0.1, 0.1, 0.2, 0.2], ..plan };
+        let m = camera_layer_cb(&moved, None, [64.0; 2], [64.0; 2], render, &base);
+        assert_eq!(m.dst_prev, moved.dst);
+        assert_eq!(m.mb, [1.0, 0.0, 1.0, 0.0]);
+
+        let faded = crate::camera_layers::CameraLayerPlan { opacity: 0.5, ..plan };
+        let f = camera_layer_cb(&faded, None, [64.0; 2], [64.0; 2], render, &base);
+        assert_eq!(f.dst_prev, faded.dst);
+        assert_eq!(f.mb, [1.0, 0.0, 1.0, 0.0]);
+    }
+
+    /// A corrected camera in a box of another ratio is cover-cropped, not stretched: the box's
+    /// local uv lands on a centred window of the corrected picture with the box's own ratio.
+    #[test]
+    fn a_corrected_camera_is_cover_fitted_into_its_box() {
+        let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let cam = crate::scene::SceneCamera {
+            homography: Some(identity),
+            aspect: Some(16.0 / 9.0),
+            ..extra_camera(2)
+        };
+        let row = |cb: &LayerCB, r: usize| [cb.persp[r][0], cb.persp[r][1], cb.persp[r][2]];
+        let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5);
+
+        // A box narrower than 16:9 (1752x1080, a 1.62 export): the full height, a centred
+        // slice of the width with the box's ratio.
+        let narrow = LayerCB { quad_px: [1752.0, 1080.0], ..Default::default() };
+        let cb = with_camera_homography(narrow, Some(&cam));
+        let du = (1752.0 / 1080.0) / (16.0 / 9.0);
+        assert!(near(row(&cb, 0), [du, 0.0, (1.0 - du) * 0.5]), "{:?}", cb.persp);
+        assert!(near(row(&cb, 1), [0.0, 1.0, 0.0]), "{:?}", cb.persp);
+        assert!(near(row(&cb, 2), [0.0, 0.0, 1.0]), "{:?}", cb.persp);
+
+        // A wider box (a 16:9 picture in a 21:9 box): full width, a centred band of height.
+        let wide = LayerCB { quad_px: [2100.0, 900.0], ..Default::default() };
+        let cb = with_camera_homography(wide, Some(&cam));
+        let dv = (16.0 / 9.0) / (2100.0 / 900.0);
+        assert!(near(row(&cb, 0), [1.0, 0.0, 0.0]), "{:?}", cb.persp);
+        assert!(near(row(&cb, 1), [0.0, dv, (1.0 - dv) * 0.5]), "{:?}", cb.persp);
+
+        // The box the template gives a PiP of this camera has its aspect: nothing is cropped.
+        let pip = LayerCB { quad_px: [422.4, 237.6], ..Default::default() };
+        let cb = with_camera_homography(pip, Some(&cam));
+        assert!(near(row(&cb, 0), [1.0, 0.0, 0.0]) && near(row(&cb, 1), [0.0, 1.0, 0.0]));
+
+        // A real (projective) matrix is composed on the right: H * C, so H's third row picks
+        // up the window too.
+        let h = [0.8, 0.1, 0.05, -0.02, 0.9, 0.04, 0.1, -0.2, 1.0];
+        let cam = crate::scene::SceneCamera { homography: Some(h), ..cam };
+        let cb = with_camera_homography(narrow, Some(&cam));
+        let u0 = (1.0 - du) * 0.5;
+        assert!(near(row(&cb, 2), [0.1 * du, -0.2, 0.1 * u0 + 1.0]), "{:?}", cb.persp);
+        assert_eq!(cb.layer_fx[1], 1.0);
+    }
+
+    /// Without an aspect, or with a degenerate box, the whole corrected picture is shown.
+    #[test]
+    fn the_cover_window_falls_back_to_the_whole_picture() {
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        assert_eq!(corrected_cover_window(None, 1.5), whole);
+        assert_eq!(corrected_cover_window(Some(0.0), 1.5), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), f32::NAN), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), f32::INFINITY), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), 0.0), whole);
+        assert_eq!(corrected_cover_window(Some(1.5), 1.5), whole);
+    }
+
+    /// A homography with a NaN or an infinity in it counts as none.
+    #[test]
+    fn a_non_finite_homography_is_ignored() {
+        let mut h = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        let ok = crate::scene::SceneCamera { homography: Some(h), ..extra_camera(1) };
+        assert_eq!(camera_homography(Some(&ok)), Some(h));
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            h[7] = bad;
+            let cam = crate::scene::SceneCamera { homography: Some(h), ..extra_camera(1) };
+            assert_eq!(camera_homography(Some(&cam)), None);
+            let cb = with_camera_homography(LayerCB::default(), Some(&cam));
+            assert_eq!(cb.layer_fx, [0.0; 4]);
+            assert_eq!(cb.persp, [[0.0; 4]; 3]);
+        }
+    }
+
+    /// Camera 0's settings give back exactly today's source rect: layout crop, project mirror
+    /// and desk turn, through `camera_source_rect`.
+    #[test]
+    fn camera_0_settings_reproduce_todays_source_rect() {
+        let crop = SceneCrop { x: 0.1, y: 0.2, width: 0.6, height: 0.7 };
+        let (visible, tex, box_ar) = ([1280.0, 720.0], [1280.0, 736.0], 1.3);
+        for (flip_u, flip_v, full_frame) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, true, true),
+        ] {
+            let mut g = plan_frame(&golden_input(&golden_scene(), &crate::config::all()[0]));
+            g.webcam = WebcamOrientation { flip_u, flip_v, full_frame };
+            let mut scene = golden_scene();
+            scene.layout.webcam_crop = Some(crop);
+            let [cu0, cv0, cu1, cv1] = webcam_source_rect(
+                visible,
+                tex,
+                if full_frame { None } else { Some(crop) },
+                box_ar,
+            );
+            let (u0, u1) = if flip_u { (cu1, cu0) } else { (cu0, cu1) };
+            let (v0, v1) = if flip_v { (cv1, cv0) } else { (cv0, cv1) };
+            let cam0 = g.camera0_settings(Some(&scene));
+            assert!(cam0.homography.is_none());
+            assert_eq!(camera_source_rect(Some(&cam0), visible, tex, box_ar), [u0, v0, u1, v1]);
+        }
+    }
+
+    /// Camera 0 with a perspective is cover-fitted into a box of another ratio, on both paths:
+    /// its default draw in a Full Camera section (no layout region, the box fills the frame)
+    /// and a planned frame-filling layer. Its PiP box, which has the corrected aspect, shows
+    /// the whole corrected picture.
+    #[test]
+    fn camera_0_with_a_perspective_is_cover_fitted_on_both_paths() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let identity = "[1,0,0,0,1,0,0,0,1]";
+        let aspect = 4.0_f32 / 3.0;
+        let cameras = format!(r#""cameras":[{{"index":0,"homography":{identity},"aspect":{aspect}}}]"#);
+        let zoom = r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#;
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        let render = [1170.0_f32, 658.0];
+        let box_ar = render[0] / render[1];
+        // A 4:3 picture in a wider box: the full width, a centred band of the box's ratio.
+        let dv = aspect / box_ar;
+        let check = |cb: &LayerCB| {
+            assert_eq!(cb.layer_fx[1], 1.0);
+            assert!(near(cb.persp[0][0], 1.0) && near(cb.persp[0][2], 0.0), "{:?}", cb.persp);
+            assert!(near(cb.persp[1][1], dv), "{:?}", cb.persp);
+            assert!(near(cb.persp[1][2], (1.0 - dv) * 0.5), "{:?}", cb.persp);
+        };
+
+        // No layout region, inside a Full Camera section: the default box fills the frame.
+        let json = zoomed_golden_scene_json().replace(
+            zoom,
+            &format!(
+                r#""zoomRegions":[],{cameras},"cameraFullscreenRegions":[{{"clipIndex":0,"startSec":0.0,"endSec":9.0}}]"#
+            ),
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        let g = plan_frame(&FrameGeometryInput {
+            timeline_t_override: Some(4.0),
+            ..golden_input(&scene, &cfg)
+        });
+        assert!(g.camera_layers.is_empty());
+        assert!(near(g.w_px[0], render[0]) && near(g.w_px[1], render[1]), "{:?}", g.w_px);
+        let cam0 = g.camera0_settings(Some(&scene));
+        assert_eq!(cam0.aspect, Some(aspect));
+        check(&with_camera_homography(
+            g.webcam_video_cb([0.0, 0.0, 1.0, 1.0], [1.0, 1.0], 0.0, 0.0),
+            Some(&cam0),
+        ));
+
+        // A planned layer that fills the frame.
+        let json = zoomed_golden_scene_json().replace(
+            zoom,
+            &format!(
+                r#""zoomRegions":[],{cameras},"cameraLayoutRegions":[{{"clipIndex":0,"startSec":0.0,"endSec":4.0,"layers":[
+                {{"camera":0,"rect":{{"x":0,"y":0,"width":1,"height":1}},"fillsFrame":true}}]}}]"#
+            ),
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        let g = plan_frame(&golden_input(&scene, &cfg));
+        assert_eq!(g.camera_layers.len(), 1);
+        let cam0 = g.camera0_settings(Some(&scene));
+        let base = g.webcam_video_cb([0.0; 4], [1.0, 1.0], 0.0, 0.0);
+        let plan = g.camera_layers[0];
+        check(&camera_layer_cb(&plan, Some(&cam0), [1280.0, 720.0], [1280.0, 720.0], render, &base));
+
+        // The PiP box the app gives camera 0 has the corrected aspect: nothing is cropped.
+        let pip = LayerCB { quad_px: [400.0, 300.0], ..Default::default() };
+        let cb = with_camera_homography(pip, Some(&cam0));
+        assert!(near(cb.persp[0][0], 1.0) && near(cb.persp[1][1], 1.0), "{:?}", cb.persp);
+    }
+
+    /// The shadow of a planned layer fades with it, and a frame-filling layer has none.
+    #[test]
+    fn a_planned_layers_shadow_fades_with_it() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let g = plan_frame(&golden_input(&golden_scene(), &cfg));
+        let render = [1920.0, 1080.0];
+        let plan = planned(2, 0.4);
+        let base = extra_camera_base_cb([1.0; 2]);
+        let video = camera_layer_cb(&plan, None, [64.0; 2], [64.0; 2], render, &base);
+        let shadow = g.camera_layer_shadow(&plan, &video, render, true, false).expect("shadow");
+        assert_eq!(shadow.mode, 2.0);
+        assert_eq!(shadow.layer_fx[0], video.layer_fx[0]);
+        assert_eq!(shadow.color[3], WEBCAM_SHADOW_OPACITY);
+        assert!(g.camera_layer_shadow(&plan, &video, render, false, false).is_none());
+        let full = crate::camera_layers::CameraLayerPlan { fills_frame: true, ..plan };
+        assert!(g.camera_layer_shadow(&full, &video, render, true, false).is_none());
+        // Cutout removes camera 0's bubble, not the others'.
+        assert!(g.camera_layer_shadow(&plan, &video, render, true, true).is_some());
+        let cam0 = crate::camera_layers::CameraLayerPlan { camera: 0, ..plan };
+        assert!(g.camera_layer_shadow(&cam0, &video, render, true, true).is_none());
     }
 
     /// A turned Full Camera section from 1 s to 9 s: the plan carries the cover strength, full in
@@ -7382,6 +7989,59 @@ mod tests {
         };
         assert_eq!(cover_at(1.5), 1.0);
         assert_eq!(cover_at(5.0), 0.0);
+    }
+
+    /// A scene without layout regions plans no camera layers, and camera 0 lands exactly where
+    /// it did: the new (empty) keys change nothing.
+    #[test]
+    fn without_layout_regions_the_plan_has_no_camera_layers() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let before = plan_frame(&golden_input(&golden_scene(), &cfg));
+        let json = zoomed_golden_scene_json().replace(
+            r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#,
+            r#""zoomRegions":[],"cameras":[],"cameraLayoutRegions":[]"#,
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        let after = plan_frame(&golden_input(&scene, &cfg));
+        assert!(before.camera_layers.is_empty());
+        assert!(after.camera_layers.is_empty());
+        assert_eq!(after.w_dst, before.w_dst);
+        assert_eq!(after.w_dst_prev, before.w_dst_prev);
+        assert_eq!(after.w_px, before.w_px);
+        assert_eq!(after.w_radius, before.w_radius);
+        assert_eq!(after.shape_fade, before.shape_fade);
+        assert_eq!(after.webcam, before.webcam);
+        assert_eq!(after.webcam_cover, before.webcam_cover);
+    }
+
+    /// Inside a layout region camera 0 is one of the planned layers, at the region's rect.
+    #[test]
+    fn with_a_layout_region_camera_0_comes_from_the_plan() {
+        let cfg = crate::config::all().pop().expect("cfg");
+        let json = zoomed_golden_scene_json().replace(
+            r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#,
+            r#""zoomRegions":[],"cameraLayoutRegions":[{"clipIndex":0,"startSec":0.0,"endSec":4.0,"layers":[
+                {"camera":0,"rect":{"x":0.1,"y":0.2,"width":0.3,"height":0.4},"radiusFrac":0.1,"shape":"rectangle"}]}]"#,
+        );
+        let scene = Scene::from_json(&json).expect("scene");
+        // `golden_input` samples t = 1.5 s: past the lead-in, well before the lead-out.
+        let g = plan_frame(&golden_input(&scene, &cfg));
+        assert_eq!(g.camera_layers.len(), 1);
+        let cam0 = g.camera_layers[0];
+        assert_eq!(cam0.camera, 0);
+        assert_eq!(cam0.dst, [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(cam0.opacity, 1.0);
+        assert_eq!(cam0.shape, webcam_shape_code("rectangle"));
+        assert!(!cam0.fills_frame);
+        // Outside the region camera 0 is the default PiP, where `w_dst` puts it.
+        let outside = plan_frame(&FrameGeometryInput {
+            timeline_t_override: Some(6.0),
+            ..golden_input(&scene, &cfg)
+        });
+        assert_eq!(outside.camera_layers.len(), 1);
+        assert_eq!(outside.camera_layers[0].dst, outside.w_dst);
+        let r = outside.w_radius / outside.w_px[0].min(outside.w_px[1]).max(1.0);
+        assert_eq!(outside.camera_layers[0].radius_frac, r);
     }
 
     /// The desk label's opacity at the compositor caller boundary, against the cover of the same
@@ -7454,6 +8114,56 @@ mod tests {
             let quick = sample(fast, *f0, *f1, f0 + 2.0 * screen);
             assert!((slow.0 - quick.0).abs() < 1e-3, "screen +{screen} s: {slow:?} vs {quick:?}");
         }
+    }
+
+    /// A turned Full Camera section that meets a layout region: the cover follows the seam rule
+    /// (no hold before the layout region, only its own fade), and the label, spanned over the
+    /// whole section by the app, follows the cover there frame for frame without any seam
+    /// logic of its own.
+    #[test]
+    fn the_desk_label_follows_the_cover_across_a_seam_with_a_layout_region() {
+        use crate::regions::DESK_COVER_FADE_S;
+        use crate::text_anim::{annotation_text_state, DESK_COVER_ANIMATION};
+        let cfg = crate::config::all().pop().expect("cfg");
+        let zoom = r#""zoomRegions":[{"clipIndex":0,"startSec":0.0,"endSec":5.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"none"}]"#;
+        let full = r#""zoomRegions":[],"cameraFullscreenRegions":[{"clipIndex":0,"startSec":1.0,"endSec":6.0,"rotation":180,"fullFrame":true}]"#;
+        let layout = r#","cameraLayoutRegions":[{"clipIndex":0,"startSec":6.0,"endSec":9.0,"layers":[
+                {"camera":0,"rect":{"x":0.1,"y":0.2,"width":0.3,"height":0.4},"radiusFrac":0.1,"shape":"rectangle"}]}]"#;
+        let json = zoomed_golden_scene_json();
+        let seam =
+            Scene::from_json(&json.replace(zoom, &format!("{full}{layout}"))).expect("scene");
+        let lone = Scene::from_json(&json.replace(zoom, full)).expect("scene");
+        let (start, end) = (1.0f32, 6.0f32);
+        let sample = |scene: &Scene, t: f32| {
+            let g = plan_frame(&FrameGeometryInput {
+                timeline_t_override: Some(t),
+                ..golden_input(scene, &cfg)
+            });
+            let label = annotation_text_state(
+                Some(DESK_COVER_ANIMATION),
+                (t - start) * 1000.0,
+                (end - start) * 1000.0,
+                g.webcam_cover,
+            );
+            (label.opacity, g.webcam_cover)
+        };
+        let mut t = start - 0.1;
+        while t < 9.1 {
+            let (label, cover) = sample(&seam, t);
+            assert_eq!(label, cover, "t = {t}");
+            if cover > 0.0 {
+                assert!(t >= start && t < end, "cover {cover} outside the label at {t}");
+            }
+            t += 1.0 / 120.0;
+        }
+        // Before the seam the cover (and so the label) is only its fade: half way up at
+        // end - fade/2 and sharp just before the fade, where a lone section still holds 1.
+        let (mid, _) = sample(&seam, end - DESK_COVER_FADE_S / 2.0);
+        assert!((mid - 0.5).abs() < 1e-3, "half way up at the seam: {mid}");
+        let before_fade = end - DESK_COVER_FADE_S - 0.05;
+        assert_eq!(sample(&seam, before_fade), (0.0, 0.0), "sharp before the seam's fade");
+        assert_eq!(sample(&lone, before_fade), (1.0, 1.0), "a lone section still holds");
+        assert!(sample(&seam, end - 0.001).0 > 0.99, "covered at the seam");
     }
 
     /// Le pivot doit rester collé à `center` quand le sprite grandit — c'est exactement ce qui
@@ -7865,6 +8575,7 @@ mod tests {
             shape_fade: 0.0,
             webcam: WebcamOrientation::default(),
             webcam_cover: 0.0,
+            camera_layers: Vec::new(),
             window_frame: None,
             screen_mask: None,
         }
@@ -9027,11 +9738,18 @@ mod tests {
                 )),
                 "blur_webcam_radius reads the texture size for its half-texel clamp"
             );
+            // `fs_main` only applies the layer's transparency to `fs_layer`, which draws it.
             let fs = module.entry_points.iter().find(|e| e.name == "fs_main").expect("fs_main");
+            let (body, f) = module
+                .functions
+                .iter()
+                .find(|(_, f)| f.name.as_deref() == Some("fs_layer"))
+                .expect("fs_layer exists");
+            assert_eq!(calls(&fs.function.body, body), 1, "fs_main draws through fs_layer");
             assert_eq!(
-                calls(&fs.function.body, kernel),
+                calls(&f.body, kernel),
                 1,
-                "fs_main blurs the covered camera once (LAYER_MODELS = {models})"
+                "fs_layer blurs the covered camera once (LAYER_MODELS = {models})"
             );
         }
     }

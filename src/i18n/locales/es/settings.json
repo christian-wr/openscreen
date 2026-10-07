@@ -281,6 +281,8 @@
 		"mute": "Silenciar"
 	},
 	"layout": {
+		"mainCamera": "Cámara principal",
+		"mainCameraUnavailable": "No disponible: se usa {{camera}}",
 		"help": "Cómo se compone la webcam con la pantalla: imagen en imagen, pila vertical, marco doble, forma, redondez, tamaño, posición y efecto espejo.",
 		"mirrorWebcam": "Reflejar cámara",
 		"webcamFraming": "Encuadre de cámara",
@@ -462,5 +464,41 @@
 		"dark": "Oscura",
 		"light": "Clara",
 		"custom": "Personalizada"
+	},
+	"cameraLayout": {
+		"template": "Diseño",
+		"placeLarge": "Posición {{n}} · grande",
+		"placeSmall": "Posición {{n}} · pequeña",
+		"placeLeft": "Posición {{n}} · izquierda",
+		"placeRight": "Posición {{n}} · derecha",
+		"cameraUnavailable": "{{name}} (no disponible)",
+		"resetWindows": "Restablecer ventanas"
+	},
+	"layoutSection": {
+		"minOneCamera": "Al menos una cámara",
+		"maxThreeWindows": "Tres ventanas como máximo"
+	},
+	"cameras": {
+		"cameraN": "Cámara {{n}}",
+		"cameraNamed": "Cámara {{n}} · {{label}}",
+		"title": "Cámaras",
+		"unavailable": "No disponible",
+		"camera1Hint": "El giro, el espejo y el recorte de la cámara principal están en los controles de arriba.",
+		"rotation": "Giro",
+		"mirror": "Espejo",
+		"crop": "Recorte…",
+		"perspective": "Corregir perspectiva…",
+		"reset": "Restablecer",
+		"cropOffWithPerspective": "El recorte no tiene efecto mientras haya una perspectiva definida.",
+		"deskCamera": "Cámara de escritorio",
+		"deskCameraAuto": "(automática)"
+	},
+	"desk": {
+		"title": "Escritorio",
+		"camera": "Cámara de escritorio",
+		"change": "Cambiar",
+		"showLabel": "Mostrar rótulo",
+		"unavailable": "No disponible",
+		"unavailableUsing": "No disponible: se usa {{camera}}"
 	}
 }

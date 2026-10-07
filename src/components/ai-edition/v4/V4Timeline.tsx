@@ -3,6 +3,8 @@ import {
 	Clock,
 	Crosshair,
 	Eraser,
+	LampDesk,
+	LayoutTemplate,
 	Loader2,
 	Maximize2,
 	MessageSquare,
@@ -31,7 +33,7 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { toFileUrl } from "@/components/video-editor/projectPersistence";
-import { ZOOM_DEPTH_SCALES } from "@/components/video-editor/types";
+import { type CameraLayoutTemplate, ZOOM_DEPTH_SCALES } from "@/components/video-editor/types";
 import { useScopedT } from "@/contexts/I18nContext";
 import { useShortcuts } from "@/contexts/ShortcutsContext";
 import { useAudioPeaks } from "@/hooks/useAudioPeaks";
@@ -56,7 +58,20 @@ import { useEditorSettings } from "@/lib/ai-edition/store/useEditorSettings";
 import type { useTimeline } from "@/lib/ai-edition/store/useTimeline";
 import { collectAutoZoomSuggestionsForLatestDocument } from "@/lib/ai-edition/timeline/apply-auto-zooms";
 import { hasAnyClipWithCamera } from "@/lib/ai-edition/timeline/camera";
+import {
+	type ProjectCamera,
+	projectCameraCount,
+	projectCameraLabel,
+	projectCameras,
+} from "@/lib/ai-edition/timeline/cameraList";
+import { showCameraSectionOutcome } from "@/lib/ai-edition/timeline/cameraSectionNotice";
 import { formatSec } from "@/lib/ai-edition/timeline/format";
+import {
+	camerasForLayoutMenu,
+	defaultLayoutCameras,
+	LAYOUT_TEMPLATES,
+	layoutTemplateBlock,
+} from "@/lib/ai-edition/timeline/layoutMenu";
 import {
 	newRegionDurationSec,
 	setTimelineScale,
@@ -68,12 +83,15 @@ import {
 	resolveTimelineSpanToTrim,
 	ventilateTimelineSpanToTrims,
 } from "@/lib/ai-edition/timeline/trim-mapping";
+import type { AnchoredCameraLayoutRegion } from "@/lib/cameraLayouts";
 import { normalizeCameraRotation } from "@/lib/cameraOrientation";
+import { isWebcamBlockLayout } from "@/lib/compositeLayout";
 import { formatBinding } from "@/lib/shortcuts";
 import { nativeBridgeClient } from "@/native/client";
 import { TransportBar } from "../TransportBar";
 import type { VideoSource } from "../VirtualPreview";
 import styles from "./EditorShellV4.module.css";
+import { layoutTemplateIcon, layoutTemplateLabel } from "./layoutTemplateUi";
 
 // The AI option's prompt — sent straight to the chat agent via the prompt-bus.
 //
@@ -592,7 +610,7 @@ const AudioLanePill = memo(function AudioLanePill({
 
 interface LanePill {
 	id: string;
-	kind: "annotation" | "speed" | "trim" | "zoom" | "cameraFullscreen";
+	kind: "annotation" | "speed" | "trim" | "zoom" | "cameraFullscreen" | "cameraLayout" | "desk";
 	start: number;
 	end: number;
 	label: string;
@@ -600,6 +618,8 @@ interface LanePill {
 	sourceIds: string[];
 	/** Desk-view section: the camera is turned 180 degrees. */
 	rotated?: boolean;
+	/** Layout pills: which template, for the icon. */
+	template?: CameraLayoutTemplate;
 }
 
 export function V4Timeline({
@@ -671,6 +691,33 @@ export function V4Timeline({
 	} | null>(null);
 	const { settings, set: setSettings } = useEditorSettings();
 
+	// The "Add layout" menu. The cameras of the clip under the playhead (else the nearest with some) are read when the
+	// menu opens and again on a pick, so no playback frame re-renders the timeline for it.
+	const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+	const [layoutMenuCameras, setLayoutMenuCameras] = useState<ProjectCamera[]>([]);
+	const availableCamerasAtPlayhead = useCallback((): ProjectCamera[] => {
+		return camerasForLayoutMenu(tl.clips, tl.assets, useProjectStore.getState().currentTimeSec, ts);
+	}, [tl.clips, tl.assets, ts]);
+	const openLayoutMenu = useCallback(
+		(open: boolean) => {
+			if (open) setLayoutMenuCameras(availableCamerasAtPlayhead());
+			setLayoutMenuOpen(open);
+		},
+		[availableCamerasAtPlayhead],
+	);
+	const templateLabel = (template: CameraLayoutTemplate): string =>
+		layoutTemplateLabel(t, template);
+	const addLayout = async (template: CameraLayoutTemplate) => {
+		setLayoutMenuOpen(false);
+		const cameras = defaultLayoutCameras(
+			template,
+			availableCamerasAtPlayhead().map((c) => c.index),
+			{ main: tl.mainCamera, desk: tl.deskCamera },
+		);
+		const outcome = await tl.addCameraLayout(template, cameras, newRegionDurationSec());
+		showCameraSectionOutcome(outcome, t);
+	};
+
 	const [autoEnhanceOpen, setAutoEnhanceOpen] = useState(false);
 	const [audioMenuOpen, setAudioMenuOpen] = useState(false);
 	const [autoBusy, setAutoBusy] = useState(false);
@@ -700,6 +747,9 @@ export function V4Timeline({
 	// clicked instead of looking like it worked. Same question, same helper as the Layout
 	// pane: is a camera attached anywhere on this timeline?
 	const hasAnyCamera = useMemo(() => hasAnyClipWithCamera(tl.assets, clips), [tl.assets, clips]);
+	// Desk sections need a second camera to mean anything, so their lane and button appear
+	// with two cameras; the lane also stays while sections exist, so none becomes unreachable.
+	const hasDeskCameras = useMemo(() => projectCameraCount(tl.assets) >= 2, [tl.assets]);
 	// The pauses added words created, placed on the ruler. Everything below measures the
 	// EXPANDED ruler — stored clip geometry plus the time those pauses add — because that
 	// is the film's real length and the one the playhead runs along. Stored geometry is
@@ -760,11 +810,47 @@ export function V4Timeline({
 			kind: "cameraFullscreen",
 			start: p.start,
 			end: p.end,
-			label: "Full Camera",
+			label: t("labels.cameraFullscreen"),
 			sourceIds: p.ids,
 			rotated: normalizeCameraRotation(p.member.rotation) === 180,
 		}),
 	);
+	// Layout sections: "<template> · <camera labels of its places>", the cameras named from the
+	// asset the section is anchored to (else the first asset that has a camera).
+	const cameraLayoutPills: LanePill[] = coalesceRegionsForRuler(tl.cameraLayoutRegions).map((p) => {
+		const member = p.member as AnchoredCameraLayoutRegion;
+		const asset =
+			tl.assets.find((a) => a.id === member.assetId) ??
+			tl.assets.find((a) => a.cameraTrack !== undefined);
+		const cameras = projectCameras(asset, ts);
+		const names = member.slots.map(
+			(slot) =>
+				cameras.find((c) => c.index === slot.camera)?.label ??
+				ts("cameras.cameraN", { n: slot.camera + 1 }),
+		);
+		return {
+			id: p.ids[0],
+			kind: "cameraLayout",
+			start: p.start,
+			end: p.end,
+			label: `${templateLabel(member.template)} · ${names.join(", ")}`,
+			sourceIds: p.ids,
+			template: member.template,
+		};
+	});
+	const layoutLanePills = [...cameraFullscreenPills, ...cameraLayoutPills];
+	// Desk sections: "Desk · <desk camera>", the camera the whole project resolves to.
+	const deskCameraName =
+		tl.deskCamera === null ? null : projectCameraLabel(tl.assets, tl.deskCamera, ts);
+	const deskPills: LanePill[] = coalesceRegionsForRuler(tl.deskRegions).map((p) => ({
+		id: p.ids[0],
+		kind: "desk",
+		start: p.start,
+		end: p.end,
+		label: deskCameraName ? `${t("labels.desk")} · ${deskCameraName}` : t("labels.desk"),
+		sourceIds: p.ids,
+	}));
+	const showDeskLane = hasDeskCameras || deskPills.length > 0;
 	const zoomPills: LanePill[] = coalesceRegionsForRuler(tl.zoomRegions).map((p) => ({
 		id: p.ids[0],
 		kind: "zoom",
@@ -992,6 +1078,9 @@ export function V4Timeline({
 					await tl.updateAnnotationSpan(pill.id, s * 1000, en * 1000);
 				else if (pill.kind === "cameraFullscreen")
 					await tl.updateCameraFullscreenSpan(pill.id, s * 1000, en * 1000);
+				else if (pill.kind === "cameraLayout")
+					await tl.updateCameraLayoutSpan(pill.id, s * 1000, en * 1000);
+				else if (pill.kind === "desk") await tl.updateDeskSpan(pill.id, s * 1000, en * 1000);
 				else {
 					// Trims are stored in source-time per asset but manipulated on the
 					// timeline like every other pill. Ventilate the new span across the
@@ -1419,16 +1508,20 @@ export function V4Timeline({
 				? styles.laneSpeed
 				: kind === "trim"
 					? styles.laneTrim
-					: kind === "cameraFullscreen"
+					: kind === "cameraFullscreen" || kind === "cameraLayout" || kind === "desk"
 						? styles.laneCameraFullscreen
 						: styles.laneZoom;
-	const pillIcon = (kind: LanePill["kind"], rotated?: boolean) =>
+	const pillIcon = (kind: LanePill["kind"], rotated?: boolean, template?: CameraLayoutTemplate) =>
 		kind === "annotation" ? (
 			<MessageSquare size={12} />
 		) : kind === "speed" ? (
 			<Clock size={12} />
 		) : kind === "trim" ? (
 			<Scissors size={12} />
+		) : kind === "cameraLayout" ? (
+			layoutTemplateIcon(template ?? "screen-pip")
+		) : kind === "desk" ? (
+			<LampDesk size={12} />
 		) : kind === "cameraFullscreen" ? (
 			rotated ? (
 				<RotateCw size={12} />
@@ -1721,7 +1814,7 @@ export function V4Timeline({
 				) : null}
 				{seg.showContent && roomForLabel ? (
 					<>
-						{pillIcon(p.kind, p.rotated)}
+						{pillIcon(p.kind, p.rotated, p.template)}
 						<span className={styles.lanePillLabel}>{p.label}</span>
 					</>
 				) : null}
@@ -2027,11 +2120,91 @@ export function V4Timeline({
 										type="button"
 										className={styles.tlToolBtn}
 										aria-label={t("buttons.addCameraFullscreen")}
-										onClick={() => void tl.addCameraFullscreen(newRegionDurationSec())}
+										onClick={() =>
+											void tl.addCameraFullscreen(newRegionDurationSec()).then((outcome) => {
+												showCameraSectionOutcome(outcome, t);
+											})
+										}
 									>
 										<Maximize2 size={16} />
 									</button>
 								</Tooltip>
+							) : null}
+							{hasDeskCameras ? (
+								<Tooltip
+									content={t("buttons.addDesk")}
+									shortcut={formatBinding(shortcuts.addDeskSection, isMac)}
+								>
+									<button
+										type="button"
+										className={styles.tlToolBtn}
+										aria-label={t("buttons.addDesk")}
+										onClick={() =>
+											void tl.addDeskSection(newRegionDurationSec()).then((outcome) => {
+												showCameraSectionOutcome(outcome, t);
+											})
+										}
+									>
+										<LampDesk size={16} />
+									</button>
+								</Tooltip>
+							) : null}
+							{hasAnyCamera ? (
+								<Popover open={layoutMenuOpen} onOpenChange={openLayoutMenu}>
+									<Tooltip content={t("buttons.addLayout")}>
+										<PopoverTrigger asChild>
+											<button
+												type="button"
+												className={styles.tlToolBtn}
+												aria-label={t("buttons.addLayout")}
+											>
+												<LayoutTemplate size={16} />
+											</button>
+										</PopoverTrigger>
+									</Tooltip>
+									<PopoverContent
+										align="start"
+										sideOffset={6}
+										animated={false}
+										className="w-auto border-0 bg-transparent p-0 shadow-none"
+									>
+										<div
+											className={styles.recMenu}
+											style={{ position: "relative", bottom: "auto", width: 244 }}
+										>
+											{LAYOUT_TEMPLATES.map((template) => {
+												const block = layoutTemplateBlock(template, {
+													cameraCount: layoutMenuCameras.length,
+													blockPreset: isWebcamBlockLayout(settings.webcamLayoutPreset),
+												});
+												const hint =
+													block === "block-layout"
+														? t("layoutMenu.blockLayoutHint")
+														: block === "needs-cameras"
+															? t("layoutMenu.needsCamerasHint")
+															: undefined;
+												return (
+													<button
+														key={template}
+														type="button"
+														className={styles.recMenuRow}
+														disabled={block !== null}
+														title={hint}
+														onClick={() => void addLayout(template)}
+													>
+														{pillIcon("cameraLayout", false, template)}
+														<span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+															<span style={{ fontWeight: 600 }}>{templateLabel(template)}</span>
+															{hint ? (
+																<span style={{ fontSize: 12, color: "var(--muted)" }}>{hint}</span>
+															) : null}
+														</span>
+													</button>
+												);
+											})}
+										</div>
+									</PopoverContent>
+								</Popover>
 							) : null}
 							{/* Last, behind a divider: every button before it adds a region, this one
 							    clears them. Absent with its divider, not greyed out, when there is
@@ -2169,7 +2342,7 @@ export function V4Timeline({
 									    that `addCameraFullscreen` now refuses (#353). The toolbar button is
 									    already disabled; this keeps the lane from contradicting it. */}
 									{renderPills(
-										cameraFullscreenPills,
+										layoutLanePills,
 										hasAnyCamera
 											? t("hints.pressCameraFullscreen", {
 													key: formatBinding(shortcuts.addCameraFullscreen, isMac),
@@ -2177,6 +2350,18 @@ export function V4Timeline({
 											: ts("layout.noWebcam"),
 									)}
 								</div>
+								{showDeskLane ? (
+									<div className={styles.tlLane}>
+										{renderPills(
+											deskPills,
+											tl.deskCamera === null
+												? t("errors.noDeskCamera")
+												: t("hints.pressDesk", {
+														key: formatBinding(shortcuts.addDeskSection, isMac),
+													}),
+										)}
+									</div>
+								) : null}
 								{/* Imported audio tracks (issue #350). Always shown, like every other
 								    lane — "Add audio" is a toolbar peer of the region tools now (and
 								    has a keyboard shortcut), so an empty lane advertises the shortcut

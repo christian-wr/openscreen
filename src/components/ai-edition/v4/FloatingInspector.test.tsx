@@ -38,7 +38,42 @@ vi.mock("../RightPanes", async (importOriginal) => ({
 		</div>
 	),
 	CursorPane: () => <div data-testid="cursor-pane">CursorPane</div>,
-	LayoutPane: () => <div data-testid="layout-pane">LayoutPane</div>,
+	// Hands its `cameras` writers out, so a test can tell which ones the inspector passed down.
+	LayoutPane: ({
+		cameras,
+	}: {
+		cameras?: {
+			setCameraSettings?: unknown;
+			desk?: { setDeskCamera?: unknown };
+			main?: { setMainCamera?: unknown };
+		};
+	}) => (
+		<>
+			<button
+				type="button"
+				data-testid="layout-pane"
+				onClick={() => (cameras?.setCameraSettings as (i: number, p: null) => void)?.(1, null)}
+			>
+				LayoutPane
+			</button>
+			<button
+				type="button"
+				data-testid="layout-pane-desk"
+				onClick={() => (cameras?.desk?.setDeskCamera as (i: number) => void)?.(2)}
+			>
+				Desk
+			</button>
+			<button
+				type="button"
+				data-testid="layout-pane-main"
+				onClick={() => (cameras?.main?.setMainCamera as (i: number) => void)?.(1)}
+			>
+				Main
+			</button>
+			{/* The real Cameras section carries the same marker. */}
+			<div data-testid="cameras-section" />
+		</>
+	),
 	SliderCell: () => <div data-testid="slider-cell">SliderCell</div>,
 	TranscriptPane: () => <div data-testid="transcript-pane">TranscriptPane</div>,
 	VideoEffectsPane: () => <div data-testid="effects-pane">VideoEffectsPane</div>,
@@ -84,6 +119,10 @@ describe("FloatingInspector", () => {
 		onToggleOpen: vi.fn(),
 		clips: [],
 		onEditClip: vi.fn(),
+		setCameraSettings: vi.fn(),
+		setDeskCamera: vi.fn(),
+		setMainCamera: vi.fn(),
+		toggleLayoutSectionCamera: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
 		>["transcriptProps"],
@@ -94,6 +133,43 @@ describe("FloatingInspector", () => {
 			selectAudioTrack: vi.fn(),
 		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"],
 	};
+
+	it("the layout pane writes camera settings through the writer it was given", () => {
+		const setCameraSettings = vi.fn();
+		const tl = {
+			...defaultProps.tl,
+			setCameraSettings: vi.fn(),
+		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"];
+		render(<FloatingInspector {...defaultProps} tl={tl} setCameraSettings={setCameraSettings} />);
+		fireEvent.click(screen.getByTestId("layout-pane"));
+		expect(setCameraSettings).toHaveBeenCalledWith(1, null);
+		expect(tl.setCameraSettings).not.toHaveBeenCalled();
+	});
+
+	// Through the shell's write queue, like the camera settings, so it cannot race them.
+	it("the layout pane writes the desk camera through the writer it was given", () => {
+		const setDeskCamera = vi.fn();
+		const tl = {
+			...defaultProps.tl,
+			setDeskCamera: vi.fn(),
+		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"];
+		render(<FloatingInspector {...defaultProps} tl={tl} setDeskCamera={setDeskCamera} />);
+		fireEvent.click(screen.getByTestId("layout-pane-desk"));
+		expect(setDeskCamera).toHaveBeenCalledWith(2);
+		expect(tl.setDeskCamera).not.toHaveBeenCalled();
+	});
+
+	it("the layout pane writes the main camera through the writer it was given", () => {
+		const setMainCamera = vi.fn();
+		const tl = {
+			...defaultProps.tl,
+			setMainCamera: vi.fn(),
+		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"];
+		render(<FloatingInspector {...defaultProps} tl={tl} setMainCamera={setMainCamera} />);
+		fireEvent.click(screen.getByTestId("layout-pane-main"));
+		expect(setMainCamera).toHaveBeenCalledWith(1);
+		expect(tl.setMainCamera).not.toHaveBeenCalled();
+	});
 
 	it("renders layout facet button on rail with camera icon and settings.layout.title", () => {
 		render(<FloatingInspector {...defaultProps} />);
@@ -536,6 +612,31 @@ describe("FloatingInspector", () => {
 			return { tl, updateCameraFullscreenOrientation, updateCameraFullscreenDeskLabel };
 		};
 
+		it("the full camera pane offers the template choice", async () => {
+			const { tl } = camTl({});
+			const setLayoutTemplate = vi.fn(async () => ({ kind: "cameraLayout" as const, id: "L9" }));
+			const selectRegion = vi.fn();
+			Object.assign(tl, { setLayoutTemplate, selectRegion });
+			render(<FloatingInspector {...defaultProps} tl={tl} />);
+			expect(
+				screen.getByRole("group", { name: "settings.cameraLayout.template" }),
+			).toBeInTheDocument();
+			const current = screen.getByRole("button", { name: /timeline.labels.layoutCameraFull$/ });
+			expect(current).toHaveAttribute("aria-pressed", "true");
+			// Only one camera is known here, so the two-camera templates are off.
+			expect(
+				screen.getByRole("button", { name: /timeline.labels.layoutSideBySide/ }),
+			).toBeDisabled();
+			fireEvent.click(screen.getByRole("button", { name: /timeline.labels.layoutScreenPip/ }));
+			expect(setLayoutTemplate).toHaveBeenCalledWith(
+				{ kind: "cameraFullscreen", id: "cf" },
+				"screen-pip",
+				[],
+			);
+			// The section moved to the layout list: the selection follows it.
+			await waitFor(() => expect(selectRegion).toHaveBeenCalledWith("cameraLayout", "L9"));
+		});
+
 		it("desk view sets both fields in one call", () => {
 			const { tl, updateCameraFullscreenOrientation } = camTl({});
 			render(<FloatingInspector {...defaultProps} tl={tl} />);
@@ -598,6 +699,122 @@ describe("FloatingInspector", () => {
 				mirror: "on",
 			});
 		});
+	});
+});
+
+describe("FloatingInspector desk pane", () => {
+	const camTrack = (sourcePath: string, extra: Record<string, unknown> = {}) => ({
+		sourcePath,
+		startMs: 0,
+		offsetMs: 0,
+		visible: true,
+		...extra,
+	});
+	const deskTl = (deskCamera: number | null, deskCameraChosen: number | null = null) => {
+		const tl = {
+			selection: { kind: "desk", id: "d1" } as { kind: string; id: string } | null,
+			clearSelection: vi.fn(),
+			selectedAudioTrackId: null,
+			selectAudioTrack: vi.fn(),
+			assets: [
+				{
+					id: "a1",
+					cameraTrack: camTrack("/cam1.webm"),
+					additionalCameraTracks: [camTrack("/cam2.webm", { label: "Brio" })],
+				},
+			],
+			deskRegions: [{ id: "d1", startMs: 0, endMs: 2000, assetId: "a1" }],
+			deskCamera,
+			deskCameraChosen,
+			updateDeskLabel: vi.fn(),
+			removeRegion: vi.fn(),
+		};
+		return tl;
+	};
+	const props = (tl: ReturnType<typeof deskTl>, onFacetChange = vi.fn()) => ({
+		facet: "effects" as const,
+		open: true,
+		onFacetChange,
+		onToggleOpen: vi.fn(),
+		clips: [],
+		onEditClip: vi.fn(),
+		setCameraSettings: vi.fn(),
+		setDeskCamera: vi.fn(),
+		setMainCamera: vi.fn(),
+		toggleLayoutSectionCamera: vi.fn(),
+		transcriptProps: {} as unknown as React.ComponentProps<
+			typeof FloatingInspector
+		>["transcriptProps"],
+		tl: tl as unknown as React.ComponentProps<typeof FloatingInspector>["tl"],
+	});
+
+	it("names the desk camera and switches the label off", () => {
+		const tl = deskTl(1);
+		render(<FloatingInspector {...props(tl)} />);
+		expect(screen.getByText("settings.desk.title")).toBeInTheDocument();
+		expect(screen.getByText("settings.cameras.cameraNamed")).toBeInTheDocument();
+		const toggle = screen.getByRole("button", { name: "settings.desk.showLabel" });
+		expect(toggle).toHaveAttribute("aria-pressed", "true");
+		fireEvent.click(toggle);
+		expect(tl.updateDeskLabel).toHaveBeenCalledWith("d1", false);
+	});
+
+	it("says when no desk camera resolves", () => {
+		render(<FloatingInspector {...props(deskTl(null))} />);
+		expect(screen.getByText("settings.desk.unavailable")).toBeInTheDocument();
+	});
+
+	// The chosen camera's file is gone: the pane says so and names the camera used instead.
+	it("says the chosen desk camera is gone and names the fallback", () => {
+		render(<FloatingInspector {...props(deskTl(1, 4))} />);
+		expect(screen.getByText("settings.desk.unavailableUsing")).toBeInTheDocument();
+		expect(screen.queryByText("settings.cameras.cameraNamed")).toBeNull();
+	});
+
+	it("says the chosen desk camera is gone when nothing resolves either", () => {
+		render(<FloatingInspector {...props(deskTl(null, 4))} />);
+		expect(screen.getByText("settings.desk.unavailable")).toBeInTheDocument();
+	});
+
+	it("'change' opens the layout facet, where the cameras are", () => {
+		const tl = deskTl(1);
+		const onFacetChange = vi.fn();
+		render(<FloatingInspector {...props(tl, onFacetChange)} />);
+		fireEvent.click(screen.getByRole("button", { name: "settings.desk.change" }));
+		expect(tl.clearSelection).toHaveBeenCalled();
+		expect(onFacetChange).toHaveBeenCalledWith("layout");
+	});
+
+	// The Cameras section sits below the layout controls: "Change" scrolls it into view once the
+	// layout facet is shown.
+	it("'change' scrolls the Cameras section into view once the layout facet shows", () => {
+		const scrollIntoView = vi.fn();
+		const original = Element.prototype.scrollIntoView;
+		Element.prototype.scrollIntoView = scrollIntoView;
+		try {
+			const tl = deskTl(1);
+			const view = render(<FloatingInspector {...props(tl)} />);
+			fireEvent.click(screen.getByRole("button", { name: "settings.desk.change" }));
+			expect(scrollIntoView).not.toHaveBeenCalled();
+			const cleared = { ...tl, selection: null };
+			view.rerender(<FloatingInspector {...props(cleared)} facet="layout" />);
+			expect(scrollIntoView).toHaveBeenCalledTimes(1);
+			expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+			expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByTestId("cameras-section"));
+			// Once only: a later render does not pull the pane back to the cameras.
+			view.rerender(<FloatingInspector {...props(cleared)} facet="layout" open={false} />);
+			view.rerender(<FloatingInspector {...props(cleared)} facet="layout" />);
+			expect(scrollIntoView).toHaveBeenCalledTimes(1);
+		} finally {
+			Element.prototype.scrollIntoView = original;
+		}
+	});
+
+	it("deletes the section", () => {
+		const tl = deskTl(1);
+		render(<FloatingInspector {...props(tl)} />);
+		fireEvent.click(screen.getByRole("button", { name: /editor.inspector.deleteRegion/ }));
+		expect(tl.removeRegion).toHaveBeenCalledWith("desk", "d1");
 	});
 });
 

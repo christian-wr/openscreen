@@ -163,7 +163,6 @@ const DECLARED: WritePath[] = [
 	w("src/components/ai-edition/NewEditorShell.tsx", "pasteRegion", "save", "gesture"),
 	w("src/components/ai-edition/NewEditorShell.tsx", "pasteRegion", "save", "gesture"),
 	w("src/components/ai-edition/NewEditorShell.tsx", "pasteRegion", "save", "gesture"),
-	w("src/components/ai-edition/NewEditorShell.tsx", "pasteRegion", "save", "gesture"),
 	// The window is closing and the user answered "save".
 	w("src/components/ai-edition/NewEditorShell.tsx", "unsubSaveBeforeClose", "save", "gesture"),
 
@@ -250,6 +249,8 @@ const DECLARED: WritePath[] = [
 	w("src/lib/ai-edition/store/useTimeline.ts", "applyClipEdit", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addAnnotation", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addCameraFullscreen", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "addCameraLayout", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "addDeskSection", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addSpeed", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addTrim", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "addZoom", "save", "gesture"),
@@ -263,6 +264,9 @@ const DECLARED: WritePath[] = [
 	// document back into the store, around the writers, so it records nothing. There is
 	// nothing to take off either — the commit records only on success.
 	w("src/lib/ai-edition/store/useTimeline.ts", "commitAnnotationChange", "state", "unrecorded"),
+	// The slot-rect drag of a layout section: the same commit and rollback pair.
+	w("src/lib/ai-edition/store/useTimeline.ts", "commitLayoutSlotRect", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "commitLayoutSlotRect", "state", "unrecorded"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "commitZoomFocus", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "commitZoomFocus", "state", "unrecorded"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "duplicateClip", "save", "gesture"),
@@ -287,7 +291,16 @@ const DECLARED: WritePath[] = [
 	w("src/lib/ai-edition/store/useTimeline.ts", "removeClip", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "removeRegion", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "removeRegions", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "resetLayoutSlotRects", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "saveZoomPatch", "save", "gesture"),
+	// Template and camera changes of a layout section, including a move between the
+	// Full Camera and layout lists: one save each, so one undo step.
+	// Two exits, one gesture each: a Full Camera region moving to the layout list, or a
+	// layout section changing a place (possibly moving to the Full Camera list).
+	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSlotCamera", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSlotCamera", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSectionCameras", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutTemplate", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setTrimEntries", "save", "gesture"),
 	// The live halves of the two drags.
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateAnnotationLive", "set", "automatic"),
@@ -298,6 +311,11 @@ const DECLARED: WritePath[] = [
 		"save",
 		"gesture",
 	),
+	w("src/lib/ai-edition/store/useTimeline.ts", "setCameraSettings", "save", "gesture"),
+	// The project's desk camera: choose one or go back to automatic, one undo step each.
+	w("src/lib/ai-edition/store/useTimeline.ts", "setDeskCamera", "save", "gesture"),
+	// The project's main camera: choose one or go back to camera 1, one undo step each.
+	w("src/lib/ai-edition/store/useTimeline.ts", "setMainCamera", "save", "gesture"),
 	w(
 		"src/lib/ai-edition/store/useTimeline.ts",
 		"updateCameraFullscreenDeskLabel",
@@ -305,6 +323,10 @@ const DECLARED: WritePath[] = [
 		"gesture",
 	),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateCameraFullscreenSpan", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "updateCameraLayoutSpan", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "updateDeskLabel", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "updateDeskSpan", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "updateLayoutSlotRectLive", "set", "automatic"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateSpeedSpan", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateSpeedValue", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "updateTrim", "save", "gesture"),

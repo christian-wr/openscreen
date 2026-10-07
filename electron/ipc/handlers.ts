@@ -37,6 +37,7 @@ import {
 	type AdditionalWebcam,
 	type CursorCaptureMode,
 	type FindRecordingCameraResult,
+	findRecordingCameraResult,
 	normalizeCursorCaptureMode,
 	normalizeProjectMedia,
 	normalizeRecordingSession,
@@ -136,9 +137,12 @@ import {
 	buildHelperWebcamConfig,
 	collectStoppedWebcams,
 	dedupeAdditionalWebcams,
+	deskWebcamPath,
 	isWebcamSidecarFile,
 	labelsOfUnavailableAdditionalWebcams,
 	labelsOfWebcamsStoppedEarly,
+	recordedDeskCamera,
+	remapDeskCamera,
 	stripWebcamSuffix,
 	webcamOutputPath,
 } from "../recording/nativeWindowsWebcams";
@@ -690,6 +694,8 @@ export interface RecordingPrefs {
 	camDeviceName: string | null;
 	/** Cameras 2-4 of a native Windows recording, in pick order. At most three. */
 	camAdditionalDevices: Array<{ id: string | null; name: string }>;
+	/** The camera filming the desk; a take records its index as the session's `deskCamera`. */
+	camDeskDevice: { id: string | null; name: string } | null;
 	/** Capture resolution for the camera. See WEBCAM_QUALITY_PRESETS. */
 	camQuality: WebcamQualityId;
 	systemAudioEnabled: boolean;
@@ -706,6 +712,7 @@ const defaultRecordingPrefs: RecordingPrefs = {
 	camDeviceId: null,
 	camDeviceName: null,
 	camAdditionalDevices: [],
+	camDeskDevice: null,
 	camQuality: DEFAULT_WEBCAM_QUALITY,
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
@@ -765,6 +772,11 @@ let nativeWindowsCaptureWebcamTargetPath: string | null = null;
  * the label it is reported under. Only paths generated here ever land in it.
  */
 let nativeWindowsCaptureAdditionalWebcamTargets: Array<{ path: string; label: string }> = [];
+/**
+ * The file the desk camera of the running take records into, or null. A path, not an index:
+ * cameras dropped at start or stop shift the indices, the file stays the desk camera's.
+ */
+let nativeWindowsCaptureDeskWebcamPath: string | null = null;
 /** Camera 1's label for notices: its device name, else "Camera 1". */
 let nativeWindowsCaptureWebcamLabel = "Camera 1";
 /**
@@ -799,6 +811,7 @@ function resetNativeWindowsCaptureState() {
 	nativeWindowsCaptureTargetPath = null;
 	nativeWindowsCaptureWebcamTargetPath = null;
 	nativeWindowsCaptureAdditionalWebcamTargets = [];
+	nativeWindowsCaptureDeskWebcamPath = null;
 	nativeWindowsCaptureWebcamLabel = "Camera 1";
 	nativeWindowsCaptureDroppedWebcamPaths = [];
 	nativeWindowsCaptureRecordingId = null;
@@ -1859,9 +1872,10 @@ async function loadRecordedSessionForVideoPath(
 			}
 		}
 
+		const keptExtraIndices: number[] = [];
 		if (session.additionalWebcams) {
 			const approvedExtras: AdditionalWebcam[] = [];
-			for (const extra of session.additionalWebcams) {
+			for (const [index, extra] of session.additionalWebcams.entries()) {
 				let extraPath: string | null = extra.path;
 				if (!isPathAllowed(extraPath)) {
 					extraPath = await approveReadableVideoPath(extraPath, [
@@ -1871,6 +1885,7 @@ async function loadRecordedSessionForVideoPath(
 				}
 				if (extraPath) {
 					approvedExtras.push({ path: extraPath, label: extra.label });
+					keptExtraIndices.push(index);
 				}
 			}
 			if (approvedExtras.length > 0) {
@@ -1878,6 +1893,18 @@ async function loadRecordedSessionForVideoPath(
 			} else {
 				delete session.additionalWebcams;
 			}
+		}
+
+		// Dropped cameras shift the indices after them; a dropped desk camera is no desk camera.
+		const deskCamera = remapDeskCamera(
+			session.deskCamera,
+			Boolean(session.webcamVideoPath),
+			keptExtraIndices,
+		);
+		if (deskCamera !== undefined) {
+			session.deskCamera = deskCamera;
+		} else {
+			delete session.deskCamera;
 		}
 
 		approveFilePath(session.screenVideoPath);
@@ -1907,6 +1934,7 @@ async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 	webcamVideoPath?: string;
 	webcamOffsetMs?: number;
 	additionalWebcams?: AdditionalWebcam[];
+	deskCamera?: number;
 	cursorTelemetryPath?: string;
 	resolvedVia: "sidecar" | "fingerprint" | "none";
 }> {
@@ -1942,6 +1970,7 @@ async function resolveMediaLinksForVideo(videoPath: string): Promise<{
 			...(sessionAdditionalWebcams.length > 0
 				? { additionalWebcams: sessionAdditionalWebcams }
 				: {}),
+			...(session?.deskCamera !== undefined ? { deskCamera: session.deskCamera } : {}),
 			...(hasCursorTelemetry ? { cursorTelemetryPath } : {}),
 			resolvedVia: "sidecar",
 		};
@@ -2922,11 +2951,11 @@ export function registerIpcHandlers(
 					: null;
 				// Cameras 2-4 only while camera 1 is on: its toggle governs every
 				// camera. Files are numbered from 2 in the order they are sent.
+				const requestedExtras = Array.isArray(request.additionalWebcams)
+					? request.additionalWebcams
+					: [];
 				const keptExtras = request.webcam.enabled
-					? dedupeAdditionalWebcams(
-							request.webcam,
-							Array.isArray(request.additionalWebcams) ? request.additionalWebcams : [],
-						)
+					? dedupeAdditionalWebcams(request.webcam, requestedExtras)
 					: [];
 				const extraLabels = additionalWebcamLabels(request.webcam.deviceName, keptExtras);
 				const additionalWebcams = await Promise.all(
@@ -3026,6 +3055,13 @@ export function registerIpcHandlers(
 				nativeWindowsCaptureAdditionalWebcamTargets = additionalWebcams.map(
 					({ label, path: cameraPath }) => ({ label, path: cameraPath }),
 				);
+				nativeWindowsCaptureDeskWebcamPath = deskWebcamPath({
+					deskCamera: request.deskCamera,
+					camera1Path: request.webcam.enabled ? webcamPath : null,
+					requested: requestedExtras,
+					kept: keptExtras,
+					keptPaths: additionalWebcams.map((extra) => extra.path),
+				});
 				nativeWindowsCaptureWebcamLabel = request.webcam.deviceName?.trim() || "Camera 1";
 				nativeWindowsCaptureDroppedWebcamPaths = [];
 				nativeWindowsCaptureRecordingId = recordingId;
@@ -3493,6 +3529,7 @@ export function registerIpcHandlers(
 		const preferredPath = nativeWindowsCaptureTargetPath;
 		const preferredWebcamPath = nativeWindowsCaptureWebcamTargetPath;
 		const additionalWebcamTargets = nativeWindowsCaptureAdditionalWebcamTargets;
+		const deskPath = nativeWindowsCaptureDeskWebcamPath;
 		const camera1Label = nativeWindowsCaptureWebcamLabel;
 		const droppedWebcamPaths = nativeWindowsCaptureDroppedWebcamPaths;
 		// Start-dropped cameras ride along so a discard or a failed stop also
@@ -3691,12 +3728,14 @@ export function registerIpcHandlers(
 			for (const extra of additionalWebcams) {
 				approveFilePath(extra.path);
 			}
+			const deskCamera = recordedDeskCamera(deskPath, webcamVideoPath, additionalWebcams);
 			const session: RecordingSession = {
 				screenVideoPath,
 				...(webcamVideoPath ? { webcamVideoPath } : {}),
 				...(additionalWebcams.length > 0 ? { additionalWebcams } : {}),
 				createdAt: recordingId,
 				cursorCaptureMode,
+				...(deskCamera !== undefined ? { deskCamera } : {}),
 			};
 			setCurrentRecordingSessionState(session);
 			currentProjectPath = null;
@@ -4959,21 +4998,7 @@ export function registerIpcHandlers(
 				if (!normalized || !isPathAllowed(normalized)) {
 					return { success: false, error: "Video path has not been approved" };
 				}
-				const resolution = await resolveMediaLinksForVideo(normalized);
-				// Additional cameras are only returned alongside camera 1. That relies
-				// on R6 (extras are recorded only while camera 1 is on), so extras
-				// without camera 1 means camera 1's file came out empty.
-				if (!resolution.webcamVideoPath) {
-					return { success: false, error: "No camera attached to this recording" };
-				}
-				return {
-					success: true,
-					webcamVideoPath: resolution.webcamVideoPath,
-					offsetMs: resolution.webcamOffsetMs ?? 0,
-					...(resolution.additionalWebcams?.length
-						? { additionalWebcams: resolution.additionalWebcams }
-						: {}),
-				};
+				return findRecordingCameraResult(await resolveMediaLinksForVideo(normalized));
 			} catch (err) {
 				return {
 					success: false,

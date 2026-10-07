@@ -88,5 +88,46 @@
 		"audioFiles": "Audio files",
 		"openscreenProject": "OpenScreen project",
 		"allFiles": "All files"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "Correct perspective – {{camera}}",
+		"titleCrop": "Crop – {{camera}}",
+		"loading": "Loading the camera picture…",
+		"loadFailed": "The camera picture could not be loaded.",
+		"perspectiveHelp": "Drag the four corners onto the corners of the sheet or desk. The arrow keys move the selected corner by one pixel, with Shift by ten.",
+		"cropIgnored": "This camera has a crop; the crop is ignored while a perspective is set.",
+		"cropHelp": "Drag the frame or its handles to choose the part of the picture to keep. The arrow keys move it, Shift + arrow keys resize it.",
+		"corners": {
+			"topLeft": "Top-left corner",
+			"topRight": "Top-right corner",
+			"bottomRight": "Bottom-right corner",
+			"bottomLeft": "Bottom-left corner"
+		},
+		"format": "Target format",
+		"formats": {
+			"a4Portrait": "A4 portrait",
+			"a4Landscape": "A4 landscape",
+			"free": "Free"
+		},
+		"freeRatio": "Ratio (width ÷ height)",
+		"margin": "Margin",
+		"preview": "Preview",
+		"loupe": "Magnifier",
+		"cropArea": "Crop area",
+		"invalidQuad": "The corners cross, lie on one line or form a dented (not convex) shape. Move them into a convex four-sided shape to apply.",
+		"reset": "Reset",
+		"apply": "Apply",
+		"invalidRatio": "Enter a ratio between {{min}} and {{max}}.",
+		"detectMarkers": "Detect markers",
+		"printMarkerSheet": "Print marker sheet",
+		"planeFound": "All four markers found; the desk is straightened. Place the crop on it.",
+		"planeHelp": "Drag the crop on the straightened desk. The corner handles resize it (in “Free” the edges too), as do Shift + the arrow keys.",
+		"handMode": "Four corners by hand",
+		"planeMode": "Crop on the straightened desk",
+		"noPlane": "All four markers found, but the desk plane could not be determined; the corners were placed on them.",
+		"cropSize": "Crop: about {{width}} × {{height}} cm",
+		"cropOutside": "The crop reaches past the camera picture; that part stays black.",
+		"markersNotFound": "Not all four markers (0–3) were found. Make sure they are fully in the picture, flat and evenly lit. The corners were left as they were.",
+		"markerSheetInstruction": "Cut along the dashed lines. Put each marker's inner corner on its labelled corner."
 	}
 }

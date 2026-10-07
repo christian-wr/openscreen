@@ -41,6 +41,8 @@ struct Layer {
     trail_b: vec4<f32>,   // mode 8 : coins BR, BL du plan a la frame precedente (comme src_prev) ; mode 18 incline : en fractions de sortie
     trail_mb: vec4<f32>,  // mode 8 : x = taps, y = force du flou de mouvement (ceux du mode 0) ; mode 18 incline : le `mb` du mode 8 (profondeur de champ), et `color.xy` sa lampe ; 0 ailleurs
     cover: vec4<f32>,     // x = desk-view cover 0..1, y = blur radius (quad px), z = dim, w unused
+    persp: array<vec4<f32>, 3>, // mode 0: rows of the homography quad point (0..1 in dst) -> camera uv (0..1 of the valid frame), xyz; read when layer_fx.y = 1
+    layer_fx: vec4<f32>,  // x = transparency 0..1 (0 = opaque), every mode; y = 1 when persp applies; z, w unused
 }
 
 @group(0) @binding(0) var<uniform> layer: Layer;
@@ -586,6 +588,18 @@ fn blur_webcam_radius(uv: vec2<f32>, max_r_px: f32, qpx: vec2<f32>, local_px: ve
 
 fn blur_webcam_bg(uv: vec2<f32>, intensity: f32, qpx: vec2<f32>, local_px: vec2<f32>, valid: vec2<f32>) -> vec3<f32> {
     return blur_webcam_radius(uv, max(intensity, 0.0) * 22.0 + 1.5, qpx, local_px, valid);
+}
+
+// Camera homography (`persp`, read when `layer_fx.y` = 1): the camera point (0..1 of its valid
+// frame) seen at `local` (0..1 in the layer's dst quad), and in z whether there is one -- 0 when
+// the point is behind the projection (q.z <= 0) or outside the camera frame, where the layer is
+// black. Mirror of the HLSL and MSL `persp_camera`.
+fn persp_camera(local: vec2<f32>) -> vec3<f32> {
+    let p = vec3<f32>(local, 1.0);
+    let q = vec3<f32>(dot(layer.persp[0].xyz, p), dot(layer.persp[1].xyz, p), dot(layer.persp[2].xyz, p));
+    let cam = q.xy / max(q.z, 1e-6);
+    let inside = q.z > 0.0 && all(cam >= vec2<f32>(0.0)) && all(cam <= vec2<f32>(1.0));
+    return vec3<f32>(cam, select(0.0, 1.0, inside));
 }
 
 // ---- Curseur MODELISE (mode 15) ----
@@ -2265,12 +2279,14 @@ fn device_frame(local: vec2<f32>) -> vec4<f32> {
     return vec4<f32>(rgb * a, a); // premultiplie
 }
 
-@fragment
-fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
+// The body of `fs_main`, which only adds the layer's transparency on top of it.
+fn fs_layer(i: VsOut) -> vec4<f32> {
     var rgb: vec3<f32>;
     var alpha: f32;
     // 1 sauf en detourage, ou il porte le masque du sujet. Cf. la branche fx.z plus bas.
     var alpha_mask = 1.0;
+    // 0 where a camera homography finds no camera point (`persp_camera`), 1 everywhere else.
+    var in_picture = 1.0;
 
     if layer.mode < 0.5 {
         // Mode 0 — vidéo NV12 + flou de mouvement par vélocité (§8), port 1:1 du
@@ -2280,18 +2296,31 @@ fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
         // du calque sans avoir à transporter un champ de vitesse.
         let taps = i32(layer.mb.x);
         let mb_scale = clamp(layer.mb.y, 0.0, 1.0);
+        var uv_now = i.uv;
+        if layer.layer_fx.y > 0.5 {
+            // Camera homography: the texture uv comes from the fragment's place in the quad
+            // (`src` is not used), scaled to the valid part of the decoder texture.
+            let cam = persp_camera((i.pout - layer.dst.xy) / layer.dst.zw);
+            in_picture = cam.z;
+            uv_now = cam.xy * layer.fx.xy;
+        }
         // `taps` d'abord : un draw qui a oublié `dst_prev` le laisse à zéro, et
         // la division par `dst_prev.zw` produirait des UV infinis. Dégrader vers
         // le chemin net est le seul échec acceptable pour un effet cosmétique.
         if taps <= 1 || mb_scale <= 0.001 || layer.dst_prev.z <= 0.0 || layer.dst_prev.w <= 0.0 {
-            rgb = sample_yuv(i.uv);
+            rgb = sample_yuv(uv_now);
         } else {
             let localp = (i.pout - layer.dst_prev.xy) / layer.dst_prev.zw;
-            let uv_prev = layer.src_prev.xy + localp * (layer.src_prev.zw - layer.src_prev.xy);
-            let duv = i.uv - uv_prev;
+            var uv_prev = layer.src_prev.xy + localp * (layer.src_prev.zw - layer.src_prev.xy);
+            if layer.layer_fx.y > 0.5 {
+                // The previous frame's uv is the same map at the quad's previous place.
+                let cam_prev = persp_camera(localp);
+                uv_prev = select(uv_now, cam_prev.xy * layer.fx.xy, cam_prev.z > 0.5);
+            }
+            let duv = uv_now - uv_prev;
             let duv_blur = duv * mb_scale;
             if dot(duv_blur, duv_blur) < 1e-9 {
-                rgb = sample_yuv(i.uv);
+                rgb = sample_yuv(uv_now);
             } else {
                 // Borne 16 en dur, identique au HLSL et au MSL : `taps` vient d'un
                 // uniform et une boucle sans borne statique ne se déroule pas.
@@ -2301,7 +2330,7 @@ fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
                 let step = 1.0 / f32(taps - 1);
                 for (var k: i32 = 0; k < 16; k = k + 1) {
                     if k >= taps { break; }
-                    acc = acc + sample_yuv(i.uv - duv_blur * (1.0 - f32(k) * step));
+                    acc = acc + sample_yuv(uv_now - duv_blur * (1.0 - f32(k) * step));
                 }
                 rgb = acc / f32(taps);
             }
@@ -2312,12 +2341,12 @@ fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
         // l'etendue valide de la texture webcam pour ramener uv dans l'espace du masque.
         let effect = layer.fx.z;
         if effect > 0.5 {
-            let mask_uv = i.uv / max(layer.fx.xy, vec2<f32>(1e-6));
+            let mask_uv = uv_now / max(layer.fx.xy, vec2<f32>(1e-6));
             let person = clamp(textureSample(texMask, samp, mask_uv).r, 0.0, 1.0);
             if effect > 2.5 {
                 rgb = mix(layer.color.rgb, rgb, person);
             } else if effect > 1.5 {
-                rgb = mix(blur_webcam_bg(i.uv, layer.fx.w, layer.quad_px, i.local, layer.fx.xy), rgb, person);
+                rgb = mix(blur_webcam_bg(uv_now, layer.fx.w, layer.quad_px, i.local, layer.fx.xy), rgb, person);
             } else {
                 alpha_mask = person;
             }
@@ -2326,8 +2355,16 @@ fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
         // Desk-view cover: the camera is being tilted, so the whole picture is blurred and
         // dimmed (cover.x = strength, cover.y = radius in quad px, cover.z = dim at full cover).
         if layer.cover.x > 0.001 {
-            let hidden = blur_webcam_radius(i.uv, layer.cover.y, layer.quad_px, i.local, layer.fx.xy);
+            let hidden = blur_webcam_radius(uv_now, layer.cover.y, layer.quad_px, i.local, layer.fx.xy);
             rgb = mix(rgb, hidden, layer.cover.x) * (1.0 - layer.cover.z * layer.cover.x);
+        }
+
+        // Past the camera picture the layer is black, as opaque as the rest of it (spec: a
+        // corrected crop that reaches past the camera image has a black edge, never the
+        // wallpaper). The mask and effects have no picture to act on there.
+        if in_picture < 0.5 {
+            rgb = vec3<f32>(0.0);
+            alpha_mask = 1.0;
         }
     } else if layer.mode < 1.5 {
         // Mode 1 — couleur pleine.
@@ -2723,4 +2760,10 @@ fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
     }
 
     return vec4<f32>(rgb * alpha, alpha); // alpha prémultiplié
+}
+
+@fragment
+fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
+    // Premultiplied, so the transparency scales all four channels; 0 leaves them as they are.
+    return fs_layer(i) * (1.0 - layer.layer_fx.x);
 }

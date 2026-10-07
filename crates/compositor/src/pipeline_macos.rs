@@ -663,7 +663,12 @@ pub struct ClipSource {
     pub source_end_sec: f64,
     pub webcam_offset_sec: f64,
     pub has_audio: bool,
+    /// Cameras 2-4 of the clip (index k-1 = camera k, an empty `path` = none). Only those a
+    /// layout region of the clip shows are decoded.
+    pub additional_cameras: Vec<ClipCamera>,
 }
+
+pub use crate::extra_cameras::ClipCamera;
 
 /// Codec cible pour l'export. Identique à `pipeline_windows::ExportCodec`.
 pub enum ExportCodec {
@@ -1160,6 +1165,8 @@ pub fn run_composited_multi(
         std::collections::HashMap::new();
     let mut webcam_decs: std::collections::HashMap<String, Decoder> =
         std::collections::HashMap::new();
+    let mut extra_decs: std::collections::HashMap<String, Decoder> =
+        std::collections::HashMap::new();
 
     // ---- encodeur (candidat VT ou software) ----
     let mut enc =
@@ -1241,6 +1248,7 @@ pub fn run_composited_multi(
             &scene,
             &mut screen_decs,
             &mut webcam_decs,
+            &mut extra_decs,
             &mut |n| {
                 enc.send_composited(comp, out_w, out_h, n as i64)?;
                 {

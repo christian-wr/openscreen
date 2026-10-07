@@ -11,6 +11,7 @@ import { requireNativeBridgeData } from "./client";
 import type {
 	CompositorBackend,
 	CompositorBackendResult,
+	CompositorClipCamera,
 	CompositorClipInput,
 	CompositorExportGifParams,
 	CompositorExportGifResult,
@@ -175,11 +176,20 @@ export function setActiveClip(
 	webcamOffsetSec: number,
 	clipIndex: number,
 	sourceTimeSec: number,
+	additionalCameras: CompositorClipCamera[] = [],
 ): Promise<{ ok: true }> {
 	return requireNativeBridgeData<{ ok: true }>({
 		domain: "compositor",
 		action: "setActiveClip",
-		payload: { id, screenPath, webcamPath, webcamOffsetSec, clipIndex, sourceTimeSec },
+		payload: {
+			id,
+			screenPath,
+			webcamPath,
+			webcamOffsetSec,
+			clipIndex,
+			sourceTimeSec,
+			additionalCameras,
+		},
 	});
 }
 

@@ -11,6 +11,7 @@ import {
 	type AdditionalCamerasLabels,
 	AdditionalCamerasList,
 } from "./AdditionalCamerasList";
+import { DeskCameraList } from "./DeskCameraList";
 import styles from "./LaunchWindow.module.css";
 
 const LEVEL_SEGMENTS = 12;
@@ -43,6 +44,12 @@ export interface HudAdditionalCameras {
 	/** No native Windows recording: the list stays visible, with its hint, but cannot be used. */
 	disabled: boolean;
 	labels: AdditionalCamerasLabels;
+	/** The desk camera among the recorded ones; locked with the list above, whose hint covers both. */
+	desk: {
+		selected: AdditionalCameraChoice | null;
+		onChange: (next: AdditionalCameraChoice | null) => void;
+		labels: { title: string; none: string };
+	};
 }
 
 /** Segmented input-level bar, driven by the live analyser. */
@@ -247,6 +254,18 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 					onChange={additionalCameras.onChange}
 					disabled={additionalCameras.disabled}
 					labels={additionalCameras.labels}
+				/>
+			) : null}
+			{hasCamera && additionalCameras && cameraDevices.length > 1 ? (
+				<DeskCameraList
+					devices={cameraDevices}
+					primaryDeviceId={activeCameraId}
+					additional={additionalCameras.selected}
+					selected={additionalCameras.desk.selected}
+					onChange={additionalCameras.desk.onChange}
+					disabled={additionalCameras.disabled}
+					// Locked by the same rule as the list above, which already shows the hint.
+					labels={additionalCameras.desk.labels}
 				/>
 			) : null}
 			{hasCamera ? (

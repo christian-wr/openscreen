@@ -361,6 +361,8 @@
 	"preview": {
 		"videoPreview": "视频预览",
 		"webcamPreview": "摄像头预览",
+		"layoutPlace": "摄像头窗口 — 拖动以移动",
+		"layoutPlaceResize": "调整摄像头窗口大小",
 		"mediaError": {
 			"title": "预览已停止",
 			"description": "无法解码该视频。文件可能已损坏、仍在写入中，或已不在项目预期的位置——你的项目本身完好无损。",

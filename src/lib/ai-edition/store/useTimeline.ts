@@ -3,22 +3,42 @@
 // speed regions. Each add creates a 2-second region at the current playhead
 // (a reasonable default for the user to then resize).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { toFileUrl } from "@/components/video-editor/projectPersistence";
 import type {
 	AnnotationRegion,
 	AnnotationType,
 	CameraFullscreenRegion,
+	CameraLayoutSlot,
+	CameraLayoutTemplate,
+	CameraSettings,
+	NormalizedRect,
 	Rotation3DPreset,
 } from "@/components/video-editor/types";
 import { useScopedT } from "@/contexts/I18nContext";
+import {
+	type AnchoredCameraLayoutRegion,
+	cameraSectionsOverlapping,
+	isFullCameraLayout,
+	MAX_CAMERAS,
+	normalizeCameraSettings,
+	patchCameraSettings,
+	storedCameraLayoutRows,
+	TEMPLATE_SLOTS,
+} from "@/lib/cameraLayouts";
 import {
 	type CameraMirrorMode,
 	type CameraRotation,
 	normalizeCameraMirror,
 	normalizeCameraRotation,
 } from "@/lib/cameraOrientation";
+import {
+	type AnchoredDeskRegion,
+	normalizeDeskRegions,
+	resolveDeskCamera,
+} from "@/lib/deskSections";
+import { mainCameraOf } from "@/lib/mainCamera";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
 import { fitTextBox } from "../annotations/placement";
 import {
@@ -47,9 +67,12 @@ import {
 import type { AxcutAudioTrack, AxcutClipCropRegion, AxcutDocument } from "../schema";
 import { appendAutoZoomSuggestions } from "../timeline/apply-auto-zooms";
 import { hasAnyClipWithCamera } from "../timeline/camera";
+import { projectCameraAvailable, projectCameraCount } from "../timeline/cameraList";
 import { probeAudioDuration, probeVideoDimensions, probeVideoDuration } from "../timeline/duration";
 import {
 	anchorRegionsWithDerivedMs,
+	clampSpanAgainstNeighbours,
+	coalesceRegionsForRuler,
 	dropPillsByIds,
 	replacePillSpan,
 	resolvePillIds,
@@ -101,6 +124,264 @@ function patchPillById<T extends { id: string; startMs: number; endMs: number }>
 ): T[] {
 	const under = new Set(resolvePillIds(regions, id));
 	return regions.map((r) => (under.has(r.id) ? { ...r, ...patch } : r));
+}
+
+/**
+ * The rows with the desk label of the pill `id` shown or hidden. Only `deskLabel: false` is
+ * stored; showing the label again removes the field. Rows outside the pill keep their identity.
+ */
+function withDeskLabel<T extends { id: string; startMs: number; endMs: number; deskLabel?: false }>(
+	rows: T[],
+	id: string,
+	show: boolean,
+): T[] {
+	// patchPillById copies exactly the pill's rows; untouched rows keep their identity.
+	return patchPillById(rows, id, {}).map((r, i) => {
+		if (r === rows[i]) return r;
+		const { deskLabel: _d, ...rest } = r;
+		return (show ? rest : { ...rest, deskLabel: false as const }) as T;
+	});
+}
+
+// --- Camera sections ---------------------------------------------------------------
+// Full Camera regions and layout sections share one timeline lane but live in two lists:
+// a `camera-full` section of the main camera (camera 1 by default) is a Full Camera region,
+// everything else a layout row (see `isFullCameraLayout`). Desk sections have a lane and a list of their own. The
+// helpers below keep the three lists disjoint in time and move a section between the first
+// two when its template changes.
+
+/** The anchor and derived span every stored row of both lists carries. */
+interface AnchoredRow {
+	id: string;
+	startMs: number;
+	endMs: number;
+	clipId?: string;
+	assetId?: string;
+	sourceStartSec?: number;
+	sourceEndSec?: number;
+}
+
+type FullCameraRow = CameraFullscreenRegion & AnchoredRow;
+
+/**
+ * What a write of a layout section's cameras did. `too-few` / `too-many`: the template cannot
+ * hold that many, nothing was written; `failed`: the save did not take effect.
+ */
+export type LayoutSectionCamerasOutcome = "set" | "too-few" | "too-many" | "unchanged" | "failed";
+
+/** A section on the shared camera lane, as the selection names it. */
+export interface CameraSectionHandle {
+	kind: "cameraFullscreen" | "cameraLayout";
+	id: string;
+}
+
+/**
+ * `too-few-cameras`: the project has a camera, but the template needs more than were given.
+ * `no-desk-camera`: a desk section was asked for, but no desk camera resolves.
+ * The same union as `CameraSectionOutcome` (cameraSectionNotice), which tells the user.
+ */
+export type AddCameraSectionOutcome =
+	| "added"
+	| "occupied"
+	| "no-camera"
+	| "too-few-cameras"
+	| "no-desk-camera";
+
+interface CameraLanes {
+	legacy: Record<string, unknown>;
+	full: FullCameraRow[];
+	layout: AnchoredCameraLayoutRegion[];
+	desk: AnchoredDeskRegion[];
+}
+
+function cameraLanes(doc: AxcutDocument): CameraLanes {
+	const legacy = (doc.legacyEditor as Record<string, unknown>) ?? {};
+	const full = (legacy.cameraFullscreenRegions as FullCameraRow[] | undefined) ?? [];
+	const layout = (legacy.cameraLayoutRegions as AnchoredCameraLayoutRegion[] | undefined) ?? [];
+	const desk = (legacy.deskRegions as AnchoredDeskRegion[] | undefined) ?? [];
+	return { legacy, full, layout, desk };
+}
+
+function withCameraLanes(
+	doc: AxcutDocument,
+	lanes: CameraLanes,
+	full: FullCameraRow[],
+	layout: AnchoredCameraLayoutRegion[],
+	desk: AnchoredDeskRegion[] = lanes.desk,
+): AxcutDocument {
+	// A list that was never stored and is still empty stays absent, so a project that never
+	// used layout or desk sections keeps its legacy envelope unchanged.
+	const keep = (key: string, rows: unknown[]) =>
+		rows.length > 0 || key in lanes.legacy ? { [key]: rows } : {};
+	return {
+		...doc,
+		legacyEditor: {
+			...lanes.legacy,
+			...keep("cameraFullscreenRegions", full),
+			...keep("cameraLayoutRegions", layout),
+			...keep("deskRegions", desk),
+		},
+	};
+}
+
+/** Whether the span `[startMs, endMs)` overlaps any row of the given lists. */
+function cameraLaneOccupied(lists: AnchoredRow[][], startMs: number, endMs: number): boolean {
+	return cameraSectionsOverlapping(lists.flat(), startMs, endMs).length > 0;
+}
+
+// An identity no stored region can have, so a pill of another list is always a wall.
+const OTHER_CAMERA_LIST = "\u0000other-camera-list";
+
+/**
+ * The span the pill holding `id` may take: clamped against the other pills of its own list
+ * (by the usual identity rule) and against every pill of the other camera-section lists.
+ * `replacePillSpan` then applies the same-list clamp again, which is a no-op.
+ */
+function clampCameraSpan(
+	own: AnchoredRow[],
+	others: AnchoredRow[][],
+	id: string,
+	startMs: number,
+	endMs: number,
+): { startMs: number; endMs: number } {
+	const pills = coalesceRegionsForRuler(own);
+	const pill = pills.find((p) => p.ids.includes(id));
+	if (!pill) return { startMs, endMs };
+	const walls = [
+		...pills
+			.filter((p) => p !== pill)
+			.map((p) => ({ id: p.ids[0], start: p.start, end: p.end, identity: p.identity })),
+		...others.flatMap((other) =>
+			coalesceRegionsForRuler(other).map((p) => ({
+				id: p.ids[0],
+				start: p.start,
+				end: p.end,
+				identity: OTHER_CAMERA_LIST,
+			})),
+		),
+	];
+	const clamped = clampSpanAgainstNeighbours(
+		{ start: startMs / 1000, end: endMs / 1000 },
+		pill.identity,
+		walls,
+	);
+	return { startMs: Math.round(clamped.start * 1000), endMs: Math.round(clamped.end * 1000) };
+}
+
+/** Only the anchor and span of a row: what survives a move to the other list. */
+function anchorOf(row: AnchoredRow, id: string): AnchoredRow {
+	const out: AnchoredRow = { id, startMs: row.startMs, endMs: row.endMs };
+	if (row.clipId !== undefined) out.clipId = row.clipId;
+	if (row.assetId !== undefined) out.assetId = row.assetId;
+	if (row.sourceStartSec !== undefined) out.sourceStartSec = row.sourceStartSec;
+	if (row.sourceEndSec !== undefined) out.sourceEndSec = row.sourceEndSec;
+	return out;
+}
+
+/**
+ * The cameras of a section after a template change: its own cameras in order, then the
+ * given ones it does not hold yet, cut to what the template places. `null` when the
+ * template needs more cameras than that.
+ */
+function camerasForTemplate(
+	template: CameraLayoutTemplate,
+	current: number[],
+	cameras: number[],
+): number[] | null {
+	const out: number[] = [];
+	for (const camera of [...current, ...cameras]) {
+		if (!Number.isInteger(camera) || camera < 0 || camera >= MAX_CAMERAS) continue;
+		if (!out.includes(camera)) out.push(camera);
+	}
+	const { min, max } = TEMPLATE_SLOTS[template];
+	const cut = out.slice(0, max);
+	return cut.length >= min ? cut : null;
+}
+
+/**
+ * Move the pill holding `id` from one list to the other, keeping every row's anchor and
+ * span. `toRow` builds the new row; returns the new rows and the id the moved `id` became,
+ * or `null` when no stored row has that id.
+ */
+function movePill<From extends AnchoredRow, To extends AnchoredRow>(
+	from: From[],
+	id: string,
+	prefix: string,
+	toRow: (anchor: AnchoredRow) => To,
+): { remaining: From[]; moved: To[]; newId: string } | null {
+	if (!from.some((r) => r.id === id)) return null;
+	const under = new Set(resolvePillIds(from, id));
+	let newId = id;
+	const moved: To[] = [];
+	for (const row of from) {
+		if (!under.has(row.id)) continue;
+		const rowId = createId(prefix);
+		if (row.id === id) newId = rowId;
+		moved.push(toRow(anchorOf(row, rowId)));
+	}
+	return { remaining: from.filter((r) => !under.has(r.id)), moved, newId };
+}
+
+/**
+ * The document with the Full Camera pill `id` turned into a layout section with the given
+ * template and places. The desk fields stay behind: desk view exists only on Full Camera.
+ */
+function fullCameraPillToLayout(
+	doc: AxcutDocument,
+	lanes: CameraLanes,
+	id: string,
+	template: CameraLayoutTemplate,
+	slots: CameraLayoutSlot[],
+): { doc: AxcutDocument; handle: CameraSectionHandle } | null {
+	const move = movePill(
+		lanes.full,
+		id,
+		"camlayout",
+		(anchor): AnchoredCameraLayoutRegion => ({ ...anchor, template, slots }),
+	);
+	if (!move) return null;
+	return {
+		doc: withCameraLanes(doc, lanes, move.remaining, [...lanes.layout, ...move.moved]),
+		handle: { kind: "cameraLayout", id: move.newId },
+	};
+}
+
+/** The document with the layout pill `id` turned into a Full Camera region (the main camera). */
+function layoutPillToFullCamera(
+	doc: AxcutDocument,
+	lanes: CameraLanes,
+	id: string,
+): { doc: AxcutDocument; handle: CameraSectionHandle } | null {
+	const move = movePill(lanes.layout, id, "camfull", (anchor): FullCameraRow => anchor);
+	if (!move) return null;
+	return {
+		doc: withCameraLanes(doc, lanes, [...lanes.full, ...move.moved], move.remaining),
+		handle: { kind: "cameraFullscreen", id: move.newId },
+	};
+}
+
+/** The desk camera the user chose (`legacyEditor.deskCamera`), or `null` when none is stored. */
+function chosenDeskCamera(legacy: Record<string, unknown>): number | null {
+	const value = legacy.deskCamera;
+	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** The project's desk camera as `resolveDeskCamera` settles it (0 = camera 1), or `null`. */
+function deskCameraOf(doc: AxcutDocument): number | null {
+	const legacy = (doc.legacyEditor as Record<string, unknown> | null) ?? {};
+	return resolveDeskCamera({
+		deskCamera: legacy.deskCamera,
+		cameraCount: projectCameraCount(doc.assets),
+		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
+		available: (index) => projectCameraAvailable(doc.assets, index),
+		mainCamera: mainCameraOf(doc),
+	});
+}
+
+/** The main camera the user chose (`legacyEditor.mainCamera`), or `null` when none is stored. */
+function chosenMainCamera(legacy: Record<string, unknown>): number | null {
+	const value = legacy.mainCamera;
+	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 /**
@@ -158,6 +439,9 @@ export function useTimeline() {
 	} | null>(null);
 	const annotationRollbackRef = useRef<AxcutDocument | null>(null);
 	const annotationLiveRef = useRef<AxcutDocument | null>(null);
+	// The same pair for dragging a place of a layout section.
+	const layoutRectRollbackRef = useRef<AxcutDocument | null>(null);
+	const layoutRectLiveRef = useRef<AxcutDocument | null>(null);
 
 	// A drag does not always end in a commit: `ZoomFocusOverlay` unmounts the moment
 	// `focusMode` flips to "auto", so `endDrag` never runs and the snapshot outlives the
@@ -172,6 +456,8 @@ export function useTimeline() {
 		zoomFocusEditRef.current = null;
 		annotationRollbackRef.current = null;
 		annotationLiveRef.current = null;
+		layoutRectRollbackRef.current = null;
+		layoutRectLiveRef.current = null;
 	}, [projectId]);
 
 	const hasDoc = document !== null && projectId !== null;
@@ -544,18 +830,23 @@ export function useTimeline() {
 	// entry points — the toolbar and the `C` shortcut — and any future one are covered
 	// by construction. `hasAnyClipWithCamera` is the consolidated answer to "does this
 	// project have a camera at all", used the same way by the Layout pane.
+	//
+	// The lane is shared with layout sections, and neither list overlaps the desk sections: a
+	// span that would land on a layout or desk section is refused ("occupied") and nothing is
+	// written. Over another Full Camera region it still writes, and the two merge on display.
 	const addCameraFullscreen = useCallback(
-		async (durationSec = DEFAULT_NEW_REGION_SEC) => {
-			if (!document) return;
-			if (!hasAnyClipWithCamera(document.assets, document.timeline.clips)) return;
+		async (durationSec = DEFAULT_NEW_REGION_SEC): Promise<AddCameraSectionOutcome> => {
+			if (!document) return "no-camera";
+			if (!hasAnyClipWithCamera(document.assets, document.timeline.clips)) return "no-camera";
 			const timeMs = Math.round(playheadSec() * 1000);
 			const endMs = timeMs + Math.round(durationSec * 1000);
-			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
-			const prev = (legacy.cameraFullscreenRegions as unknown[]) ?? [];
+			const lanes = cameraLanes(document);
+			if (cameraLaneOccupied([lanes.layout, lanes.desk], timeMs, endMs)) return "occupied";
+			const prev = (lanes.legacy.cameraFullscreenRegions as unknown[]) ?? [];
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: {
-					...legacy,
+					...lanes.legacy,
 					cameraFullscreenRegions: [
 						...prev,
 						...anchorRegionsWithDerivedMs(
@@ -567,6 +858,70 @@ export function useTimeline() {
 				},
 			};
 			await saveDocument(next, { history: true });
+			return "added";
+		},
+		[document, saveDocument],
+	);
+
+	// A layout section at the playhead, with the same camera gate and default duration as
+	// Full Camera. Unlike Full Camera it refuses any overlap on the shared lane, so the
+	// caller can tell the user the spot is taken. `camera-full` of the main camera IS a Full
+	// Camera region and is added as one.
+	const addCameraLayout = useCallback(
+		async (
+			template: CameraLayoutTemplate,
+			cameras: number[],
+			durationSec = DEFAULT_NEW_REGION_SEC,
+		): Promise<AddCameraSectionOutcome> => {
+			if (!document) return "no-camera";
+			if (!hasAnyClipWithCamera(document.assets, document.timeline.clips)) return "no-camera";
+			const picked = camerasForTemplate(template, [], cameras);
+			if (!picked) return "too-few-cameras";
+			const slots: CameraLayoutSlot[] = picked.map((camera) => ({ camera }));
+			const timeMs = Math.round(playheadSec() * 1000);
+			const endMs = timeMs + Math.round(durationSec * 1000);
+			const lanes = cameraLanes(document);
+			if (cameraLaneOccupied([lanes.full, lanes.layout, lanes.desk], timeMs, endMs)) {
+				return "occupied";
+			}
+			if (isFullCameraLayout({ template, slots }, mainCameraOf(document))) {
+				return addCameraFullscreen(durationSec);
+			}
+			const added = anchorRegionsWithDerivedMs<AnchoredCameraLayoutRegion>(
+				[{ id: createId("camlayout"), startMs: timeMs, endMs, template, slots }],
+				document.timeline.clips,
+				() => createId("camlayout"),
+			);
+			const next = withCameraLanes(document, lanes, lanes.full, [...lanes.layout, ...added]);
+			await saveDocument(next, { history: true });
+			return "added";
+		},
+		[addCameraFullscreen, document, saveDocument],
+	);
+
+	// A desk section at the playhead: the project's desk camera fills the frame. Refused
+	// without a desk camera, and over any camera section — Full Camera, layout or desk — so the
+	// caller can tell the user why. Touching one is allowed.
+	const addDeskSection = useCallback(
+		async (durationSec = DEFAULT_NEW_REGION_SEC): Promise<AddCameraSectionOutcome> => {
+			if (!document || deskCameraOf(document) === null) return "no-desk-camera";
+			const timeMs = Math.round(playheadSec() * 1000);
+			const endMs = timeMs + Math.round(durationSec * 1000);
+			const lanes = cameraLanes(document);
+			if (cameraLaneOccupied([lanes.full, lanes.layout, lanes.desk], timeMs, endMs)) {
+				return "occupied";
+			}
+			const added = anchorRegionsWithDerivedMs<AnchoredDeskRegion>(
+				[{ id: createId("desk"), startMs: timeMs, endMs }],
+				document.timeline.clips,
+				() => createId("desk"),
+			);
+			const next = withCameraLanes(document, lanes, lanes.full, lanes.layout, [
+				...lanes.desk,
+				...added,
+			]);
+			await saveDocument(next, { history: true });
+			return "added";
 		},
 		[document, saveDocument],
 	);
@@ -1029,32 +1384,89 @@ export function useTimeline() {
 		[document, saveDocument],
 	);
 
+	// Move/resize on the camera lanes: clamped at the pills of all three lists.
 	const updateCameraFullscreenSpan = useCallback(
 		async (id: string, startMs: number, endMs: number) => {
 			if (!document) return;
 			const s = finiteMs(startMs);
 			const e = finiteMs(endMs);
-			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
-			const prev = ((legacy.cameraFullscreenRegions as unknown[]) ?? []) as Array<{
-				id: string;
-				startMs: number;
-				endMs: number;
-			}>;
+			const lanes = cameraLanes(document);
+			const span = clampCameraSpan(
+				lanes.full,
+				[lanes.layout, lanes.desk],
+				id,
+				Math.min(s, e),
+				Math.max(s, e),
+			);
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: {
-					...legacy,
+					...lanes.legacy,
 					cameraFullscreenRegions: replacePillSpan(
-						prev,
+						lanes.full,
 						id,
-						Math.min(s, e),
-						Math.max(s, e),
+						span.startMs,
+						span.endMs,
 						document.timeline.clips,
 						() => createId("camfull"),
 					),
 				},
 			};
 			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	const updateCameraLayoutSpan = useCallback(
+		async (id: string, startMs: number, endMs: number) => {
+			if (!document) return;
+			const s = finiteMs(startMs);
+			const e = finiteMs(endMs);
+			const lanes = cameraLanes(document);
+			const span = clampCameraSpan(
+				lanes.layout,
+				[lanes.full, lanes.desk],
+				id,
+				Math.min(s, e),
+				Math.max(s, e),
+			);
+			const layout = replacePillSpan(
+				lanes.layout,
+				id,
+				span.startMs,
+				span.endMs,
+				document.timeline.clips,
+				() => createId("camlayout"),
+			);
+			await saveDocument(withCameraLanes(document, lanes, lanes.full, layout), { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	const updateDeskSpan = useCallback(
+		async (id: string, startMs: number, endMs: number) => {
+			if (!document) return;
+			const s = finiteMs(startMs);
+			const e = finiteMs(endMs);
+			const lanes = cameraLanes(document);
+			const span = clampCameraSpan(
+				lanes.desk,
+				[lanes.full, lanes.layout],
+				id,
+				Math.min(s, e),
+				Math.max(s, e),
+			);
+			const desk = replacePillSpan(
+				lanes.desk,
+				id,
+				span.startMs,
+				span.endMs,
+				document.timeline.clips,
+				() => createId("desk"),
+			);
+			await saveDocument(withCameraLanes(document, lanes, lanes.full, lanes.layout, desk), {
+				history: true,
+			});
 		},
 		[document, saveDocument],
 	);
@@ -1110,23 +1522,316 @@ export function useTimeline() {
 		[document, saveDocument],
 	);
 
+	// Per-camera settings (`legacyEditor.cameraSettings`). One write, one undo step; the key
+	// is deleted when nothing is left, so untouched projects stay byte-identical.
+	// The document is read when the write runs, not when the callback was made: callers put
+	// it on the shell's write queue, and a queued write must build on the save before it.
+	const setCameraSettings = useCallback(
+		async (index: number, patch: Partial<CameraSettings> | null) => {
+			const current = useProjectStore.getState().document ?? document;
+			if (!current) return;
+			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
+			const list = patchCameraSettings(legacy.cameraSettings, index, patch, mainCameraOf(current));
+			// Nothing changes (out-of-range index, main-camera patch without a perspective, resetting
+			// a default camera): no save and no empty undo step.
+			if (
+				JSON.stringify(list ?? []) ===
+				JSON.stringify(normalizeCameraSettings(legacy.cameraSettings))
+			)
+				return;
+			const { cameraSettings: _prev, ...rest } = legacy;
+			const next: AxcutDocument = {
+				...current,
+				legacyEditor: list ? { ...rest, cameraSettings: list } : rest,
+			};
+			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
 	const updateCameraFullscreenDeskLabel = useCallback(
 		async (id: string, show: boolean) => {
 			if (!document) return;
 			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 			const prev = ((legacy.cameraFullscreenRegions as unknown[]) ??
 				[]) as CameraFullscreenRegion[];
-			// patchPillById copies exactly the pill's rows; untouched rows keep their identity.
-			const patched = patchPillById(prev, id, {}).map((r, i) => {
-				if (r === prev[i]) return r;
-				const { deskLabel: _d, ...rest } = r;
-				return show ? rest : { ...rest, deskLabel: false as const };
-			});
 			const next: AxcutDocument = {
 				...document,
-				legacyEditor: { ...legacy, cameraFullscreenRegions: patched },
+				legacyEditor: { ...legacy, cameraFullscreenRegions: withDeskLabel(prev, id, show) },
 			};
 			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	const updateDeskLabel = useCallback(
+		async (id: string, show: boolean) => {
+			if (!document) return;
+			const lanes = cameraLanes(document);
+			const desk = withDeskLabel(lanes.desk, id, show);
+			await saveDocument(withCameraLanes(document, lanes, lanes.full, lanes.layout, desk), {
+				history: true,
+			});
+		},
+		[document, saveDocument],
+	);
+
+	// The desk camera the user chose (`legacyEditor.deskCamera`, 0 = camera 1), or `null` to
+	// remove the choice and let `resolveDeskCamera` pick. One write, one undo step; a choice
+	// that changes nothing writes nothing. Read at write time, like `setCameraSettings`.
+	const setDeskCamera = useCallback(
+		async (index: number | null) => {
+			const current = useProjectStore.getState().document ?? document;
+			if (!current) return;
+			if (index !== null && (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS)) {
+				return;
+			}
+			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
+			if (chosenDeskCamera(legacy) === index) return;
+			const { deskCamera: _prev, ...rest } = legacy;
+			const next: AxcutDocument = {
+				...current,
+				legacyEditor: index === null ? rest : { ...rest, deskCamera: index },
+			};
+			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	// The main camera the user chose (`legacyEditor.mainCamera`, 0 = camera 1). Camera 1 is the
+	// default, so `0` removes the field like `null` does. One write, one undo step; a choice
+	// that changes nothing writes nothing. Read at write time, like `setCameraSettings`.
+	const setMainCamera = useCallback(
+		async (index: number | null) => {
+			const current = useProjectStore.getState().document ?? document;
+			if (!current) return;
+			if (index !== null && (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS)) {
+				return;
+			}
+			const chosen = index === 0 ? null : index;
+			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
+			if ((legacy.mainCamera ?? null) === chosen) return;
+			const { mainCamera: _prev, ...rest } = legacy;
+			const next: AxcutDocument = {
+				...current,
+				legacyEditor: chosen === null ? rest : { ...rest, mainCamera: chosen },
+			};
+			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	// Change the template of a section on the camera lane, in ONE save, so one undo step.
+	// The storage rule decides the list: a `camera-full` section of the main camera is a Full
+	// Camera region, everything else a layout row. A switch that crosses that line moves
+	// the section's rows to the other list on the same anchors; a Full Camera section's
+	// desk fields stay behind (desk view exists only there), and a section coming back gets
+	// the default desk fields. A Full Camera section starts from the main camera, the camera
+	// it shows. Returns the section's handle afterwards, so the selection can follow it to the
+	// other list — or the given handle when nothing was written. Read at write time, like
+	// `setCameraSettings`.
+	const setLayoutTemplate = useCallback(
+		async (
+			handle: CameraSectionHandle,
+			template: CameraLayoutTemplate,
+			cameras: number[],
+		): Promise<CameraSectionHandle> => {
+			const doc = useProjectStore.getState().document ?? document;
+			if (!doc) return handle;
+			const lanes = cameraLanes(doc);
+			const main = mainCameraOf(doc);
+			const current =
+				handle.kind === "cameraFullscreen"
+					? [main]
+					: (lanes.layout.find((r) => r.id === handle.id)?.slots.map((s) => s.camera) ?? []);
+			const picked = camerasForTemplate(template, current, cameras);
+			if (!picked) return handle;
+			const slots: CameraLayoutSlot[] = picked.map((camera) => ({ camera }));
+			const toFullCamera = isFullCameraLayout({ template, slots }, main);
+			let result: { doc: AxcutDocument; handle: CameraSectionHandle } | null = null;
+			if (handle.kind === "cameraFullscreen") {
+				if (toFullCamera) return handle;
+				result = fullCameraPillToLayout(doc, lanes, handle.id, template, slots);
+			} else if (toFullCamera) {
+				result = layoutPillToFullCamera(doc, lanes, handle.id);
+			} else {
+				const member = lanes.layout.find((r) => r.id === handle.id);
+				if (!member || member.template === template) return handle;
+				// A place's own rect belongs to the old template's arrangement, so it goes.
+				const layout = patchPillById(lanes.layout, handle.id, { template, slots });
+				result = { doc: withCameraLanes(doc, lanes, lanes.full, layout), handle };
+			}
+			if (!result) return handle;
+			return (await saveDocument(result.doc, { history: true })) ? result.handle : handle;
+		},
+		[document, saveDocument],
+	);
+
+	// Put `camera` in place `slotIndex` of a layout section. A camera shows once per
+	// section, so if it already has another place the two swap; each place keeps its rect.
+	// A `camera-full` section that ends up showing the main camera becomes a Full Camera
+	// region, and a Full Camera region given another camera becomes that camera's
+	// `camera-full` section. Returns the section's handle afterwards, or the given one when
+	// nothing changed. Read at write time, like `setCameraSettings`.
+	const setLayoutSlotCamera = useCallback(
+		async (
+			handle: CameraSectionHandle,
+			slotIndex: number,
+			camera: number,
+		): Promise<CameraSectionHandle> => {
+			const doc = useProjectStore.getState().document ?? document;
+			if (!doc) return handle;
+			if (!Number.isInteger(camera) || camera < 0 || camera >= MAX_CAMERAS) return handle;
+			const lanes = cameraLanes(doc);
+			const main = mainCameraOf(doc);
+			if (handle.kind === "cameraFullscreen") {
+				// Its one place shows the main camera; choosing it again changes nothing.
+				if (slotIndex !== 0 || camera === main) return handle;
+				const moved = fullCameraPillToLayout(doc, lanes, handle.id, "camera-full", [{ camera }]);
+				if (!moved) return handle;
+				return (await saveDocument(moved.doc, { history: true })) ? moved.handle : handle;
+			}
+			const id = handle.id;
+			const member = lanes.layout.find((r) => r.id === id);
+			const place = member?.slots[slotIndex];
+			if (!member || !place || place.camera === camera) return handle;
+			const slots = member.slots.map((slot, i) => {
+				if (i === slotIndex) return { ...slot, camera };
+				return slot.camera === camera ? { ...slot, camera: place.camera } : slot;
+			});
+			const result = isFullCameraLayout({ template: member.template, slots }, main)
+				? layoutPillToFullCamera(doc, lanes, id)
+				: {
+						doc: withCameraLanes(
+							doc,
+							lanes,
+							lanes.full,
+							patchPillById(lanes.layout, id, { slots }),
+						),
+						handle,
+					};
+			if (!result) return handle;
+			return (await saveDocument(result.doc, { history: true })) ? result.handle : handle;
+		},
+		[document, saveDocument],
+	);
+
+	// Set the cameras a layout section shows, as a set: deduplicated, ascending, each camera
+	// keeping its existing place (and that place's rect). One save, so one undo step, over all
+	// rows of the section. Refuses a count the template cannot hold, writing nothing; a save
+	// that does not take effect answers `failed`. Read at write time, like `setCameraSettings`.
+	const setLayoutSectionCameras = useCallback(
+		async (
+			handle: { kind: "cameraLayout"; id: string },
+			cameras: number[],
+		): Promise<LayoutSectionCamerasOutcome> => {
+			const doc = useProjectStore.getState().document ?? document;
+			if (!doc) return "unchanged";
+			const lanes = cameraLanes(doc);
+			const member = lanes.layout.find((r) => r.id === handle.id);
+			if (!member) return "unchanged";
+			const wanted = [...new Set(cameras)]
+				.filter((c) => Number.isInteger(c) && c >= 0 && c < MAX_CAMERAS)
+				.sort((a, b) => a - b);
+			const { min, max } = TEMPLATE_SLOTS[member.template];
+			if (wanted.length < min) return "too-few";
+			if (wanted.length > max) return "too-many";
+			const current = member.slots.map((s) => s.camera).sort((a, b) => a - b);
+			if (current.length === wanted.length && current.every((c, i) => c === wanted[i])) {
+				return "unchanged";
+			}
+			const slots: CameraLayoutSlot[] = wanted.map(
+				(camera) => member.slots.find((s) => s.camera === camera) ?? { camera },
+			);
+			const next = withCameraLanes(
+				doc,
+				lanes,
+				lanes.full,
+				patchPillById(lanes.layout, handle.id, { slots }),
+			);
+			return (await saveDocument(next, { history: true })) ? "set" : "failed";
+		},
+		[document, saveDocument],
+	);
+
+	// One camera switch of a layout section: `on` gives `camera` a window, off removes it. The
+	// new set is computed from the document as it is when the write runs, so switches queued
+	// one after another (the shell's write queue) each build on the one before instead of on
+	// the render that fired them. Same rules and outcomes as `setLayoutSectionCameras`.
+	const toggleLayoutSectionCamera = useCallback(
+		async (
+			handle: { kind: "cameraLayout"; id: string },
+			camera: number,
+			on: boolean,
+		): Promise<LayoutSectionCamerasOutcome> => {
+			const doc = useProjectStore.getState().document ?? document;
+			if (!doc) return "unchanged";
+			const member = cameraLanes(doc).layout.find((r) => r.id === handle.id);
+			if (!member) return "unchanged";
+			const shown = member.slots.map((s) => s.camera);
+			if (shown.includes(camera) === on) return "unchanged";
+			return setLayoutSectionCameras(
+				handle,
+				on ? [...shown, camera] : shown.filter((c) => c !== camera),
+			);
+		},
+		[document, setLayoutSectionCameras],
+	);
+
+	// Dragging a place in the preview: the same live/commit split as
+	// `updateAnnotationLive` / `commitAnnotationChange` — store-only writes while the
+	// pointer moves, one save (one undo step) on release.
+	const updateLayoutSlotRectLive = useCallback(
+		(id: string, slotIndex: number, rect: NormalizedRect) => {
+			const doc = useProjectStore.getState().document;
+			if (!doc) return;
+			const { x, y, width, height } = rect;
+			if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+			const lanes = cameraLanes(doc);
+			const member = lanes.layout.find((r) => r.id === id);
+			if (!member?.slots[slotIndex]) return;
+			if (layoutRectLiveRef.current !== doc) layoutRectRollbackRef.current = doc;
+			const slots = member.slots.map((slot, i) =>
+				i === slotIndex ? { camera: slot.camera, rect: { x, y, width, height } } : slot,
+			);
+			const next = withCameraLanes(
+				doc,
+				lanes,
+				lanes.full,
+				patchPillById(lanes.layout, id, { slots }),
+			);
+			setDocument(next, { history: false });
+			layoutRectLiveRef.current = next;
+		},
+		[setDocument],
+	);
+
+	const commitLayoutSlotRect = useCallback(async () => {
+		const doc = useProjectStore.getState().document;
+		if (!doc) return;
+		// See `commitAnnotationChange`: the pre-drag document counts only while the one on
+		// screen is still the one the live writes produced.
+		const rollback = layoutRectLiveRef.current === doc ? layoutRectRollbackRef.current : null;
+		layoutRectRollbackRef.current = null;
+		layoutRectLiveRef.current = null;
+		if (!(await saveDocument(doc, { history: true, historyBase: rollback })) && rollback) {
+			useProjectStore.setState((state) =>
+				state.document === doc ? { document: rollback, revision: state.revision + 1 } : {},
+			);
+		}
+	}, [saveDocument]);
+
+	// Every place of the section back to the template's own position: the rects are
+	// deleted, not set to a default, so a reset section is byte-identical to a fresh one.
+	const resetLayoutSlotRects = useCallback(
+		async (id: string) => {
+			if (!document) return;
+			const lanes = cameraLanes(document);
+			const member = lanes.layout.find((r) => r.id === id);
+			if (!member?.slots.some((slot) => slot.rect)) return;
+			const slots = member.slots.map((slot) => ({ camera: slot.camera }));
+			const layout = patchPillById(lanes.layout, id, { slots });
+			await saveDocument(withCameraLanes(document, lanes, lanes.full, layout), { history: true });
 		},
 		[document, saveDocument],
 	);
@@ -1157,6 +1862,10 @@ export function useTimeline() {
 			const cameraFullscreenIds = new Set(
 				handles.filter((h) => h.kind === "cameraFullscreen").map((h) => h.id),
 			);
+			const cameraLayoutIds = new Set(
+				handles.filter((h) => h.kind === "cameraLayout").map((h) => h.id),
+			);
+			const deskIds = new Set(handles.filter((h) => h.kind === "desk").map((h) => h.id));
 			const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 			const prevSpeed = dropPillsByIds(
 				(legacy.speedRegions as Array<{ id: string; startMs: number; endMs: number }>) ?? [],
@@ -1183,8 +1892,31 @@ export function useTimeline() {
 					),
 				},
 				legacyEditor:
-					speedIds.size > 0 || cameraFullscreenIds.size > 0
-						? { ...legacy, speedRegions: prevSpeed, cameraFullscreenRegions: prevCameraFullscreen }
+					speedIds.size > 0 ||
+					cameraFullscreenIds.size > 0 ||
+					cameraLayoutIds.size > 0 ||
+					deskIds.size > 0
+						? {
+								...legacy,
+								speedRegions: prevSpeed,
+								cameraFullscreenRegions: prevCameraFullscreen,
+								...(cameraLayoutIds.size > 0
+									? {
+											cameraLayoutRegions: dropPillsByIds(
+												(legacy.cameraLayoutRegions as AnchoredCameraLayoutRegion[]) ?? [],
+												cameraLayoutIds,
+											),
+										}
+									: {}),
+								...(deskIds.size > 0
+									? {
+											deskRegions: dropPillsByIds(
+												(legacy.deskRegions as AnchoredDeskRegion[]) ?? [],
+												deskIds,
+											),
+										}
+									: {}),
+							}
 						: document.legacyEditor,
 			};
 			if (!(await saveDocument(next, { history: true }))) return;
@@ -1502,6 +2234,20 @@ export function useTimeline() {
 				?.cameraFullscreenRegions as CameraFullscreenRegion[]) ?? [])
 		: [];
 
+	// Read through the normaliser: unlike Full Camera rows, a layout row carries nested
+	// data (template, slots, rects) that a hand-edited project can get wrong. Memoised so
+	// the list keeps its identity between renders of the same document. No role filter here:
+	// the storage rule applies when a writer stores a section, and a camera-full row that
+	// names the main camera only because the main camera changed afterwards is still drawn,
+	// so it must stay a pill the user can select, edit and delete.
+	const storedCameraLayouts = (document?.legacyEditor as Record<string, unknown> | null)
+		?.cameraLayoutRegions;
+	const mainCamera = document ? mainCameraOf(document) : 0;
+	const cameraLayoutRegions = useMemo(
+		() => (hasDoc ? storedCameraLayoutRows(storedCameraLayouts) : []),
+		[hasDoc, storedCameraLayouts],
+	);
+
 	// --- Timeline audio tracks (issue #350) -------------------------------------
 	// CLIP-ANCHORED like every region above: one user-visible track is one pill
 	// over one-or-more stored fragments, so these ops go through the shared pill
@@ -1678,6 +2424,28 @@ export function useTimeline() {
 		[updateAudioTrack],
 	);
 
+	const cameraSettings = useMemo(
+		() =>
+			normalizeCameraSettings(
+				(document?.legacyEditor as Record<string, unknown> | null)?.cameraSettings,
+			),
+		[document?.legacyEditor],
+	);
+
+	// Desk sections, read through the normaliser and memoised like the layout rows.
+	const storedDeskRegions = (document?.legacyEditor as Record<string, unknown> | null)?.deskRegions;
+	const deskRegions = useMemo(
+		() => (hasDoc ? normalizeDeskRegions(storedDeskRegions) : []),
+		[hasDoc, storedDeskRegions],
+	);
+	const deskCamera = document ? deskCameraOf(document) : null;
+	const deskCameraChosen = chosenDeskCamera(
+		(document?.legacyEditor as Record<string, unknown> | null) ?? {},
+	);
+	const mainCameraChosen = chosenMainCamera(
+		(document?.legacyEditor as Record<string, unknown> | null) ?? {},
+	);
+
 	return {
 		zoomRegions: document?.zoomRanges ?? [],
 		trimRanges: document?.timeline.trimRanges ?? [],
@@ -1687,6 +2455,12 @@ export function useTimeline() {
 		annotationRegions: (document?.annotations ?? []) as unknown as AnnotationRegion[],
 		speedRegions,
 		cameraFullscreenRegions,
+		cameraLayoutRegions,
+		deskRegions,
+		deskCamera,
+		deskCameraChosen,
+		mainCamera,
+		mainCameraChosen,
 		clips: document?.timeline.clips ?? [],
 		assets: document?.assets ?? [],
 		// The timeline marks where the user has ADDED words — text with no audio behind it.
@@ -1703,6 +2477,8 @@ export function useTimeline() {
 		addAnnotation,
 		addSpeed,
 		addCameraFullscreen,
+		addCameraLayout,
+		addDeskSection,
 		removeRegion,
 		removeRegions,
 		hasEditRegions,
@@ -1741,7 +2517,21 @@ export function useTimeline() {
 		updateSpeedValue,
 		updateCameraFullscreenOrientation,
 		updateCameraFullscreenDeskLabel,
+		setCameraSettings,
+		cameraSettings,
 		updateCameraFullscreenSpan,
+		updateCameraLayoutSpan,
+		updateDeskSpan,
+		updateDeskLabel,
+		setDeskCamera,
+		setMainCamera,
+		setLayoutTemplate,
+		setLayoutSlotCamera,
+		setLayoutSectionCameras,
+		toggleLayoutSectionCamera,
+		updateLayoutSlotRectLive,
+		commitLayoutSlotRect,
+		resetLayoutSlotRects,
 		// T19 — drives the preview video during trim-edge resize.
 		setCurrentTime: useProjectStore((s) => s.setCurrentTime),
 	};

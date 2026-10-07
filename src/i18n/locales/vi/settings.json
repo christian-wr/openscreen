@@ -281,6 +281,8 @@
 		"mute": "Tắt tiếng"
 	},
 	"layout": {
+		"mainCamera": "Camera chính",
+		"mainCameraUnavailable": "Không khả dụng — đang dùng {{camera}}",
 		"help": "Cách ghép webcam với màn hình: hình trong hình, xếp dọc, khung đôi, hình dạng, độ bo tròn, kích thước, vị trí và lật gương.",
 		"mirrorWebcam": "Lật webcam",
 		"webcamFraming": "Khung hình webcam",
@@ -462,5 +464,41 @@
 		"dark": "Tối",
 		"light": "Sáng",
 		"custom": "Tùy chỉnh"
+	},
+	"cameraLayout": {
+		"template": "Bố cục",
+		"placeLarge": "Vị trí {{n}} · lớn",
+		"placeSmall": "Vị trí {{n}} · nhỏ",
+		"placeLeft": "Vị trí {{n}} · trái",
+		"placeRight": "Vị trí {{n}} · phải",
+		"cameraUnavailable": "{{name}} (không khả dụng)",
+		"resetWindows": "Đặt lại cửa sổ"
+	},
+	"layoutSection": {
+		"minOneCamera": "Cần ít nhất một camera",
+		"maxThreeWindows": "Tối đa ba cửa sổ"
+	},
+	"cameras": {
+		"cameraN": "Camera {{n}}",
+		"cameraNamed": "Camera {{n}} · {{label}}",
+		"title": "Camera",
+		"unavailable": "Không khả dụng",
+		"camera1Hint": "Xoay, lật gương và cắt của camera chính nằm ở các điều khiển phía trên.",
+		"rotation": "Xoay",
+		"mirror": "Lật gương",
+		"crop": "Cắt…",
+		"perspective": "Chỉnh phối cảnh…",
+		"reset": "Đặt lại",
+		"cropOffWithPerspective": "Cắt khung không có tác dụng khi đã đặt phối cảnh.",
+		"deskCamera": "Camera bàn",
+		"deskCameraAuto": "(tự động)"
+	},
+	"desk": {
+		"title": "Bàn",
+		"camera": "Camera bàn",
+		"change": "Thay đổi",
+		"showLabel": "Hiện nhãn",
+		"unavailable": "Không khả dụng",
+		"unavailableUsing": "Không khả dụng — đang dùng {{camera}}"
 	}
 }

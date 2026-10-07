@@ -361,6 +361,8 @@
 	"preview": {
 		"videoPreview": "Vista previa del vídeo",
 		"webcamPreview": "Vista previa de la cámara",
+		"layoutPlace": "Ventana de cámara: arrastra para mover",
+		"layoutPlaceResize": "Cambiar el tamaño de la ventana de cámara",
 		"mediaError": {
 			"title": "Vista previa detenida",
 			"description": "No se pudo decodificar el vídeo. El archivo puede estar dañado, aún escribiéndose, o ya no estar donde el proyecto lo espera; tu proyecto está intacto.",

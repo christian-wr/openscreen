@@ -1284,7 +1284,12 @@ pub struct ClipSource {
     pub source_end_sec: f64,
     pub webcam_offset_sec: f64,
     pub has_audio: bool,
+    /// Cameras 2-4 of the clip (index k-1 = camera k, an empty `path` = none). Only those a
+    /// layout region of the clip shows are decoded.
+    pub additional_cameras: Vec<ClipCamera>,
 }
+
+pub use crate::extra_cameras::ClipCamera;
 
 /// Export **multiclip** : rend la timeline (clips ordonnés, avec trims) en un seul MP4.
 /// Perf (contrainte §multiclip) : décodeurs ouverts une fois par source (cache) et réutilisés
@@ -1650,6 +1655,7 @@ unsafe fn run_multi_inner(
     // pour deux &mut indépendants).
     let mut screen_decs: HashMap<String, Decoder> = HashMap::new();
     let mut webcam_decs: HashMap<String, Decoder> = HashMap::new();
+    let mut extra_decs: HashMap<String, Decoder> = HashMap::new();
 
     // fps de sortie : choix explicite de l'app si fourni, sinon dérivé du 1er clip (recordings
     // uniformes) — comportement historique.
@@ -1730,6 +1736,7 @@ unsafe fn run_multi_inner(
         &scene,
         &mut screen_decs,
         &mut webcam_decs,
+        &mut extra_decs,
         &mut |frame_index| {
             // Backend CPU (WARP) : la frame composée descend en mémoire système via
             // `send_composited` (le compositeur relit son NV12 interne vers un AVFrame

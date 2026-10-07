@@ -4,9 +4,9 @@ import { readSpeedRegions } from "@/lib/ai-edition/document/timeline";
 import { noteUiProbeClipSwitch } from "@/lib/ai-edition/perf/uiFrameProbe";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
-import { assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { findActiveSpeedRegion, type SpeedRegion } from "@/lib/ai-edition/timeline/speed";
 import { resolveNativePosition } from "@/lib/ai-edition/timeline/timelineMap";
+import { withMainCamera } from "@/lib/mainCamera";
 import {
 	pushAllNativeParams,
 	setActiveClip,
@@ -25,7 +25,11 @@ import {
 	nativeLeadSec,
 	watchDrift,
 } from "@/native/nativeSync";
-import { buildSceneDescription, resolveVisibleClips } from "@/native/sceneDescription";
+import {
+	buildSceneDescription,
+	clipCameraInputs,
+	resolveVisibleClips,
+} from "@/native/sceneDescription";
 import {
 	getWebcamNativeSize,
 	getWebcamNativeSizeRevision,
@@ -58,6 +62,9 @@ import {
 export function NativeCompositorOverlay() {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const previousActiveClipIdRef = useRef<string | null>(null);
+	// The camera files last sent with the active clip: a change on the same clip (a main camera
+	// chosen) must reopen the view's decoders, which the scene alone does not do.
+	const previousCamerasRef = useRef<string | null>(null);
 	const document = useProjectStore((s) => s.document);
 	const currentTimeSec = useProjectStore((s) => s.currentTimeSec);
 	// ponytail: re-render whenever the webcam dim cache changes (the WebcamOverlay
@@ -93,21 +100,25 @@ export function NativeCompositorOverlay() {
 	// `{screenPath,…}` = vraies sources de l'asset primaire.
 	const settings = useMemo(() => getEditorSettings(document), [document]);
 
+	// The assets as the scene sees them: with a main camera chosen, it sits in camera 1's place
+	// (`withMainCamera`), so every camera the view decodes or probes matches the scene's.
+	const sceneAssets = useMemo(() => (document ? withMainCamera(document).assets : []), [document]);
+
 	// The real camera path, independent of whether NATIVE is the one drawing it: the scene
 	// still needs it to look up the probed webcam size, which shapes the PiP box.
 	const cameraPath = useMemo(() => {
 		if (!document) return undefined;
 		const primary =
-			document.assets.find((a) => a.id === document.project.primaryAssetId) ?? document.assets[0];
-		return primary ? assetCameraSource(primary).path || undefined : undefined;
-	}, [document]);
+			sceneAssets.find((a) => a.id === document.project.primaryAssetId) ?? sceneAssets[0];
+		return primary ? clipCameraInputs(primary).webcamPath || undefined : undefined;
+	}, [document, sceneAssets]);
 
 	const sources = useMemo(() => {
 		if (!document) {
 			return null;
 		}
 		const primary =
-			document.assets.find((a) => a.id === document.project.primaryAssetId) ?? document.assets[0];
+			sceneAssets.find((a) => a.id === document.project.primaryAssetId) ?? sceneAssets[0];
 		if (!primary?.originalPath) {
 			return {};
 		}
@@ -116,13 +127,13 @@ export function NativeCompositorOverlay() {
 		// the one accessor, so it can never disagree with the scene or the export.
 		return {
 			screenPath: primary.originalPath,
-			webcamPath: assetCameraSource(primary).path || undefined,
+			webcamPath: clipCameraInputs(primary).webcamPath || undefined,
 			// sidecar convention (electron/ipc/handlers.ts readCursorRecordingFile) : la
 			// télémétrie curseur vit à côté de la vidéo tant qu'elle n'a pas bougé. Absente →
 			// le natif ignore juste le curseur (CursorTrack::load échoue silencieusement).
 			cursorPath: `${primary.originalPath}.cursor.json`,
 		};
-	}, [document]);
+	}, [document, sceneAssets]);
 
 	const ready = sources !== null;
 	const { viewId, error } = useNativeCompositorView(canvasRef, {
@@ -233,14 +244,17 @@ export function NativeCompositorOverlay() {
 		// y retourne, sans quoi le recalage en temps (`setNativeTime`) chercherait dans le
 		// mauvais fichier.
 		const nativeElsewhere = justPaused && native !== null && native.clipIndex !== activeClipIndex;
-		if (!clipChanged && !nativeElsewhere) {
-			return;
-		}
-		const asset = document.assets.find((candidate) => candidate.id === activeClip.assetId);
+		const asset = sceneAssets.find((candidate) => candidate.id === activeClip.assetId);
 		if (!asset?.originalPath) {
 			return;
 		}
-		const camera = assetCameraSource(asset);
+		const cameras = clipCameraInputs(asset);
+		const camerasKey = JSON.stringify(cameras);
+		const camerasChanged = !clipChanged && previousCamerasRef.current !== camerasKey;
+		if (!clipChanged && !nativeElsewhere && !camerasChanged) {
+			return;
+		}
+		previousCamerasRef.current = camerasKey;
 		const targetClipId = activeClipId;
 		// Sonde de fluidité (diagnostic) : sépare les mesures d'avant et d'après un
 		// franchissement de clip, qui se sont déjà révélées non comparables.
@@ -249,7 +263,8 @@ export function NativeCompositorOverlay() {
 		}
 		pendingTargetClipIdRef.current = targetClipId;
 		previousActiveClipIdRef.current = targetClipId;
-		if (playing && native !== null) {
+		// Other files on the same clip: the view cannot pick them up by itself, whatever its lead.
+		if (playing && native !== null && !camerasChanged) {
 			const lead = nativeLeadSec(
 				native,
 				{ clipIndex: activeClipIndex, sourceTimeSec: activeSourceTimeSec },
@@ -275,10 +290,11 @@ export function NativeCompositorOverlay() {
 		setActiveClip(
 			viewId,
 			asset.originalPath,
-			camera.path,
-			camera.offsetSec,
+			cameras.webcamPath,
+			cameras.webcamOffsetSec,
 			activeClipIndex,
 			activeSourceTimeSec,
+			cameras.additionalCameras ?? [],
 		)
 			.then(() => {
 				if (pendingTargetClipIdRef.current !== targetClipId) {
@@ -303,6 +319,7 @@ export function NativeCompositorOverlay() {
 	}, [
 		viewId,
 		document,
+		sceneAssets,
 		activeClipId,
 		activeClip,
 		activeClipIndex,
@@ -343,24 +360,27 @@ export function NativeCompositorOverlay() {
 		if (!resync) {
 			return;
 		}
-		const asset = document.assets.find((candidate) => candidate.id === activeClip.assetId);
+		const asset = sceneAssets.find((candidate) => candidate.id === activeClip.assetId);
 		if (!asset?.originalPath) {
 			return;
 		}
-		const camera = assetCameraSource(asset);
+		const cameras = clipCameraInputs(asset);
+		previousCamerasRef.current = JSON.stringify(cameras);
 		setActiveClip(
 			viewId,
 			asset.originalPath,
-			camera.path,
-			camera.offsetSec,
+			cameras.webcamPath,
+			cameras.webcamOffsetSec,
 			activeClipIndex,
 			activeSourceTimeSec,
+			cameras.additionalCameras ?? [],
 		).catch((error: unknown) => {
 			console.warn("[compositor-view] re-anchoring the preview failed:", error);
 		});
 	}, [
 		viewId,
 		document,
+		sceneAssets,
 		playing,
 		activeClip,
 		activeClipIndex,

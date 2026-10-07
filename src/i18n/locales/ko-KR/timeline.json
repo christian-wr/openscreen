@@ -7,7 +7,9 @@
 		"addTrim": "트림 추가: 현재 시점에서 영상의 한 구간을 제거합니다",
 		"addAnnotation": "현재 시점에 텍스트, 화살표, 이미지 또는 블러 추가",
 		"addSpeed": "현재 시점에 속도 변경 추가",
-		"addCameraFullscreen": "전체 화면 카메라 추가: 현재 시점에 카메라를 전체 화면으로 표시합니다"
+		"addCameraFullscreen": "전체 화면 카메라 추가: 현재 시점에 카메라를 전체 화면으로 표시합니다",
+		"addDesk": "책상 구간 추가: 현재 시점에 책상 카메라를 전체 화면으로 표시합니다",
+		"addLayout": "레이아웃 추가: 구간의 화면과 카메라 배치"
 	},
 	"hints": {
 		"pressZoom": "{{key}}를 눌러 줌 추가",
@@ -15,7 +17,8 @@
 		"pressAnnotation": "{{key}}를 눌러 주석 추가",
 		"pressAudio": "{{audioKey}} 키로 오디오 추가, {{voiceoverKey}} 키로 보이스오버 녹음",
 		"pressSpeed": "{{key}}를 눌러 속도 추가",
-		"pressCameraFullscreen": "{{key}}를 눌러 전체 화면 카메라 구간을 추가하세요"
+		"pressCameraFullscreen": "{{key}}를 눌러 전체 화면 카메라 구간을 추가하세요",
+		"pressDesk": "{{key}}를 눌러 책상 구간을 추가하세요"
 	},
 	"labels": {
 		"pan": "이동",
@@ -31,7 +34,12 @@
 		"imageItem": "이미지",
 		"emptyText": "빈 텍스트",
 		"cameraFullscreen": "전체 화면 카메라",
-		"cameraFullscreenItem": "전체 화면 카메라 {{index}}"
+		"cameraFullscreenItem": "전체 화면 카메라 {{index}}",
+		"desk": "책상",
+		"layoutScreenPip": "화면 + 카메라",
+		"layoutCameraFull": "카메라 전체 화면",
+		"layoutCameraFullPip": "카메라 + 작은 창",
+		"layoutSideBySide": "나란히"
 	},
 	"emptyState": {
 		"noVideo": "불러온 비디오 없음",
@@ -54,7 +62,12 @@
 		"cannotPlaceSpeed": "이 위치에 속도를 추가할 수 없습니다",
 		"speedExistsAtLocation": "이 위치에 이미 속도 구간이 있거나 공간이 부족합니다.",
 		"cannotPlaceCameraFullscreen": "이 위치에 전체 화면 카메라를 추가할 수 없습니다",
-		"cameraFullscreenExistsAtLocation": "이 위치에 이미 전체 화면 카메라 구간이 있거나 공간이 부족합니다."
+		"cameraFullscreenExistsAtLocation": "이 위치에 이미 전체 화면 카메라 구간이 있거나 공간이 부족합니다.",
+		"tooFewCameras": "이 레이아웃에는 여기서 사용할 수 있는 것보다 많은 카메라가 필요합니다",
+		"cannotPlaceCameraSection": "여기에는 카메라 구간을 배치할 수 없습니다",
+		"cameraSectionExistsAtLocation": "여기에는 이미 카메라 구간이 있습니다.",
+		"noCamera": "이 프로젝트에는 카메라가 없습니다",
+		"noDeskCamera": "책상 카메라가 없습니다 — 카메라 섹션에서 선택하세요"
 	},
 	"success": {
 		"addedZoomSuggestions": "커서 기반 줌 제안 {{count}}개가 추가되었습니다",
@@ -103,5 +116,9 @@
 		"recordingUnavailable": "여기에서는 녹음할 수 없습니다",
 		"saveFailed": "녹음을 저장하지 못했습니다",
 		"importFailed": "오디오 파일을 가져오지 못했습니다"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "이 레이아웃 프리셋에서는 사용할 수 없음",
+		"needsCamerasHint": "카메라가 더 필요합니다"
 	}
 }

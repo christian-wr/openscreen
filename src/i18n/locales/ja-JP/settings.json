@@ -281,6 +281,8 @@
 		"mute": "ミュート"
 	},
 	"layout": {
+		"mainCamera": "メインカメラ",
+		"mainCameraUnavailable": "利用できません — {{camera}} を使用中",
 		"help": "ウェブカメラと画面の合成方法: ピクチャインピクチャ、縦積み、デュアルフレーム、形状、丸み、サイズ、位置、左右反転。",
 		"mirrorWebcam": "Webカメラを反転",
 		"webcamFraming": "ウェブカメラの構図",
@@ -462,5 +464,41 @@
 		"dark": "ダーク",
 		"light": "ライト",
 		"custom": "カスタム"
+	},
+	"cameraLayout": {
+		"template": "レイアウト",
+		"placeLarge": "配置 {{n}}・大",
+		"placeSmall": "配置 {{n}}・小",
+		"placeLeft": "配置 {{n}}・左",
+		"placeRight": "配置 {{n}}・右",
+		"cameraUnavailable": "{{name}}（利用不可）",
+		"resetWindows": "ウィンドウをリセット"
+	},
+	"layoutSection": {
+		"minOneCamera": "カメラは1台以上必要です",
+		"maxThreeWindows": "ウィンドウは最大3つまでです"
+	},
+	"cameras": {
+		"cameraN": "カメラ {{n}}",
+		"cameraNamed": "カメラ {{n}} · {{label}}",
+		"title": "カメラ",
+		"unavailable": "利用できません",
+		"camera1Hint": "メインカメラの回転・反転・切り抜きは上のコントロールで設定します。",
+		"rotation": "回転",
+		"mirror": "反転",
+		"crop": "切り抜き…",
+		"perspective": "パースを補正…",
+		"reset": "リセット",
+		"cropOffWithPerspective": "遠近補正が設定されている間、切り抜きは効果がありません。",
+		"deskCamera": "机上カメラ",
+		"deskCameraAuto": "（自動）"
+	},
+	"desk": {
+		"title": "机上",
+		"camera": "机上カメラ",
+		"change": "変更",
+		"showLabel": "ラベルを表示",
+		"unavailable": "利用できません",
+		"unavailableUsing": "利用できません — {{camera}} を使用中"
 	}
 }

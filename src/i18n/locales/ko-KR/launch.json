@@ -50,6 +50,8 @@
 		"quality": "카메라 화질",
 		"additionalCameras": "추가 카메라",
 		"additionalCamerasHint": "Windows 기본 녹화에서만 사용할 수 있습니다",
+		"deskCamera": "책상 카메라",
+		"deskCameraNone": "없음",
 		"camerasNotRecorded": "녹화되지 않음: {{names}}",
 		"camerasStoppedEarly": "중간에 중지됨: {{names}}",
 		"quality1080p": "1080p",

@@ -281,6 +281,8 @@
 		"mute": "Mute"
 	},
 	"layout": {
+		"mainCamera": "Main camera",
+		"mainCameraUnavailable": "Not available — using {{camera}}",
 		"help": "How the webcam is composed with the screen: picture-in-picture, vertical stack, dual frame, shape, roundness, size, position, and mirroring.",
 		"mirrorWebcam": "Mirror webcam",
 		"webcamFraming": "Webcam crop",
@@ -462,5 +464,41 @@
 		"dark": "Dark",
 		"light": "Light",
 		"custom": "Custom"
+	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Place {{n}} · large",
+		"placeSmall": "Place {{n}} · small",
+		"placeLeft": "Place {{n}} · left",
+		"placeRight": "Place {{n}} · right",
+		"cameraUnavailable": "{{name}} (unavailable)",
+		"resetWindows": "Reset windows"
+	},
+	"layoutSection": {
+		"minOneCamera": "At least one camera",
+		"maxThreeWindows": "At most three windows"
+	},
+	"cameras": {
+		"cameraN": "Camera {{n}}",
+		"cameraNamed": "Camera {{n}} · {{label}}",
+		"title": "Cameras",
+		"unavailable": "Unavailable",
+		"camera1Hint": "Rotation, mirror and crop of the main camera are the controls above.",
+		"rotation": "Rotation",
+		"mirror": "Mirror",
+		"crop": "Crop…",
+		"perspective": "Correct perspective…",
+		"reset": "Reset",
+		"cropOffWithPerspective": "Crop has no effect while a perspective is set.",
+		"deskCamera": "Desk camera",
+		"deskCameraAuto": "(automatic)"
+	},
+	"desk": {
+		"title": "Desk",
+		"camera": "Desk camera",
+		"change": "Change",
+		"showLabel": "Show label",
+		"unavailable": "Not available",
+		"unavailableUsing": "Not available — using {{camera}}"
 	}
 }

@@ -6,7 +6,9 @@ application resources and satisfies the attribution and source-offer obligations
 that come with them.
 
 npm dependencies are not listed here: they are resolved from `package.json` and
-distributed by their own registries, not redistributed inside our binaries.
+distributed by their own registries, not redistributed inside our binaries. The
+exception is code bundled into the renderer whose licence asks for its notice in
+the distributed form (js-aruco2 below): the bundler strips the source headers.
 
 ---
 
@@ -171,6 +173,49 @@ distributed by their own registries, not redistributed inside our binaries.
 - **License**: MIT — Copyright (c) 2026 webadderall, under the same permission
   notice as OpenScreen's own [LICENSE](LICENSE). Published by Recordly under MIT,
   before its relicensing in March 2026.
+
+## js-aruco2 — ArUco marker detection
+
+- **Components**: `src/aruco.js` and `src/cv.js` of the npm package `js-aruco2`
+  2.0.0, compiled into the renderer bundle (`dist/assets/*.js`).
+- **Used by**: the camera calibration dialog, which finds the four printed corner
+  markers in a camera still.
+- **License**: MIT — Copyright (c) 2020 Damiano Falcioni, Copyright (c) 2011 Juan
+  Mellado, under the same permission notice as OpenScreen's own
+  [LICENSE](LICENSE).
+- **Upstream**: <https://github.com/damianofalcioni/js-aruco2>, release 2.0.0.
+
+## OpenCV — ArUco 4×4 dictionary codes
+
+- **Component**: the marker codes in js-aruco2's
+  `src/dictionaries/aruco_4x4_1000.js`, compiled into the renderer bundle. They
+  are taken from OpenCV's `predefined_dictionaries.hpp`; the marker sheet the
+  editor prints draws markers 0–3 of this dictionary.
+- **License**: BSD 3-Clause — Copyright (C) 2013, OpenCV Foundation, all rights
+  reserved. Third party copyrights are property of their respective owners.
+
+  > Redistribution and use in source and binary forms, with or without
+  > modification, are permitted provided that the following conditions are met:
+  >
+  > - Redistributions of source code must retain the above copyright notice,
+  >   this list of conditions and the following disclaimer.
+  > - Redistributions in binary form must reproduce the above copyright notice,
+  >   this list of conditions and the following disclaimer in the documentation
+  >   and/or other materials provided with the distribution.
+  > - Neither the names of the copyright holders nor the names of the
+  >   contributors may be used to endorse or promote products derived from this
+  >   software without specific prior written permission.
+  >
+  > This software is provided by the copyright holders and contributors "as is"
+  > and any express or implied warranties, including, but not limited to, the
+  > implied warranties of merchantability and fitness for a particular purpose
+  > are disclaimed. In no event shall copyright holders or contributors be liable
+  > for any direct, indirect, incidental, special, exemplary, or consequential
+  > damages (including, but not limited to, procurement of substitute goods or
+  > services; loss of use, data, or profits; or business interruption) however
+  > caused and on any theory of liability, whether in contract, strict liability,
+  > or tort (including negligence or otherwise) arising in any way out of the use
+  > of this software, even if advised of the possibility of such damage.
 
 ## Rust crates — compiled into the compositor addon
 

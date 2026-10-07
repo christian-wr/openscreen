@@ -19,6 +19,67 @@ pub struct SceneClip {
     /// Une source sans piste audio décodable garde sa durée via du silence natif.
     #[serde(default)]
     pub has_audio: bool,
+    /// Cameras 2-4: index k-1 = camera k. An empty `path` means "no camera in this slot".
+    #[serde(default)]
+    pub additional_cameras: Vec<SceneClipCamera>,
+}
+
+/// An additional camera (2-4) of a clip. = `CompositorClipCamera` (TS).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneClipCamera {
+    pub path: String,
+    /// Camera source time = screen source time - this.
+    pub offset_sec: f64,
+}
+
+/// Settings of one camera (index 0 = camera 1). With a `homography` the camera's rotation,
+/// mirror and crop are not sent (the corner order already defines the picture).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCamera {
+    pub index: usize,
+    /// 0 or 180.
+    #[serde(default)]
+    pub rotation: u16,
+    #[serde(default)]
+    pub mirror: Option<bool>,
+    #[serde(default)]
+    pub crop: Option<SceneCrop>,
+    /// Row-major 3x3, target uv -> camera uv.
+    #[serde(default)]
+    pub homography: Option<[f32; 9]>,
+    /// Width/height of the corrected picture.
+    #[serde(default)]
+    pub aspect: Option<f32>,
+}
+
+/// One camera placed by a layout region, in draw order.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCameraLayer {
+    pub camera: usize,
+    pub rect: SceneRect,
+    #[serde(default)]
+    pub radius_frac: f32,
+    /// Same vocabulary as `SceneLayout::webcam_shape` (`webcam_shape_code`).
+    #[serde(default)]
+    pub shape: String,
+    /// Covers the screen: drawn without a shadow.
+    #[serde(default)]
+    pub fills_frame: bool,
+}
+
+/// A camera layout (anything but a plain Full Camera) on a span of a clip's source time.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCameraLayoutRegion {
+    #[serde(default)]
+    pub clip_index: Option<usize>,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    #[serde(default)]
+    pub layers: Vec<SceneCameraLayer>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -740,6 +801,12 @@ pub struct Scene {
     /// `#[serde(default)]` : champ ajouté après coup, absent des JSON de test existants.
     #[serde(default)]
     pub camera_fullscreen_regions: Vec<SceneCameraFullscreenRegion>,
+    /// Settings of the cameras that have any (see `Scene::camera`).
+    #[serde(default)]
+    pub cameras: Vec<SceneCamera>,
+    /// Layouts that put several cameras on screen. Absent = none.
+    #[serde(default)]
+    pub camera_layout_regions: Vec<SceneCameraLayoutRegion>,
     pub cursor: SceneCursor,
     /// Global audio finishing. Default keeps old scene payloads bit-for-bit compatible.
     #[serde(default)]
@@ -761,6 +828,11 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// The settings of camera `index` (0 = camera 1), if the scene carries any.
+    pub fn camera(&self, index: usize) -> Option<&SceneCamera> {
+        self.cameras.iter().find(|c| c.index == index)
+    }
+
     /// Parse le JSON produit par `buildSceneDescription` (TS).
     pub fn from_json(json: &str) -> anyhow::Result<Scene> {
         Ok(serde_json::from_str(json)?)
@@ -796,6 +868,9 @@ impl Scene {
             belongs(region.clip_index, region.start_sec, region.end_sec)
         });
         scene.camera_fullscreen_regions.retain(|region| {
+            belongs(region.clip_index, region.start_sec, region.end_sec)
+        });
+        scene.camera_layout_regions.retain(|region| {
             belongs(region.clip_index, region.start_sec, region.end_sec)
         });
         scene.annotations.retain(|annotation| {
@@ -951,6 +1026,83 @@ mod tests {
             assert_eq!(motion_of(&bg(r#","motion":"waves""#)), WallpaperMotion::Waves);
             assert_eq!(motion_of(&bg(r#","motion":"plasma""#)), WallpaperMotion::None);
         }
+    }
+
+    /// A scene JSON with one clip; the arguments are spliced in as extra clip / top-level fields.
+    fn scene_json_with(clip_extra: &str, top_extra: &str) -> String {
+        format!(
+            r##"{{"clips":[{{"screenPath":"/s.mp4","webcamPath":"/w.mp4","sourceStartSec":0,"sourceEndSec":10,"webcamOffsetSec":0{clip_extra}}}],"layout":{{"preset":"picture-in-picture","webcamSize":1,"webcamShape":"rectangle","webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false}},"effects":{{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0}},"background":{{"kind":"color","color":"#000000"}},"zoomRegions":[],"cursor":{{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,"clipToBounds":false,"theme":"default"}},"cropByClip":[],"output":{{"width":1920,"height":1080,"fps":null}}{top_extra}}}"##
+        )
+    }
+
+    #[test]
+    fn parses_extra_cameras_settings_and_layout_regions() {
+        let json = scene_json_with(
+            r#","additionalCameras":[{"path":"/w-2.mp4","offsetSec":0.12},{"path":"","offsetSec":0}]"#,
+            r#","cameras":[{"index":1,"rotation":180,"mirror":true,"crop":{"x":0,"y":0.1,"width":0.5,"height":0.8}},{"index":2,"homography":[1,0,0,0,1,0,0,0,1],"aspect":1.5}],
+            "cameraLayoutRegions":[{"clipIndex":0,"startSec":1,"endSec":4,"underTrim":true,"layers":[
+                {"camera":1,"rect":{"x":0,"y":0,"width":1,"height":1},"radiusFrac":0,"shape":"rectangle","fillsFrame":true},
+                {"camera":0,"rect":{"x":0.7,"y":0.7,"width":0.22,"height":0.2},"radiusFrac":0.12,"shape":"rounded","fillsFrame":false}]}]"#,
+        );
+        let s = Scene::from_json(&json).expect("parse");
+        assert_eq!(s.clips[0].additional_cameras.len(), 2);
+        assert_eq!(s.clips[0].additional_cameras[0].path, "/w-2.mp4");
+        assert!((s.clips[0].additional_cameras[0].offset_sec - 0.12).abs() < 1e-9);
+        assert_eq!(s.clips[0].additional_cameras[1].path, "");
+        assert!(s.camera(0).is_none());
+        let c1 = s.camera(1).expect("camera 1");
+        assert_eq!(c1.rotation, 180);
+        assert_eq!(c1.mirror, Some(true));
+        assert_eq!(c1.crop.expect("crop").height, 0.8);
+        assert!(c1.homography.is_none() && c1.aspect.is_none());
+        let c2 = s.camera(2).expect("camera 2");
+        assert_eq!(c2.rotation, 0);
+        assert_eq!(c2.homography, Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(c2.aspect, Some(1.5));
+        assert_eq!(s.camera_layout_regions.len(), 1);
+        let r = &s.camera_layout_regions[0];
+        assert_eq!((r.clip_index, r.start_sec, r.end_sec), (Some(0), 1.0, 4.0));
+        assert_eq!(r.layers.len(), 2);
+        assert_eq!(r.layers[0].camera, 1);
+        assert!(r.layers[0].fills_frame);
+        assert_eq!(r.layers[1].shape, "rounded");
+        assert!((r.layers[1].radius_frac - 0.12).abs() < 1e-6);
+        assert!((r.layers[1].rect.width - 0.22).abs() < 1e-6);
+    }
+
+    #[test]
+    fn old_scene_json_parses_without_the_new_fields() {
+        let s = Scene::from_json(&scene_json_with("", "")).expect("parse");
+        assert!(s.clips[0].additional_cameras.is_empty());
+        assert!(s.cameras.is_empty());
+        assert!(s.camera_layout_regions.is_empty());
+        assert!(s.camera(0).is_none());
+    }
+
+    #[test]
+    fn for_clip_window_keeps_only_this_clips_layout_regions() {
+        let layers = r#""layers":[{"camera":0,"rect":{"x":0,"y":0,"width":1,"height":1},"radiusFrac":0,"shape":"rectangle","fillsFrame":true}]"#;
+        let json = scene_json_with(
+            "",
+            &format!(
+                r#","cameraLayoutRegions":[
+                {{"clipIndex":0,"startSec":1,"endSec":2,{layers}}},
+                {{"clipIndex":1,"startSec":1,"endSec":2,{layers}}},
+                {{"startSec":8,"endSec":9,{layers}}},
+                {{"startSec":20,"endSec":30,{layers}}}]"#
+            ),
+        );
+        let s = Scene::from_json(&json).expect("parse");
+        let w = s.for_clip_window(0, 0.0, 10.0);
+        // Clip 0's own region and the unaddressed one that overlaps the window; not clip 1's,
+        // not the unaddressed one outside the window.
+        let kept: Vec<(Option<usize>, f64)> = w
+            .camera_layout_regions
+            .iter()
+            .map(|r| (r.clip_index, r.start_sec))
+            .collect();
+        assert_eq!(kept, vec![(Some(0), 1.0), (None, 8.0)]);
+        assert_eq!(s.for_clip_window(1, 0.0, 10.0).camera_layout_regions.len(), 2);
     }
 
     #[test]

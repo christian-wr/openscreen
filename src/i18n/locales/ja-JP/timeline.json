@@ -7,7 +7,9 @@
 		"addTrim": "トリムを追加：現在の再生位置で動画の一部を削除します",
 		"addAnnotation": "現在の再生位置にテキスト、矢印、画像、ぼかしを追加",
 		"addSpeed": "現在の再生位置に再生速度の変更を追加",
-		"addCameraFullscreen": "フルスクリーンカメラを追加：現在の再生位置でカメラを全画面表示します"
+		"addCameraFullscreen": "フルスクリーンカメラを追加：現在の再生位置でカメラを全画面表示します",
+		"addDesk": "机上セグメントを追加：現在の再生位置で机上カメラを全画面表示します",
+		"addLayout": "レイアウトを追加：区間の画面とカメラの配置"
 	},
 	"hints": {
 		"pressZoom": "{{key}}キーを押してズームを追加",
@@ -15,7 +17,8 @@
 		"pressAnnotation": "{{key}}キーを押して注釈を追加",
 		"pressAudio": "{{audioKey}} キーで音声を追加、{{voiceoverKey}} キーでナレーションを録音",
 		"pressSpeed": "{{key}}キーを押して再生速度を追加",
-		"pressCameraFullscreen": "{{key}}キーを押してフルスクリーンカメラのセグメントを追加"
+		"pressCameraFullscreen": "{{key}}キーを押してフルスクリーンカメラのセグメントを追加",
+		"pressDesk": "{{key}}キーを押して机上セグメントを追加"
 	},
 	"labels": {
 		"pan": "移動",
@@ -31,7 +34,12 @@
 		"imageItem": "画像",
 		"emptyText": "空のテキスト",
 		"cameraFullscreen": "フルスクリーンカメラ",
-		"cameraFullscreenItem": "フルスクリーンカメラ {{index}}"
+		"cameraFullscreenItem": "フルスクリーンカメラ {{index}}",
+		"desk": "机上",
+		"layoutScreenPip": "画面 + カメラ",
+		"layoutCameraFull": "カメラ全画面",
+		"layoutCameraFullPip": "カメラ + 小窓",
+		"layoutSideBySide": "左右に並べる"
 	},
 	"emptyState": {
 		"noVideo": "ビデオが読み込まれていません",
@@ -54,7 +62,12 @@
 		"cannotPlaceSpeed": "ここに再生速度を配置できません",
 		"speedExistsAtLocation": "この場所にはすでに再生速度の範囲が存在するか、十分なスペースがありません。",
 		"cannotPlaceCameraFullscreen": "ここにフルスクリーンカメラを配置できません",
-		"cameraFullscreenExistsAtLocation": "この場所にはすでにフルスクリーンカメラのセグメントが存在するか、十分なスペースがありません。"
+		"cameraFullscreenExistsAtLocation": "この場所にはすでにフルスクリーンカメラのセグメントが存在するか、十分なスペースがありません。",
+		"tooFewCameras": "このレイアウトには、ここで利用できる数より多くのカメラが必要です",
+		"cannotPlaceCameraSection": "ここにはカメラ区間を配置できません",
+		"cameraSectionExistsAtLocation": "ここにはすでにカメラ区間があります。",
+		"noCamera": "このプロジェクトにはカメラがありません",
+		"noDeskCamera": "机上カメラがありません — 「カメラ」セクションで選択してください"
 	},
 	"success": {
 		"addedZoomSuggestions": "カーソルに基づくズーム提案を {{count}} 件追加しました",
@@ -103,5 +116,9 @@
 		"recordingUnavailable": "ここでは録音できません",
 		"saveFailed": "録音を保存できませんでした",
 		"importFailed": "音声ファイルを読み込めませんでした"
+	},
+	"layoutMenu": {
+		"blockLayoutHint": "このレイアウトプリセットでは使用できません",
+		"needsCamerasHint": "カメラがさらに必要です"
 	}
 }

@@ -8,7 +8,9 @@
 
 use crate::camera::Follow;
 use crate::cursor::CursorTrack;
-use crate::scene::{SceneCameraFullscreenRegion, SceneSpeedRegion, SceneZoomRegion};
+use crate::scene::{
+    SceneCameraFullscreenRegion, SceneCameraLayoutRegion, SceneSpeedRegion, SceneZoomRegion,
+};
 
 /// Quantification commune vidéo/audio : le web retranche exactement 1 ms avant `ceil`.
 pub const SPEED_FRAME_EPSILON_SEC: f64 = 0.001;
@@ -271,8 +273,11 @@ fn push_speed_segment(
 }
 
 // mêmes fenêtres de transition que le web (TRANSITION_WINDOW_MS etc., converties en secondes).
-const TRANSITION_WINDOW_S: f32 = 1.01505;
-const FULLSCREEN_LEAD_OUT_WINDOW_S: f32 = TRANSITION_WINDOW_S * 1.5;
+pub(crate) const TRANSITION_WINDOW_S: f32 = 1.01505;
+pub(crate) const FULLSCREEN_LEAD_OUT_WINDOW_S: f32 = TRANSITION_WINDOW_S * 1.5;
+/// Two camera regions (layout or Full Camera) closer than this (source seconds) meet at a
+/// seam: they hand over directly, without the default PiP in between.
+pub(crate) const REGION_SEAM_S: f64 = 0.001;
 // Durée d'un zoom à l'écran selon l'échelle visée, cf. `zoom_transition_s` ; miroir de
 // `ZOOM_TRANSITION_BASE_MS` / `ZOOM_TRANSITION_PER_LN_MS` (TS).
 const ZOOM_TRANSITION_BASE_S: f32 = 0.6;
@@ -328,7 +333,7 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
 }
 
 /// Port de `easeOutScreenStudio` (TS) : cubic-bezier(0.16, 1, 0.3, 1).
-fn ease_out_screen_studio(t: f32) -> f32 {
+pub(crate) fn ease_out_screen_studio(t: f32) -> f32 {
     cubic_bezier(0.16, 1.0, 0.3, 1.0, t)
 }
 
@@ -973,16 +978,20 @@ fn camera_fullscreen_region_phase(
     region: &SceneCameraFullscreenRegion,
     t: f32,
     clock: &ScreenClock,
+    layouts: &[SceneCameraLayoutRegion],
 ) -> f32 {
     let start = region.start_sec as f32;
     let end = region.end_sec as f32;
     if t <= start || t >= end {
         return 0.0;
     }
+    // At a seam with a layout region the camera is already frame-filling on that side: the
+    // layout region's own glide (`camera_layers_at`) moves it, so the phase holds 1 there.
+    let seams = full_camera_seams(region, layouts);
     let (start, end, t) = (clock.at(start), clock.at(end), clock.at(t));
     let half = (end - start) * 0.5;
-    let lead_in = TRANSITION_WINDOW_S.min(half);
-    let lead_out = FULLSCREEN_LEAD_OUT_WINDOW_S.min(half);
+    let lead_in = if seams.start { 0.0 } else { TRANSITION_WINDOW_S.min(half) };
+    let lead_out = if seams.end { 0.0 } else { FULLSCREEN_LEAD_OUT_WINDOW_S.min(half) };
     let lead_in_end = start + lead_in;
     let lead_out_start = end - lead_out;
     if t < lead_in_end {
@@ -1002,16 +1011,38 @@ fn camera_fullscreen_region_phase(
     }
 }
 
+/// Which ends of a Full Camera region meet a (non-empty) camera layout region at a seam
+/// (`REGION_SEAM_S`): `start` = a layout region ends where it starts, `end` = one starts where
+/// it ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct FullCameraSeams {
+    pub start: bool,
+    pub end: bool,
+}
+
+pub(crate) fn full_camera_seams(
+    region: &SceneCameraFullscreenRegion,
+    layouts: &[SceneCameraLayoutRegion],
+) -> FullCameraSeams {
+    let mut seams = FullCameraSeams::default();
+    for l in layouts.iter().filter(|l| l.end_sec > l.start_sec) {
+        seams.start |= (l.end_sec - region.start_sec).abs() <= REGION_SEAM_S;
+        seams.end |= (l.start_sec - region.end_sec).abs() <= REGION_SEAM_S;
+    }
+    seams
+}
+
 /// Phase Full Camera (0..1) au temps `t`. Régions superposées (ne devrait pas arriver, gardé
 /// défensif comme le web) → la plus forte gagne.
 fn camera_fullscreen_phase_at(
     regions: &[SceneCameraFullscreenRegion],
     t: f32,
     clock: &ScreenClock,
+    layouts: &[SceneCameraLayoutRegion],
 ) -> f32 {
     let mut strongest = 0.0f32;
     for r in regions {
-        let s = camera_fullscreen_region_phase(r, t, clock);
+        let s = camera_fullscreen_region_phase(r, t, clock, layouts);
         if s > strongest {
             strongest = s;
         }
@@ -1024,8 +1055,9 @@ pub fn camera_fullscreen_progress_at(
     regions: &[SceneCameraFullscreenRegion],
     t: f32,
     clock: &ScreenClock,
+    layouts: &[SceneCameraLayoutRegion],
 ) -> f32 {
-    ease_out_screen_studio(camera_fullscreen_phase_at(regions, t, clock))
+    ease_out_screen_studio(camera_fullscreen_phase_at(regions, t, clock, layouts))
 }
 
 /// Ce qui reste de la bulle PiP (coins arrondis, ombre) au temps `t` : 1 = bulle entière,
@@ -1038,8 +1070,9 @@ pub fn camera_fullscreen_shape_at(
     regions: &[SceneCameraFullscreenRegion],
     t: f32,
     clock: &ScreenClock,
+    layouts: &[SceneCameraLayoutRegion],
 ) -> f32 {
-    1.0 - smoothstep(0.5, 1.0, camera_fullscreen_phase_at(regions, t, clock))
+    1.0 - smoothstep(0.5, 1.0, camera_fullscreen_phase_at(regions, t, clock, layouts))
 }
 
 /// The Full Camera region in effect at `t`: the one with the strongest phase, so a region's
@@ -1049,10 +1082,11 @@ pub fn camera_fullscreen_region_at<'a>(
     regions: &'a [SceneCameraFullscreenRegion],
     t: f32,
     clock: &ScreenClock,
+    layouts: &[SceneCameraLayoutRegion],
 ) -> Option<&'a SceneCameraFullscreenRegion> {
     let mut best: Option<(&'a SceneCameraFullscreenRegion, f32)> = None;
     for r in regions {
-        let phase = camera_fullscreen_region_phase(r, t, clock);
+        let phase = camera_fullscreen_region_phase(r, t, clock, layouts);
         if phase > 0.0 && best.map_or(true, |(_, b)| phase > b) {
             best = Some((r, phase));
         }
@@ -1068,25 +1102,28 @@ pub const DESK_COVER_FADE_S: f32 = 0.5;
 /// turned section (a camera tilted onto the desk) is covered: the camera is moving at both
 /// ends of such a section, so the picture is hidden for exactly the grow and the shrink, plus a
 /// short fade into and out of the steady part. Measured on screen time like the grow, and 0
-/// on and outside the bounds like the grow.
+/// on and outside the bounds like the grow. At a seam with a layout region (`layouts`) that
+/// side has no grow or shrink to hold over: the cover is only its own fade there.
 pub fn camera_fullscreen_cover_at(
     regions: &[SceneCameraFullscreenRegion],
     t: f32,
     clock: &ScreenClock,
+    layouts: &[SceneCameraLayoutRegion],
 ) -> f32 {
-    let Some(r) = camera_fullscreen_region_at(regions, t, clock) else {
+    let Some(r) = camera_fullscreen_region_at(regions, t, clock, layouts) else {
         return 0.0;
     };
     if r.rotation != 180 {
         return 0.0;
     }
+    let seams = full_camera_seams(r, layouts);
     let (start, end, t) = (clock.at(r.start_sec as f32), clock.at(r.end_sec as f32), clock.at(t));
     // Each hold gets at most half the section; the two fades share what is left, so the start
     // fade ends at or before the point where the end fade begins and the cover never jumps.
     let len = end - start;
     let half = len * 0.5;
-    let hold_in = TRANSITION_WINDOW_S.min(half);
-    let hold_out = FULLSCREEN_LEAD_OUT_WINDOW_S.min(half);
+    let hold_in = if seams.start { 0.0 } else { TRANSITION_WINDOW_S.min(half) };
+    let hold_out = if seams.end { 0.0 } else { FULLSCREEN_LEAD_OUT_WINDOW_S.min(half) };
     let steady = (len - hold_in - hold_out).max(0.0);
     let fade = DESK_COVER_FADE_S.min(steady * 0.5);
     let side = |since: f32, hold: f32, fade: f32| -> f32 {
@@ -2058,9 +2095,9 @@ mod zoom_focus_tests {
                 b.scale
             );
             assert!((a.focus[0] - b.focus[0]).abs() < 1e-4, "t={t}");
-            let a = camera_fullscreen_progress_at(&full_camera(4.0), t, &clock);
+            let a = camera_fullscreen_progress_at(&full_camera(4.0), t, &clock, &[]);
             let b =
-                camera_fullscreen_progress_at(&full_camera(1.0), t / 4.0, &ScreenClock::default());
+                camera_fullscreen_progress_at(&full_camera(1.0), t / 4.0, &ScreenClock::default(), &[]);
             assert!((a - b).abs() < 1e-4, "Full Camera t={t} : {a} vs {b}");
         }
     }
@@ -2082,11 +2119,11 @@ mod zoom_focus_tests {
     fn the_full_camera_region_at_t_is_the_one_the_envelope_uses() {
         let r = [cam(10.0, 20.0, 180), cam(30.0, 40.0, 0)];
         let clock = ScreenClock::default();
-        assert_eq!(camera_fullscreen_region_at(&r, 15.0, &clock).map(|c| c.rotation), Some(180));
-        assert_eq!(camera_fullscreen_region_at(&r, 35.0, &clock).map(|c| c.rotation), Some(0));
+        assert_eq!(camera_fullscreen_region_at(&r, 15.0, &clock, &[]).map(|c| c.rotation), Some(180));
+        assert_eq!(camera_fullscreen_region_at(&r, 35.0, &clock, &[]).map(|c| c.rotation), Some(0));
         for t in [5.0, 10.0, 20.0, 25.0] {
-            assert!(camera_fullscreen_region_at(&r, t, &clock).is_none(), "t={t}");
-            assert_eq!(camera_fullscreen_progress_at(&r, t, &clock), 0.0, "t={t}");
+            assert!(camera_fullscreen_region_at(&r, t, &clock, &[]).is_none(), "t={t}");
+            assert_eq!(camera_fullscreen_progress_at(&r, t, &clock, &[]), 0.0, "t={t}");
         }
     }
 
@@ -2096,7 +2133,7 @@ mod zoom_focus_tests {
     fn a_turned_section_is_covered_while_the_camera_moves() {
         let r = [cam(10.0, 30.0, 180)];
         let clock = ScreenClock::default();
-        let c = |t: f32| camera_fullscreen_cover_at(&r, t, &clock);
+        let c = |t: f32| camera_fullscreen_cover_at(&r, t, &clock, &[]);
         assert_eq!(c(10.0 + 0.01), 1.0, "start of the hold");
         assert_eq!(c(10.0 + TRANSITION_WINDOW_S - 0.01), 1.0, "end of the hold");
         let mid_fade = c(10.0 + TRANSITION_WINDOW_S + DESK_COVER_FADE_S / 2.0);
@@ -2109,12 +2146,65 @@ mod zoom_focus_tests {
         assert_eq!(c(30.0 - 0.01), 1.0);
     }
 
+    fn layout_region(start: f64, end: f64) -> SceneCameraLayoutRegion {
+        SceneCameraLayoutRegion { clip_index: None, start_sec: start, end_sec: end, layers: Vec::new() }
+    }
+
+    /// A layout region meeting a Full Camera region at a seam: the phase holds 1 on that side
+    /// (no lead-out before it, no lead-in after it); the other side is unchanged.
+    #[test]
+    fn the_full_camera_phase_holds_at_a_seam_with_a_layout_region() {
+        let clock = ScreenClock::default();
+        let r = [cam(10.0, 20.0, 0)];
+        let p = |t: f32, layouts: &[SceneCameraLayoutRegion]| {
+            camera_fullscreen_progress_at(&r, t, &clock, layouts)
+        };
+        let after = [layout_region(20.0, 25.0)];
+        let before = [layout_region(5.0, 10.0)];
+        for t in [19.0, 19.5, 19.99] {
+            assert_eq!(p(t, &after), 1.0, "t={t}");
+            assert!(p(t, &[]) < 1.0, "a lone region leads out (t={t})");
+        }
+        assert!(p(10.3, &after) < 1.0, "the far side keeps its lead-in");
+        for t in [10.01, 10.3, 10.9] {
+            assert_eq!(p(t, &before), 1.0, "t={t}");
+        }
+        assert!(p(19.5, &before) < 1.0, "the far side keeps its lead-out");
+        // On the bounds the phase is 0 as always: the layout region draws the seam.
+        assert_eq!(p(20.0, &after), 0.0);
+        assert_eq!(p(10.0, &before), 0.0);
+        // Off the seam (10 ms), or an empty layout region, changes nothing.
+        for layouts in [[layout_region(20.01, 25.0)], [layout_region(20.0, 20.0)]] {
+            assert_eq!(p(19.5, &layouts), p(19.5, &[]));
+        }
+    }
+
+    /// A turned section at a seam: no hold on that side, the cover is its own fade there.
+    #[test]
+    fn at_a_seam_the_cover_is_only_its_fade() {
+        let clock = ScreenClock::default();
+        let r = [cam(10.0, 30.0, 180)];
+        let layouts = [layout_region(5.0, 10.0), layout_region(30.0, 35.0)];
+        let c = |t: f32| camera_fullscreen_cover_at(&r, t, &clock, &layouts);
+        assert!(c(10.001) > 0.99, "covered at the seam: {}", c(10.001));
+        let mid_fade = c(10.0 + DESK_COVER_FADE_S / 2.0);
+        assert!((mid_fade - 0.5).abs() < 1e-3, "half way through the fade: {mid_fade}");
+        assert_eq!(c(10.0 + DESK_COVER_FADE_S + 0.01), 0.0, "sharp after the fade");
+        let mid_rise = c(30.0 - DESK_COVER_FADE_S / 2.0);
+        assert!((mid_rise - 0.5).abs() < 1e-3, "half way up: {mid_rise}");
+        assert_eq!(c(30.0 - DESK_COVER_FADE_S - 0.01), 0.0);
+        assert!(c(29.999) > 0.99);
+        // Without the seams the holds are back.
+        let lone = |t: f32| camera_fullscreen_cover_at(&r, t, &clock, &[]);
+        assert_eq!(lone(10.0 + DESK_COVER_FADE_S + 0.01), 1.0);
+    }
+
     #[test]
     fn the_cover_is_zero_on_and_outside_the_bounds() {
         let r = [cam(10.0, 30.0, 180)];
         let clock = ScreenClock::default();
         for t in [0.0, 9.99, 10.0, 30.0, 30.01, 40.0] {
-            assert_eq!(camera_fullscreen_cover_at(&r, t, &clock), 0.0, "t={t}");
+            assert_eq!(camera_fullscreen_cover_at(&r, t, &clock, &[]), 0.0, "t={t}");
         }
     }
 
@@ -2124,7 +2214,7 @@ mod zoom_focus_tests {
         let clock = ScreenClock::default();
         for step in 0..=400 {
             let t = step as f32 * 0.1;
-            assert_eq!(camera_fullscreen_cover_at(&r, t, &clock), 0.0, "t={t}");
+            assert_eq!(camera_fullscreen_cover_at(&r, t, &clock, &[]), 0.0, "t={t}");
         }
     }
 
@@ -2136,13 +2226,13 @@ mod zoom_focus_tests {
         let short = [cam(10.0, 11.5, 180)]; // half = 0.75 < hold-in: no fade at all
         for step in 1..150 {
             let t = 10.0 + step as f32 * 0.01;
-            let c = camera_fullscreen_cover_at(&short, t, &clock);
+            let c = camera_fullscreen_cover_at(&short, t, &clock, &[]);
             assert!((0.0..=1.0).contains(&c), "t={t}: {c}");
             assert_eq!(c, 1.0, "a section shorter than both holds is covered throughout (t={t})");
         }
         // 3.6 s: steady = 3.6 - 1.015 - 1.523 = 1.06, so both ends keep their full 0.5 s fade.
         let medium = [cam(10.0, 13.6, 180)];
-        let c = |t: f32| camera_fullscreen_cover_at(&medium, t, &clock);
+        let c = |t: f32| camera_fullscreen_cover_at(&medium, t, &clock, &[]);
         let mid_fade = c(10.0 + TRANSITION_WINDOW_S + DESK_COVER_FADE_S / 2.0);
         assert!((mid_fade - 0.5).abs() < 1e-3, "start fade half way: {mid_fade}");
         let mid_rise = c(13.6 - FULLSCREEN_LEAD_OUT_WINDOW_S - DESK_COVER_FADE_S / 2.0);
@@ -2155,7 +2245,7 @@ mod zoom_focus_tests {
     fn medium_sections_share_the_steady_part_between_the_fades() {
         let clock = ScreenClock::default();
         let r = [cam(10.0, 12.6, 180)];
-        let c = |t: f32| camera_fullscreen_cover_at(&r, t, &clock);
+        let c = |t: f32| camera_fullscreen_cover_at(&r, t, &clock, &[]);
         let fade = (2.6 - TRANSITION_WINDOW_S - 1.3) / 2.0;
         let meet = 10.0 + TRANSITION_WINDOW_S + fade;
         let mid_fade = c(10.0 + TRANSITION_WINDOW_S + fade / 2.0);
@@ -2175,10 +2265,10 @@ mod zoom_focus_tests {
         for len in [2.0_f32, 2.2, 2.6, 3.0, 3.5, 4.0, 4.5] {
             let r = [cam(10.0, 10.0 + len as f64, 180)];
             let steps = (len * 1000.0).round() as i32;
-            let mut prev = camera_fullscreen_cover_at(&r, 10.0 + 0.0005, &clock);
+            let mut prev = camera_fullscreen_cover_at(&r, 10.0 + 0.0005, &clock, &[]);
             for step in 1..steps {
                 let t = 10.0 + step as f32 * 0.001;
-                let c = camera_fullscreen_cover_at(&r, t, &clock);
+                let c = camera_fullscreen_cover_at(&r, t, &clock, &[]);
                 assert!((0.0..=1.0).contains(&c), "len={len} t={t}: {c}");
                 assert!((c - prev).abs() <= 0.1, "len={len} t={t}: {prev} -> {c}");
                 prev = c;
@@ -2192,8 +2282,8 @@ mod zoom_focus_tests {
         let clock = ScreenClock::new(&[speed(None, 0.0, 1000.0, 2.0)], 0);
         let r = [cam(10.0, 40.0, 180)];
         // At 2x, the 1.015 s hold spans 2.03 s of source time.
-        assert_eq!(camera_fullscreen_cover_at(&r, 10.0 + 1.9, &clock), 1.0);
-        assert!(camera_fullscreen_cover_at(&r, 10.0 + 3.6, &clock) < 1.0);
+        assert_eq!(camera_fullscreen_cover_at(&r, 10.0 + 1.9, &clock, &[]), 1.0);
+        assert!(camera_fullscreen_cover_at(&r, 10.0 + 3.6, &clock, &[]) < 1.0);
     }
     #[test]
     fn the_region_fields_parse_and_default() {
@@ -2221,7 +2311,7 @@ mod zoom_focus_tests {
         }];
         let clock = ScreenClock::default();
         let at = |t: f32| {
-            (camera_fullscreen_progress_at(&r, t, &clock), camera_fullscreen_shape_at(&r, t, &clock))
+            (camera_fullscreen_progress_at(&r, t, &clock, &[]), camera_fullscreen_shape_at(&r, t, &clock, &[]))
         };
         // Premier tiers de la montée : la caméra a fait l'essentiel du chemin, coins intacts.
         let (progress, shape) = at(10.0 + TRANSITION_WINDOW_S / 3.0);

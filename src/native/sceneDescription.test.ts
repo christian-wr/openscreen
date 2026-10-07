@@ -6,6 +6,7 @@
 // crop / settings mapping / output dims).
 
 import { describe, expect, it, vi } from "vitest";
+import type { CameraPerspective } from "@/components/video-editor/types";
 import {
 	DEFAULT_CROP_REGION,
 	getZoomScale,
@@ -25,8 +26,10 @@ import { DEVICE_FRAMES } from "@/lib/projectDefaults";
 import { getFocusBoundsForScale } from "@/lib/zoomMath/focusUtils";
 import {
 	annotationFootageRect,
+	buildCompositorClipList,
 	buildSceneDescription,
 	wallpaperAcceptsMotion,
+	webcamBoxSourceSize,
 	zoomScaleLimit,
 } from "./sceneDescription";
 
@@ -936,6 +939,75 @@ describe("buildSceneDescription.cameraFullscreenRegions", () => {
 		// The compositor draws it at the cover's strength, so it must be on screen wherever the
 		// cover can be: the whole section, whatever its length or speed.
 		expect(labels.map((a) => [a.startSec, a.endSec])).toEqual([[0, 20]]);
+	});
+
+	it("a hand-written camera-1 camera-full layout row is not doubled", () => {
+		// The editor stores camera 1's Full Camera only in `cameraFullscreenRegions`. A
+		// hand-written layout row for the same span must not emit a second section.
+		const section = { id: "cf1", startMs: 0, endMs: 20_000, rotation: 180 };
+		const doc = makeDoc({
+			legacyEditor: {
+				cameraFullscreenRegions: [section],
+				cameraLayoutRegions: [
+					{ ...section, id: "l1", template: "camera-full", slots: [{ camera: 0 }] },
+				],
+			},
+		});
+		const scene = buildSceneDescription(doc);
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		const labels = scene.annotations.filter((a) => a.text?.animation === DESK_COVER_ANIMATION);
+		expect(labels.map((a) => a.id)).toEqual(["desk-cf1-all"]);
+		// An empty layout list no longer hides the Full Camera regions.
+		const emptied = makeDoc({
+			legacyEditor: { cameraFullscreenRegions: [section], cameraLayoutRegions: [] },
+		});
+		expect(buildSceneDescription(emptied).cameraFullscreenRegions).toHaveLength(1);
+	});
+
+	it("a label that meets a layout region still spans its whole section", () => {
+		// A turned section right before a camera-full-pip region: the compositor holds no cover
+		// over a shrink there (`full_camera_seams`). The label needs no seam rule of its own: it
+		// is drawn at the cover's strength, so it spans the section and the cover decides.
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/a.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [
+				{ sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "Desk" },
+			],
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 30,
+			timelineStartSec: 0,
+			timelineEndSec: 30,
+		});
+		const section = {
+			id: "cf1",
+			startMs: 0,
+			endMs: 10_000,
+			rotation: 180,
+			template: "camera-full",
+			slots: [{ camera: 0 }],
+		};
+		const pip = {
+			id: "l1",
+			startMs: 10_000,
+			endMs: 20_000,
+			template: "camera-full-pip",
+			slots: [{ camera: 1 }, { camera: 0 }],
+		};
+		const doc = makeDoc({
+			assets: [asset],
+			clips: [clip],
+			legacyEditor: { cameraLayoutRegions: [section, pip] },
+		});
+		const scene = buildSceneDescription(doc);
+		expect(scene.cameraLayoutRegions?.map((l) => [l.startSec, l.endSec])).toEqual([[10, 20]]);
+		const labels = scene.annotations.filter((a) => a.text?.animation === DESK_COVER_ANIMATION);
+		expect(labels.map((a) => [a.startSec, a.endSec])).toEqual([[0, 10]]);
 	});
 
 	it("no label for a plain section or with the label off", () => {
@@ -3029,5 +3101,833 @@ describe("buildSceneDescription.audioTracks", () => {
 	it("is empty for a project with no imported audio", () => {
 		const doc = makeDoc({ assets: [makeAsset({ id: "a", originalPath: "/a.mp4" })] });
 		expect(buildSceneDescription(doc).audioTracks).toEqual([]);
+	});
+});
+
+// --- extra cameras, camera settings and layout regions ----------------------
+
+describe("buildSceneDescription cameras", () => {
+	const extra = { sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 120, visible: true, label: "Desk" };
+	const docWith = (
+		assetOverrides: Partial<AxcutAsset>,
+		legacyEditor: Record<string, unknown> | null,
+	) => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			...assetOverrides,
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 10,
+			timelineStartSec: 0,
+			timelineEndSec: 10,
+		});
+		return makeDoc({ assets: [asset], clips: [clip], legacyEditor });
+	};
+	const layoutRegion = (template: string, slots: unknown[], extraFields = {}) => ({
+		id: "a",
+		startMs: 1000,
+		endMs: 4000,
+		template,
+		slots,
+		...extraFields,
+	});
+
+	it("a project without camera layouts produces the same scene as before", () => {
+		const scene = buildSceneDescription(docWith({}, null));
+		expect(scene.cameras).toBeUndefined();
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		for (const clip of scene.clips) expect("additionalCameras" in clip).toBe(false);
+	});
+
+	it("extra camera tracks become clip cameras", () => {
+		const scene = buildSceneDescription(docWith({ additionalCameraTracks: [extra] }, null));
+		expect(scene.clips[0].additionalCameras).toEqual([{ path: "/w-2.mp4", offsetSec: 0.12 }]);
+	});
+
+	it("a camera-full region for camera 1 stays a Full Camera region", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{},
+				{
+					cameraLayoutRegions: [layoutRegion("camera-full", [{ camera: 0 }], { rotation: 180 })],
+				},
+			),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([
+			{ startSec: 1, endSec: 4, rotation: 180 },
+		]);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+	});
+
+	it("legacy full camera regions still reach the scene next to layout regions", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }],
+					cameraLayoutRegions: [
+						layoutRegion("screen-pip", [{ camera: 1 }], { startMs: 4000, endMs: 6000 }),
+					],
+				},
+			),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 4, endSec: 6 });
+	});
+
+	it("a layout region follows its clip", () => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [extra],
+		});
+		const clips = [
+			makeClip({
+				id: "c1",
+				assetId: "a",
+				sourceStartSec: 0,
+				sourceEndSec: 10,
+				timelineStartSec: 0,
+				timelineEndSec: 10,
+			}),
+			makeClip({
+				id: "c2",
+				assetId: "a",
+				sourceStartSec: 20,
+				sourceEndSec: 30,
+				timelineStartSec: 10,
+				timelineEndSec: 20,
+			}),
+		];
+		// The ms cache still says 2-4 s (where c2 sat before it moved behind c1); the anchor
+		// says c2's source 22-24 s, and that is what the scene must follow.
+		const row = layoutRegion("screen-pip", [{ camera: 1 }], {
+			startMs: 2000,
+			endMs: 4000,
+			clipId: "c2",
+			assetId: "a",
+			sourceStartSec: 22,
+			sourceEndSec: 24,
+		});
+		const scene = buildSceneDescription(
+			makeDoc({ assets: [asset], clips, legacyEditor: { cameraLayoutRegions: [row] } }),
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({
+			startSec: 22,
+			endSec: 24,
+			clipIndex: 1,
+		});
+	});
+
+	it("a camera-full-pip region becomes resolved layers", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		const [region] = scene.cameraLayoutRegions ?? [];
+		expect(region).toMatchObject({ startSec: 1, endSec: 4, clipIndex: 0 });
+		expect(region.layers.map((l) => [l.camera, l.fillsFrame])).toEqual([
+			[1, true],
+			[0, false],
+		]);
+	});
+
+	it("a degenerate perspective sends no homography", () => {
+		const collinear = [
+			{ x: 0, y: 0 },
+			{ x: 0.5, y: 0 },
+			{ x: 1, y: 0 },
+			{ x: 0.2, y: 0 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{ cameraSettings: [null, { perspective: { corners: collinear, aspect: 1.5 } }] },
+			),
+		);
+		// The camera draws uncorrected: its entry carries no matrix (and no settings at all).
+		expect(scene.cameras).toEqual([{ index: 1 }]);
+	});
+
+	it("a valid perspective sends the matrix and replaces rotation, mirror and crop", () => {
+		const corners = [
+			{ x: 0.1, y: 0.1 },
+			{ x: 0.9, y: 0.15 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.15, y: 0.8 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraSettings: [
+						null,
+						{ rotation: 180, mirror: true, perspective: { corners, aspect: 1.5 } },
+					],
+				},
+			),
+		);
+		expect(scene.cameras).toHaveLength(1);
+		const [camera] = scene.cameras ?? [];
+		expect(camera.index).toBe(1);
+		expect(camera.homography).toHaveLength(9);
+		expect(camera.aspect).toBe(1.5);
+		expect(camera).not.toHaveProperty("rotation");
+		expect(camera).not.toHaveProperty("mirror");
+	});
+
+	it("plain settings are sent per camera index", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					cameraSettings: [
+						null,
+						{ rotation: 180, mirror: false, crop: { x: 0, y: 0, width: 0.5, height: 1 } },
+					],
+				},
+			),
+		);
+		expect(scene.cameras).toEqual([
+			{ index: 1, rotation: 180, mirror: false, crop: { x: 0, y: 0, width: 0.5, height: 1 } },
+		]);
+	});
+
+	it("a layer for a camera the asset does not have is dropped", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{},
+				{
+					cameraLayoutRegions: [
+						layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }]),
+						layoutRegion("camera-full", [{ camera: 2 }], { id: "b" }),
+					],
+				},
+			),
+		);
+		// The first keeps only camera 0; the second has no layer left and is dropped.
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([0]);
+	});
+
+	it("a PiP in a clip without a camera-1 box keeps the project roundness", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [extra] },
+				{
+					webcamLayoutPreset: "no-webcam",
+					webcamRoundness: 0.6,
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 0);
+		// Same unit as `computeCompositeLayout`: the radius is a fraction of the short side
+		// (= roundness of half of it).
+		expect(pip?.radiusFrac).toBeCloseTo(0.3, 6);
+	});
+
+	it("camera 1's box takes its perspective's aspect, in the default PiP and in a template", () => {
+		const corners = [
+			{ x: 0.1, y: 0.1 },
+			{ x: 0.9, y: 0.15 },
+			{ x: 0.85, y: 0.9 },
+			{ x: 0.15, y: 0.8 },
+		];
+		const scene = buildSceneDescription(
+			docWith(
+				{
+					cameraTrack: {
+						sourcePath: "/w-1.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1920,
+						height: 1080,
+					},
+					additionalCameraTracks: [extra],
+				},
+				{
+					webcamMaskShape: "rectangle",
+					// The crop is ignored once the perspective is valid.
+					webcamCropRegion: { x: 0, y: 0, width: 0.5, height: 1 },
+					cameraSettings: [{ perspective: { corners, aspect: 4 / 3 } }],
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 1 }, { camera: 0 }])],
+				},
+			),
+		);
+		const { width, height } = scene.output;
+		const ratio = (rect: { width: number; height: number } | null | undefined) =>
+			((rect?.width ?? 0) * width) / ((rect?.height ?? 1) * height);
+		expect(ratio(scene.layout.webcamRect)).toBeCloseTo(4 / 3, 2);
+		expect(ratio(scene.layout.layoutByClip?.[0]?.webcamRect)).toBeCloseTo(4 / 3, 2);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 0);
+		expect(ratio(pip?.rect)).toBeCloseTo(4 / 3, 2);
+	});
+
+	it("the box source size reads a valid perspective and ignores a degenerate one", () => {
+		const camera = { width: 1920, height: 1080 };
+		const crop = { width: 0.5, height: 1 };
+		const square: CameraPerspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 1, y: 1 },
+				{ x: 0, y: 1 },
+			],
+			aspect: 0.75,
+		};
+		const valid = webcamBoxSourceSize(camera, null, crop, square);
+		expect(valid.width / valid.height).toBeCloseTo(0.75, 3);
+		const collinear: CameraPerspective = {
+			corners: [
+				{ x: 0, y: 0 },
+				{ x: 0.5, y: 0 },
+				{ x: 1, y: 0 },
+				{ x: 0.2, y: 0 },
+			],
+			aspect: 0.75,
+		};
+		expect(webcamBoxSourceSize(camera, null, crop, collinear)).toEqual({
+			width: 960,
+			height: 1080,
+		});
+		expect(webcamBoxSourceSize(camera, null, crop)).toEqual({ width: 960, height: 1080 });
+	});
+
+	it("a template's first PiP sits where the project places camera 1's PiP", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{
+					cameraTrack: {
+						sourcePath: "/w-1.mp4",
+						startMs: 0,
+						offsetMs: 0,
+						visible: true,
+						width: 1920,
+						height: 1080,
+					},
+					additionalCameraTracks: [{ ...extra, width: 1920, height: 1080 }],
+				},
+				{
+					webcamMaskShape: "rectangle",
+					cameraLayoutRegions: [layoutRegion("screen-pip", [{ camera: 0 }, { camera: 1 }])],
+				},
+			),
+		);
+		const defaultRect = scene.layout.layoutByClip?.[0]?.webcamRect;
+		expect(defaultRect).toBeTruthy();
+		const [first, second] = scene.cameraLayoutRegions?.[0].layers ?? [];
+		// Within a pixel: the default rect is laid out in whole pixels, the PiP's height comes
+		// from the camera's exact 16:9.
+		const { width, height } = scene.output;
+		for (const [key, px] of [
+			["x", width],
+			["y", height],
+			["width", width],
+			["height", height],
+		] as const) {
+			expect(Math.abs(first.rect[key] - (defaultRect?.[key] ?? Number.NaN)) * px).toBeLessThan(1);
+		}
+		expect(second.rect.x + second.rect.width).toBeLessThan(first.rect.x);
+		expect(second.rect.width).toBeCloseTo(first.rect.width, 6);
+	});
+
+	it("an extra camera's PiP is sized from its cropped picture", () => {
+		const scene = buildSceneDescription(
+			docWith(
+				{ additionalCameraTracks: [{ ...extra, width: 1600, height: 900 }] },
+				{
+					webcamMaskShape: "rectangle",
+					cameraSettings: [null, { crop: { x: 0, y: 0, width: 0.5, height: 1 } }],
+					cameraLayoutRegions: [layoutRegion("camera-full-pip", [{ camera: 0 }, { camera: 1 }])],
+				},
+			),
+		);
+		const pip = scene.cameraLayoutRegions?.[0].layers.find((l) => l.camera === 1);
+		const { width, height } = scene.output;
+		// 1600 × 0.5 by 900: the box is 800:900, not the uncropped 16:9.
+		expect(((pip?.rect.width ?? 0) * width) / ((pip?.rect.height ?? 1) * height)).toBeCloseTo(
+			800 / 900,
+			4,
+		);
+	});
+});
+
+describe("buildSceneDescription desk sections", () => {
+	const extra = { sourcePath: "/w-2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "Desk" };
+	const docWith = (cameraCount: 1 | 2, legacyEditor: Record<string, unknown> | null) => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			...(cameraCount === 2 ? { additionalCameraTracks: [extra] } : {}),
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 10,
+			timelineStartSec: 0,
+			timelineEndSec: 10,
+		});
+		return makeDoc({ assets: [asset], clips: [clip], legacyEditor });
+	};
+	const desk = { id: "d1", startMs: 1000, endMs: 3000 };
+	const deskLabels = (scene: ReturnType<typeof buildSceneDescription>) =>
+		scene.annotations.filter((a) => a.id.startsWith("desk-"));
+
+	it("draws a desk section as a camera-full layout of the desk camera, labelled with a fade", () => {
+		const scene = buildSceneDescription(docWith(2, { deskRegions: [desk] }));
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 1, endSec: 3 });
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		const labels = deskLabels(scene);
+		expect(labels).toHaveLength(1);
+		expect(labels[0]).toMatchObject({ id: "desk-d1-0", startSec: 1, endSec: 3 });
+		expect(labels[0].text?.animation).toBe("fade");
+	});
+
+	it("draws a desk section of camera 1 as an unturned Full Camera row with one label", () => {
+		const scene = buildSceneDescription(docWith(2, { deskRegions: [desk], deskCamera: 0 }));
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		expect(scene.cameraFullscreenRegions[0]).toMatchObject({ startSec: 1, endSec: 3 });
+		expect("rotation" in scene.cameraFullscreenRegions[0]).toBe(false);
+		const labels = deskLabels(scene);
+		expect(labels).toHaveLength(1);
+		expect(labels[0].text?.animation).toBe("fade");
+	});
+
+	it("draws no label for a desk section that hides it", () => {
+		const scene = buildSceneDescription(
+			docWith(2, { deskRegions: [{ ...desk, deskLabel: false }] }),
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	it("draws nothing for a desk section when the project has one camera", () => {
+		const withDesk = buildSceneDescription(docWith(1, { deskRegions: [desk] }));
+		const without = buildSceneDescription(docWith(1, {}));
+		expect(withDesk).toEqual(without);
+		expect(withDesk.cameraLayoutRegions).toBeUndefined();
+	});
+
+	// A hidden desk camera draws no layer, so its section must not put a label over the screen.
+	it("draws neither row nor label when the chosen desk camera is not drawn", () => {
+		const doc = docWith(2, { deskRegions: [desk], deskCamera: 1 });
+		const hidden = {
+			...doc,
+			assets: doc.assets.map((a) => ({
+				...a,
+				additionalCameraTracks: [{ ...extra, visible: false }],
+			})),
+		};
+		const scene = buildSceneDescription(hidden);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	// Camera 2 exists in the project, but not in the take the section sits on: no label there.
+	it("draws no label over a clip whose asset lacks the desk camera", () => {
+		const withCamera2 = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: { sourcePath: "/w-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [extra],
+		});
+		const without = makeAsset({
+			id: "b",
+			originalPath: "/screen-b.mp4",
+			cameraTrack: { sourcePath: "/w-b.mp4", startMs: 0, offsetMs: 0, visible: true },
+		});
+		const clips = [
+			makeClip({
+				id: "c1",
+				assetId: "a",
+				sourceStartSec: 0,
+				sourceEndSec: 5,
+				timelineStartSec: 0,
+				timelineEndSec: 5,
+			}),
+			makeClip({
+				id: "c2",
+				assetId: "b",
+				sourceStartSec: 0,
+				sourceEndSec: 5,
+				timelineStartSec: 5,
+				timelineEndSec: 10,
+			}),
+		];
+		const scene = buildSceneDescription(
+			makeDoc({
+				assets: [withCamera2, without],
+				clips,
+				legacyEditor: {
+					deskRegions: [
+						{ id: "d1", startMs: 1000, endMs: 3000, clipId: "c1", assetId: "a" },
+						{ id: "d2", startMs: 6000, endMs: 8000, clipId: "c2", assetId: "b" },
+					],
+				},
+			}),
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(deskLabels(scene).map((l) => l.id)).toEqual(["desk-d1-0"]);
+	});
+
+	it("keeps a desk section right after a Full Camera section", () => {
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }],
+				deskRegions: [{ id: "d1", startMs: 3000, endMs: 5000 }],
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0]).toMatchObject({ startSec: 3, endSec: 5 });
+	});
+
+	it("leaves an old project without desk fields exactly as it was", () => {
+		// The expected values were taken from the scene this fixture produced before desk
+		// sections existed (commit 650bf61a), written out so this cannot compare a scene with itself.
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000, rotation: 180 }],
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 4000, endMs: 6000, template: "screen-pip", slots: [{ camera: 1 }] },
+				],
+			}),
+		);
+		expect(Object.keys(scene)).toEqual([
+			"clips",
+			"layout",
+			"effects",
+			"cursor",
+			"audio",
+			"audioTracks",
+			"background",
+			"zoomRegions",
+			"annotations",
+			"cameraFullscreenRegions",
+			"cameraLayoutRegions",
+			"speedRegions",
+			"cropByClip",
+			"output",
+		]);
+		expect(scene.cameraFullscreenRegions).toEqual([
+			{ startSec: 1, endSec: 3, clipIndex: 0, rotation: 180, mirror: false, fullFrame: true },
+		]);
+		expect(scene.cameraLayoutRegions).toEqual([
+			{
+				startSec: 4,
+				endSec: 6,
+				clipIndex: 0,
+				layers: [
+					{
+						camera: 1,
+						rect: {
+							x: 0.8026041666666667,
+							y: 0.6798986486486487,
+							width: 0.18489583333333334,
+							height: 0.2998310810810811,
+						},
+						radiusFrac: 0.3492957746478873,
+						shape: "square",
+						fillsFrame: false,
+					},
+				],
+			},
+		]);
+		expect(scene.annotations).toEqual([
+			{
+				id: "desk-cf1-0",
+				startSec: 1,
+				endSec: 3,
+				clipIndex: 0,
+				kind: "text",
+				space: "frame",
+				x: 0.1,
+				y: 0.4,
+				w: 0.8,
+				h: 0.2,
+				zIndex: 200000,
+				text: {
+					content: "Desk mode",
+					color: "#ffffff",
+					backgroundColor: "rgba(0, 0, 0, 0.55)",
+					fontSizeRel: 0.044444444444444446,
+					fontFamily: "Inter",
+					fontWeight: "bold",
+					fontStyle: "normal",
+					textDecoration: "none",
+					textAlign: "center",
+					verticalAlign: "center",
+					animation: DESK_COVER_ANIMATION,
+				},
+			},
+		]);
+	});
+
+	it("an empty desk list changes nothing", () => {
+		const legacy = { cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }] };
+		expect(buildSceneDescription(docWith(2, { ...legacy, deskRegions: [] }))).toEqual(
+			buildSceneDescription(docWith(2, legacy)),
+		);
+	});
+
+	it("drops a desk section that overlaps a Full Camera section", () => {
+		const legacy = { cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }] };
+		const scene = buildSceneDescription(
+			docWith(2, { ...legacy, deskRegions: [{ id: "d1", startMs: 2000, endMs: 4000 }] }),
+		);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(deskLabels(scene)).toEqual([]);
+		expect(scene.cameraFullscreenRegions).toEqual(
+			buildSceneDescription(docWith(2, legacy)).cameraFullscreenRegions,
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+	});
+
+	it("drops a desk section of camera 1 that overlaps a Full Camera section", () => {
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraFullscreenRegions: [{ id: "cf1", startMs: 1000, endMs: 3000 }],
+				deskRegions: [{ id: "d1", startMs: 2000, endMs: 4000 }],
+				deskCamera: 0,
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 3 }]);
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	it("drops a desk section that overlaps a layout section", () => {
+		const layout = {
+			id: "l1",
+			startMs: 1000,
+			endMs: 3000,
+			template: "screen-pip",
+			slots: [{ camera: 1 }],
+		};
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraLayoutRegions: [layout],
+				deskRegions: [{ id: "d1", startMs: 2500, endMs: 4000 }],
+			}),
+		);
+		expect(scene.cameraLayoutRegions).toEqual(
+			buildSceneDescription(docWith(2, { cameraLayoutRegions: [layout] })).cameraLayoutRegions,
+		);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(deskLabels(scene)).toEqual([]);
+	});
+
+	it("keeps a desk section that only touches a layout section", () => {
+		const scene = buildSceneDescription(
+			docWith(2, {
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 3000, template: "screen-pip", slots: [{ camera: 1 }] },
+				],
+				deskRegions: [{ id: "d1", startMs: 3000, endMs: 4000 }],
+			}),
+		);
+		expect(scene.cameraLayoutRegions?.map((l) => [l.startSec, l.endSec])).toEqual([
+			[1, 3],
+			[3, 4],
+		]);
+		expect(deskLabels(scene).map((a) => a.id)).toEqual(["desk-d1-0"]);
+	});
+});
+
+describe("buildSceneDescription with a main camera", () => {
+	const camera1 = {
+		sourcePath: "/w-1.mp4",
+		startMs: 0,
+		offsetMs: 0,
+		visible: true,
+		width: 1280,
+		height: 720,
+	};
+	const camera2 = {
+		sourcePath: "/w-2.mp4",
+		startMs: 0,
+		offsetMs: 250,
+		visible: true,
+		label: "Desk",
+		width: 720,
+		height: 1280,
+	};
+	const docWith = (
+		legacyEditor: Record<string, unknown> | null,
+		tracks: Pick<Partial<AxcutAsset>, "cameraTrack" | "additionalCameraTracks"> = {},
+	) => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: tracks.cameraTrack ?? camera1,
+			additionalCameraTracks: tracks.additionalCameraTracks ?? [camera2],
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 10,
+			timelineStartSec: 0,
+			timelineEndSec: 10,
+		});
+		return makeDoc({ assets: [asset], clips: [clip], legacyEditor });
+	};
+	const desk = { id: "d1", startMs: 1000, endMs: 3000 };
+	const deskLabels = (scene: ReturnType<typeof buildSceneDescription>) =>
+		scene.annotations.filter((a) => a.id.startsWith("desk-"));
+
+	it("plays camera 2 in camera 1's place and camera 1 as the extra camera", () => {
+		const scene = buildSceneDescription(docWith({ mainCamera: 1 }));
+		expect(scene.clips[0].webcamPath).toBe("/w-2.mp4");
+		expect(scene.clips[0].webcamOffsetSec).toBe(0.25);
+		expect(scene.clips[0].additionalCameras).toEqual([{ path: "/w-1.mp4", offsetSec: 0 }]);
+	});
+
+	it("sizes the preset's camera box from the main camera", () => {
+		const { label: _label, ...camera2AsFirst } = camera2;
+		const scene = buildSceneDescription(docWith({ mainCamera: 1, webcamMaskShape: "rectangle" }));
+		const asIfCamera2WasFirst = buildSceneDescription(
+			docWith(
+				{ webcamMaskShape: "rectangle" },
+				{ cameraTrack: camera2AsFirst, additionalCameraTracks: [{ ...camera1, label: "" }] },
+			),
+		);
+		expect(scene.layout.webcamRect).toEqual(asIfCamera2WasFirst.layout.webcamRect);
+		const rect = scene.layout.webcamRect;
+		expect(rect).not.toBeNull();
+		const ratio = (rect!.width * scene.output.width) / (rect!.height * scene.output.height);
+		expect(ratio).toBeCloseTo(9 / 16, 1);
+	});
+
+	it("draws a layout slot of the main camera as camera slot 0", () => {
+		const scene = buildSceneDescription(
+			docWith({
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 4000, template: "screen-pip", slots: [{ camera: 1 }] },
+				],
+			}),
+		);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([0]);
+	});
+
+	it("turns a camera-full layout of the main camera into a Full Camera region", () => {
+		const scene = buildSceneDescription(
+			docWith({
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 4000, template: "camera-full", slots: [{ camera: 1 }] },
+				],
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 4 }]);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+	});
+
+	it("draws a camera-full layout of camera 1 full-frame while another camera is main", () => {
+		const scene = buildSceneDescription(
+			docWith({
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 4000, template: "camera-full", slots: [{ camera: 0 }] },
+				],
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		// Scene camera 1 holds the real camera 1 once the main camera took slot 0.
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+		expect(scene.clips[0].additionalCameras).toEqual([{ path: "/w-1.mp4", offsetSec: 0 }]);
+	});
+
+	it("never draws the automatic desk camera from the main camera", () => {
+		const scene = buildSceneDescription(docWith({ mainCamera: 1, deskRegions: [desk] }));
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+	});
+
+	it("draws a desk section of the main camera as a Full Camera row with one label", () => {
+		const scene = buildSceneDescription(
+			docWith({ mainCamera: 1, deskCamera: 1, deskRegions: [desk] }),
+		);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		expect(scene.cameraFullscreenRegions[0]).toMatchObject({ startSec: 1, endSec: 3 });
+		expect(deskLabels(scene)).toHaveLength(1);
+	});
+
+	it("draws a desk section of camera 1 as a camera-full layout of scene camera 1", () => {
+		const scene = buildSceneDescription(
+			docWith({ mainCamera: 1, deskCamera: 0, deskRegions: [desk] }),
+		);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+		expect(deskLabels(scene)).toHaveLength(1);
+	});
+
+	// The clip list the preview and both exporters hand the compositor opens the decoders; the
+	// scene only says what to draw with them. Both must carry the main camera in camera 1's place.
+	it("feeds the compositor the main camera's files, the same clips the scene carries", () => {
+		const document = docWith({ mainCamera: 1 });
+		const clips = buildCompositorClipList(document);
+		expect(clips[0]).toMatchObject({
+			screenPath: "/screen.mp4",
+			webcamPath: "/w-2.mp4",
+			webcamOffsetSec: 0.25,
+			additionalCameras: [{ path: "/w-1.mp4", offsetSec: 0 }],
+		});
+		expect(clips).toEqual(buildSceneDescription(document).clips);
+		expect(buildCompositorClipList(docWith(null))[0]).toMatchObject({
+			webcamPath: "/w-1.mp4",
+			additionalCameras: [{ path: "/w-2.mp4", offsetSec: 0.25 }],
+		});
+	});
+
+	// The default layout outside any section is the preset's: a main camera changes which camera
+	// fills the PiP, never whether there is one.
+	it("keeps the preset's camera box with a main camera, and none under no-webcam", () => {
+		const pip = { webcamLayoutPreset: "picture-in-picture" };
+		expect(
+			buildSceneDescription(docWith({ ...pip, mainCamera: 1 })).layout.webcamRect,
+		).not.toBeNull();
+		const none = { webcamLayoutPreset: "no-webcam" };
+		expect(buildSceneDescription(docWith({ ...none, mainCamera: 1 })).layout.webcamRect).toBeNull();
+		expect(buildSceneDescription(docWith(none)).layout.webcamRect).toBeNull();
+	});
+
+	it("ignores a main camera that is not available", () => {
+		const hidden = { additionalCameraTracks: [{ ...camera2, visible: false }] };
+		const legacy = {
+			deskRegions: [desk],
+			cameraLayoutRegions: [
+				{ id: "l1", startMs: 4000, endMs: 6000, template: "screen-pip", slots: [{ camera: 0 }] },
+			],
+		};
+		expect(buildSceneDescription(docWith({ ...legacy, mainCamera: 1 }, hidden))).toEqual(
+			buildSceneDescription(docWith(legacy, hidden)),
+		);
 	});
 });

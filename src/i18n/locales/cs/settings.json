@@ -281,6 +281,8 @@
 		"mute": "Ztlumit"
 	},
 	"layout": {
+		"mainCamera": "Hlavní kamera",
+		"mainCameraUnavailable": "Nedostupné — používá se {{camera}}",
 		"help": "Jak je webkamera složena s obrazovkou: obraz v obrazu, svislé skládání, dvojitý rám, tvar, zaoblení, velikost, poloha a zrcadlení.",
 		"mirrorWebcam": "Zrcadlit webkameru",
 		"webcamFraming": "Oříznutí kamery",
@@ -462,5 +464,41 @@
 		"dark": "Tmavý",
 		"light": "Světlý",
 		"custom": "Vlastní"
+	},
+	"cameraLayout": {
+		"template": "Rozložení",
+		"placeLarge": "Místo {{n}} · velké",
+		"placeSmall": "Místo {{n}} · malé",
+		"placeLeft": "Místo {{n}} · vlevo",
+		"placeRight": "Místo {{n}} · vpravo",
+		"cameraUnavailable": "{{name}} (nedostupná)",
+		"resetWindows": "Obnovit okna"
+	},
+	"layoutSection": {
+		"minOneCamera": "Alespoň jedna kamera",
+		"maxThreeWindows": "Nejvýše tři okna"
+	},
+	"cameras": {
+		"cameraN": "Kamera {{n}}",
+		"cameraNamed": "Kamera {{n}} · {{label}}",
+		"title": "Kamery",
+		"unavailable": "Nedostupné",
+		"camera1Hint": "Otočení, zrcadlení a ořez hlavní kamery jsou v ovládacích prvcích výše.",
+		"rotation": "Otočení",
+		"mirror": "Zrcadlit",
+		"crop": "Ořez…",
+		"perspective": "Opravit perspektivu…",
+		"reset": "Obnovit",
+		"cropOffWithPerspective": "Dokud je nastavena perspektiva, ořez nemá žádný účinek.",
+		"deskCamera": "Stolní kamera",
+		"deskCameraAuto": "(automaticky)"
+	},
+	"desk": {
+		"title": "Stůl",
+		"camera": "Stolní kamera",
+		"change": "Změnit",
+		"showLabel": "Zobrazit popisek",
+		"unavailable": "Nedostupné",
+		"unavailableUsing": "Nedostupné — používá se {{camera}}"
 	}
 }

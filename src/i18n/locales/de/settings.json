@@ -281,6 +281,8 @@
 		"mute": "Stumm"
 	},
 	"layout": {
+		"mainCamera": "Hauptkamera",
+		"mainCameraUnavailable": "Nicht verfügbar — verwendet wird {{camera}}",
 		"help": "Wie die Webcam mit dem Bildschirm komponiert wird: Bild in Bild, vertikal gestapelt, Doppelrahmen, Form, Rundung, Größe, Position und Spiegelung.",
 		"mirrorWebcam": "Webcam spiegeln",
 		"webcamFraming": "Webcam-Ausschnitt",
@@ -462,5 +464,41 @@
 		"dark": "Dunkel",
 		"light": "Hell",
 		"custom": "Eigene"
+	},
+	"cameraLayout": {
+		"template": "Layout",
+		"placeLarge": "Platz {{n}} · groß",
+		"placeSmall": "Platz {{n}} · klein",
+		"placeLeft": "Platz {{n}} · links",
+		"placeRight": "Platz {{n}} · rechts",
+		"cameraUnavailable": "{{name}} (nicht verfügbar)",
+		"resetWindows": "Fenster zurücksetzen"
+	},
+	"layoutSection": {
+		"minOneCamera": "Mindestens eine Kamera",
+		"maxThreeWindows": "Höchstens drei Fenster"
+	},
+	"cameras": {
+		"cameraN": "Kamera {{n}}",
+		"cameraNamed": "Kamera {{n}} · {{label}}",
+		"title": "Kameras",
+		"unavailable": "Nicht verfügbar",
+		"camera1Hint": "Drehung, Spiegelung und Zuschnitt der Hauptkamera stehen in den Reglern oben.",
+		"rotation": "Drehung",
+		"mirror": "Spiegeln",
+		"crop": "Zuschnitt…",
+		"perspective": "Perspektive korrigieren…",
+		"reset": "Zurücksetzen",
+		"cropOffWithPerspective": "Mit gesetzter Perspektive hat der Zuschnitt keine Wirkung.",
+		"deskCamera": "Tischkamera",
+		"deskCameraAuto": "(automatisch)"
+	},
+	"desk": {
+		"title": "Tisch",
+		"camera": "Tischkamera",
+		"change": "Ändern",
+		"showLabel": "Schriftzug zeigen",
+		"unavailable": "Nicht verfügbar",
+		"unavailableUsing": "Nicht verfügbar — verwendet wird {{camera}}"
 	}
 }

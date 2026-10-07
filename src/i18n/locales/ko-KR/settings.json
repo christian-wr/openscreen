@@ -281,6 +281,8 @@
 		"mute": "음소거"
 	},
 	"layout": {
+		"mainCamera": "메인 카메라",
+		"mainCameraUnavailable": "사용할 수 없음 — {{camera}} 사용 중",
 		"help": "웹캠과 화면을 합성하는 방식: PIP, 세로 배치, 이중 프레임, 모양, 모서리 둥글기, 크기, 위치, 좌우 반전.",
 		"mirrorWebcam": "웹캠 미러링",
 		"webcamFraming": "웹캠 구도",
@@ -462,5 +464,41 @@
 		"dark": "어둡게",
 		"light": "밝게",
 		"custom": "사용자 지정"
+	},
+	"cameraLayout": {
+		"template": "레이아웃",
+		"placeLarge": "자리 {{n}} · 큼",
+		"placeSmall": "자리 {{n}} · 작음",
+		"placeLeft": "자리 {{n}} · 왼쪽",
+		"placeRight": "자리 {{n}} · 오른쪽",
+		"cameraUnavailable": "{{name}} (사용할 수 없음)",
+		"resetWindows": "창 재설정"
+	},
+	"layoutSection": {
+		"minOneCamera": "카메라가 하나 이상 필요합니다",
+		"maxThreeWindows": "창은 최대 세 개까지입니다"
+	},
+	"cameras": {
+		"cameraN": "카메라 {{n}}",
+		"cameraNamed": "카메라 {{n}} · {{label}}",
+		"title": "카메라",
+		"unavailable": "사용할 수 없음",
+		"camera1Hint": "메인 카메라의 회전, 좌우 반전, 자르기는 위의 컨트롤에서 설정합니다.",
+		"rotation": "회전",
+		"mirror": "좌우 반전",
+		"crop": "자르기…",
+		"perspective": "원근 보정…",
+		"reset": "초기화",
+		"cropOffWithPerspective": "원근 보정이 설정되어 있는 동안에는 자르기가 적용되지 않습니다.",
+		"deskCamera": "책상 카메라",
+		"deskCameraAuto": "(자동)"
+	},
+	"desk": {
+		"title": "책상",
+		"camera": "책상 카메라",
+		"change": "변경",
+		"showLabel": "라벨 표시",
+		"unavailable": "사용할 수 없음",
+		"unavailableUsing": "사용할 수 없음 — {{camera}} 사용 중"
 	}
 }

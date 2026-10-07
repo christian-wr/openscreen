@@ -57,6 +57,8 @@ import {
 	effectiveZoomScale,
 	ZOOM_DEPTH_LEGEND,
 } from "../../src/lib/ai-edition/timeline/zoom-scale";
+import { cameraSectionsOverlapping, storedCameraLayoutRows } from "../../src/lib/cameraLayouts";
+import { normalizeDeskRegions } from "../../src/lib/deskSections";
 import { SETTING_BOUNDS } from "../../src/lib/projectDefaults";
 
 export interface AgentToolExecution {
@@ -95,6 +97,14 @@ function modifierIds(document: AxcutDocument, kind: ModifierKind): string[] {
 			);
 		case "cameraFullscreen":
 			return ((legacy.cameraFullscreenRegions as Array<{ id: string }> | undefined) ?? []).map(
+				(region) => region.id,
+			);
+		case "cameraLayout":
+			return ((legacy.cameraLayoutRegions as Array<{ id: string }> | undefined) ?? []).map(
+				(region) => region.id,
+			);
+		case "desk":
+			return ((legacy.deskRegions as Array<{ id: string }> | undefined) ?? []).map(
 				(region) => region.id,
 			);
 		case "audio":
@@ -265,6 +275,63 @@ function noCameraUnderSpan(
 	);
 }
 
+/**
+ * The editor's file the agent reads layout sections from, coalesced to the pills the ruler draws.
+ * Every valid stored row, with no role filter: the editor lane shows exactly these, and a
+ * camera-full row of the main camera still occupies the lane, so the overlap check must see it.
+ */
+function cameraLayoutPillsForAgent(document: AxcutDocument) {
+	const legacy = document.legacyEditor as Record<string, unknown> | null;
+	return coalesceForAgent(storedCameraLayoutRows(legacy?.cameraLayoutRegions));
+}
+
+/** The editor's desk sections, coalesced to the pills the ruler draws. */
+function deskPillsForAgent(document: AxcutDocument) {
+	const legacy = document.legacyEditor as Record<string, unknown> | null;
+	return coalesceForAgent(normalizeDeskRegions(legacy?.deskRegions));
+}
+
+/**
+ * Refuse a full-camera region that would land on a camera layout or desk section. Full-camera
+ * regions never overlap either (the editor refuses the same add as "occupied"); two
+ * overlapping sections would leave the scene to drop one of them. Layout and desk sections
+ * are not editable from here, so the message names the one in the way.
+ */
+function cameraSectionInTheWay(
+	document: AxcutDocument,
+	startSec: number,
+	endSec: number,
+): AgentToolExecution | null {
+	const desk = cameraSectionsOverlapping(
+		deskPillsForAgent(document),
+		toMs(startSec),
+		toMs(endSec),
+	)[0];
+	if (desk) {
+		return failure(
+			`The span ${startSec.toFixed(1)}–${endSec.toFixed(1)} s overlaps the desk section ` +
+				`${desk.id} (${roundSec(desk.startMs)}–${roundSec(desk.endMs)} s), so no full-camera ` +
+				"region was written. Full-camera regions and desk sections may not overlap. Pick a " +
+				"span outside every entry of deskRegions in getCurrentDocument, or ask the user to " +
+				"change the desk section in the editor.",
+		);
+	}
+	const blocking = cameraSectionsOverlapping(
+		cameraLayoutPillsForAgent(document),
+		toMs(startSec),
+		toMs(endSec),
+	)[0];
+	if (!blocking) return null;
+	return failure(
+		`The span ${startSec.toFixed(1)}–${endSec.toFixed(1)} s overlaps the camera layout ` +
+			`section ${blocking.id} (${blocking.template}, ${roundSec(blocking.startMs)}–` +
+			`${roundSec(blocking.endMs)} s), so no full-camera region was written. Full-camera ` +
+			"regions and layout sections share one camera lane and may not overlap. Pick a span " +
+			"outside every entry of cameraLayoutRegions in getCurrentDocument, or ask the user " +
+			"to change the layout section in the editor.",
+	);
+}
+
 /** The span the edited timeline actually occupies, for an actionable refusal. */
 function editedExtentSec(document: AxcutDocument): { startSec: number; endSec: number } {
 	const clips = document.timeline.clips;
@@ -335,18 +402,23 @@ function landingSuffix(
 	return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
-/** Ids of every modifier in the document, all four families at once — the basis
+/** Ids of every modifier in the document, every family at once — the basis
  * for naming what a destructive edit took with it. */
 function modifierIdsOf(document: AxcutDocument): string[] {
 	const legacy = (document.legacyEditor as Record<string, unknown>) ?? {};
 	const speedRegions = (legacy.speedRegions as Array<{ id: string }> | undefined) ?? [];
 	const cameraFullscreenRegions =
 		(legacy.cameraFullscreenRegions as Array<{ id: string }> | undefined) ?? [];
+	const cameraLayoutRegions =
+		(legacy.cameraLayoutRegions as Array<{ id: string }> | undefined) ?? [];
+	const deskRegions = (legacy.deskRegions as Array<{ id: string }> | undefined) ?? [];
 	return [
 		...document.zoomRanges.map((r) => r.id),
 		...document.annotations.map((r) => r.id),
 		...speedRegions.map((r) => r.id),
 		...cameraFullscreenRegions.map((r) => r.id),
+		...cameraLayoutRegions.map((r) => r.id),
+		...deskRegions.map((r) => r.id),
 	];
 }
 
@@ -758,7 +830,12 @@ export function documentSnapshotForModel(
 	const autoFocusAll = legacy?.autoFocusAll === true;
 	return {
 		timeBaseNote:
-			"clips and trims are in source-time seconds; zooms, speedRegions, annotations, cameraFullscreenRegions and audioTracks are in virtual (edited-timeline) seconds.",
+			"clips and trims are in source-time seconds; zooms, speedRegions, annotations, cameraFullscreenRegions, cameraLayoutRegions, deskRegions and audioTracks are in virtual (edited-timeline) seconds.",
+		cameraLayoutNote:
+			"cameraLayoutRegions are multi-camera layout sections the user placed in the editor; they are read-only here. " +
+			"They share one camera lane with cameraFullscreenRegions and the two may never overlap, so addCameraFullscreen / setCameraFullscreen refuse a span that lands on one. " +
+			"deskRegions are desk sections (the project's desk camera fills the frame), also read-only here; no camera section overlaps them, so the same tools refuse a span that lands on one. " +
+			"cameras lists the cameras shown, in place order, numbered as the user sees them (1 = the recording's main webcam).",
 		audioNote:
 			"audioTracks are imported voiceover / music files laid over the recording. They are clip-anchored like every other region, so they travel with their clip through reorder and trim, and they play at 1x whatever a speed region does to the picture under them. addAudio places an EXISTING asset of kind 'audio'; nothing here can import a file from disk or record one, so if the project has no audio asset, say so rather than inventing an id.",
 		zoomNote:
@@ -853,6 +930,18 @@ export function documentSnapshotForModel(
 			id: c.id,
 			startSec: roundSec(c.startMs),
 			endSec: roundSec(c.endMs),
+		})),
+		cameraLayoutRegions: cameraLayoutPillsForAgent(document).map((l) => ({
+			id: l.id,
+			startSec: roundSec(l.startMs),
+			endSec: roundSec(l.endMs),
+			template: l.template,
+			cameras: l.slots.map((slot) => slot.camera + 1),
+		})),
+		deskRegions: deskPillsForAgent(document).map((d) => ({
+			id: d.id,
+			startSec: roundSec(d.startMs),
+			endSec: roundSec(d.endMs),
 		})),
 		// Imported audio, collapsed to the pills the ruler draws — a track ventilated
 		// across a clip boundary is several fragments the user sees as one thing, and
@@ -2034,6 +2123,8 @@ export function executeAgentTool(
 			}
 			const blind = noCameraUnderSpan(document, landing.startSec, landing.endSec);
 			if (blind) return blind;
+			const occupied = cameraSectionInTheWay(document, landing.startSec, landing.endSec);
+			if (occupied) return occupied;
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: { ...legacy, cameraFullscreenRegions: [...prev, ...placed] },
@@ -2078,6 +2169,8 @@ export function executeAgentTool(
 			}
 			const blindMove = noCameraUnderSpan(document, landing.startSec, landing.endSec);
 			if (blindMove) return blindMove;
+			const occupiedMove = cameraSectionInTheWay(document, landing.startSec, landing.endSec);
+			if (occupiedMove) return occupiedMove;
 			const next: AxcutDocument = {
 				...document,
 				legacyEditor: { ...legacy, cameraFullscreenRegions: rebuiltCamera },

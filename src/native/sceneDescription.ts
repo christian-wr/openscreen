@@ -17,10 +17,14 @@
 
 import type {
 	CameraFullscreenRegion,
+	CameraPerspective,
+	CameraSettings,
+	NormalizedRect,
 	Rotation3DPreset,
 	SpeedRegion,
 	WallpaperMotion,
 	WebcamBackgroundMode,
+	WebcamMaskShape,
 } from "@/components/video-editor/types";
 import { DEFAULT_CROP_REGION, getZoomScale } from "@/components/video-editor/types";
 import { toastText } from "@/i18n/toastText";
@@ -42,9 +46,15 @@ import {
 	readSpeedRegions,
 	resolvePlaybackSegments,
 } from "@/lib/ai-edition/document/timeline";
-import type { AxcutAudioTrack, AxcutClip, AxcutDocument } from "@/lib/ai-edition/schema";
+import type {
+	AxcutAsset,
+	AxcutAudioTrack,
+	AxcutClip,
+	AxcutDocument,
+} from "@/lib/ai-edition/schema";
 import { getEditorSettings } from "@/lib/ai-edition/store/editorSettings";
-import { assetCameraSource } from "@/lib/ai-edition/timeline/camera";
+import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
+import { projectCameraAvailable, projectCameraCount } from "@/lib/ai-edition/timeline/cameraList";
 import { resolveClipSourceEndSec } from "@/lib/ai-edition/timeline/clipDuration";
 import { removedRawSpans } from "@/lib/ai-edition/timeline/programme-time";
 import { takeProgramme } from "@/lib/ai-edition/timeline/take-programme";
@@ -55,24 +65,36 @@ import {
 	maxZoomScaleFor,
 } from "@/lib/ai-edition/timeline/zoom-scale";
 import {
+	cameraSectionsOverlapping,
+	fullCameraRowsOfLayoutList,
+	normalizeCameraLayoutRegions,
+	normalizeCameraSettings,
+} from "@/lib/cameraLayouts";
+import { type CameraLayoutContext, resolveCameraLayout } from "@/lib/cameraLayoutTemplates";
+import {
 	normalizeCameraRotation,
 	resolveCameraOrientation,
 	showsDeskLabel,
 } from "@/lib/cameraOrientation";
+import { perspectiveMatrix } from "@/lib/cameraPerspective";
 import {
 	computeCompositeLayout,
 	paddedContentSize,
 	type RenderRect,
 	resolveWebcamLayoutPreset,
 	resolveWebcamReactiveZoom,
+	type WebcamCompositeLayout,
 	webcamSizeToFraction,
 } from "@/lib/compositeLayout";
 import type { CursorKind } from "@/lib/cursor/cursorThemes";
 import { DESK_COVER_ANIMATION, DESK_LABEL_Z_INDEX } from "@/lib/deskCover";
+import { deskRowsForScene, normalizeDeskRegions, resolveDeskCamera } from "@/lib/deskSections";
 import { parseCssGradient, resolveLinearGradientAngle } from "@/lib/exporter/gradientParser";
+import { withMainCamera } from "@/lib/mainCamera";
 import type { FrameTheme, RecordingFrame, WebcamAnchor } from "@/lib/projectDefaults";
 import { resolveTextFontFamily } from "@/lib/textFonts";
 import { classifyWallpaper } from "@/lib/wallpaper";
+import { clamp01 } from "@/utils/math";
 import type { CompositorClipInput } from "./contracts";
 import { ROUNDNESS_REFERENCE_PX } from "./paramUnits";
 
@@ -143,6 +165,40 @@ export interface SceneCameraFullscreenRegion {
 	mirror?: boolean;
 	/** Ignore the webcam crop inside this section (the whole camera frame). */
 	fullFrame?: true;
+}
+
+/** Per-camera settings the compositor applies. `index` 0 = camera 1. */
+export interface SceneCamera {
+	index: number;
+	/** 180 only; absent = not turned. Never sent together with `homography`. */
+	rotation?: 180;
+	mirror?: boolean;
+	/** Never sent together with `homography`. */
+	crop?: SceneRect;
+	/** 9 numbers, row-major: target uv -> camera uv. */
+	homography?: number[];
+	/** Width/height of the corrected picture (only with `homography`). */
+	aspect?: number;
+}
+
+/** One camera placed by a layout region, in draw order. */
+export interface SceneCameraLayer {
+	camera: number;
+	rect: SceneRect;
+	radiusFrac: number;
+	shape: string;
+	fillsFrame: boolean;
+}
+
+/** A camera layout (anything but a plain Full Camera) projected onto a clip's source time. */
+export interface SceneCameraLayoutRegion {
+	startSec: number;
+	endSec: number;
+	/** See `SceneZoomRegion.clipIndex`. */
+	clipIndex?: number;
+	/** See `SceneZoomRegion.underTrim`. */
+	underTrim?: boolean;
+	layers: SceneCameraLayer[];
 }
 
 /** A speed region projected onto each clip's source time. The native compositor matches
@@ -487,6 +543,10 @@ export interface SceneDescription {
 	 * source-time span after `projectRegionsToSourceTime`). Empty when none set.
 	 */
 	cameraFullscreenRegions: SceneCameraFullscreenRegion[];
+	/** Camera layout regions (several cameras on screen). Omitted when there are none. */
+	cameraLayoutRegions?: SceneCameraLayoutRegion[];
+	/** Settings of the cameras that have any. Omitted when there are none. */
+	cameras?: SceneCamera[];
 	/**
 	 * Speed regions projected onto each clip's source time (one entry per
 	 * source-time span after `projectRegionsToSourceTime`). Empty when none set.
@@ -628,8 +688,8 @@ function sceneBackground(wallpaper: string, motion: WallpaperMotion): SceneBackg
  * The ONE clip list every native-facing consumer must build from — trim-narrowed
  * (`resolvePlaybackSegments`, so word-level cuts from the transcript editor actually reach
  * native instead of only affecting the transcript panel's own strikethrough), sorted, and
- * filtered to clips whose asset has a resolvable path. Shared by `buildSceneDescription`
- * below, `ExportDialog.tsx`'s `buildNativeClipList` (native MP4 export), and
+ * filtered to clips whose asset has a resolvable path. Shared by `buildCompositorClipList`
+ * below (the scene's clips and both native exports), and
  * `NativeCompositorOverlay.tsx`'s `nativeClips` (live preview) — previously these three each
  * hand-rolled their own sort+filter, acknowledged as needing to be "kept in lock-step".
  */
@@ -653,6 +713,59 @@ export function resolveVisibleClips(document: AxcutDocument): PlaybackSegment[] 
 	return resolvePlaybackSegments(document.timeline.clips, document.timeline.trimRanges)
 		.sort((a, b) => a.timelineStartSec - b.timelineStartSec)
 		.filter((clip) => clipAssetIsResolvable(clip, assetById));
+}
+
+/**
+ * The camera files the compositor decodes for a clip of `asset`. Pass the asset as the scene
+ * sees it (`withMainCamera`), so a main camera opens in camera 1's decoder; every producer of
+ * clip inputs (scene, preview, export dialog, CLI) goes through here.
+ */
+export function clipCameraInputs(
+	asset: AxcutAsset,
+): Pick<CompositorClipInput, "webcamPath" | "webcamOffsetSec" | "additionalCameras"> {
+	const camera = assetCameraSource(asset);
+	// Cameras 2-4, only sent when the asset has any.
+	const additionalCameras = assetAdditionalCameraSources(asset);
+	return {
+		webcamPath: camera.path,
+		webcamOffsetSec: camera.offsetSec,
+		...(additionalCameras.length > 0 ? { additionalCameras } : {}),
+	};
+}
+
+/**
+ * The clips the compositor plays, with their files: the scene's `clips` and the native export's
+ * input are this one list, so the decoders always hold the cameras the scene draws (with a main
+ * camera chosen, that camera in camera 1's place).
+ */
+export function buildCompositorClipList(source: AxcutDocument): CompositorClipInput[] {
+	const document = withMainCamera(source);
+	const assetById = new Map(document.assets.map((a) => [a.id, a]));
+	return resolveVisibleClips(document).flatMap((clip) => {
+		const asset = assetById.get(clip.assetId);
+		if (!asset?.originalPath) return [];
+		const { webcamPath, webcamOffsetSec, additionalCameras } = clipCameraInputs(asset);
+		// ponytail: `asset.audio` exists in the schema but the probe pipeline never
+		// populates it, so there is no per-asset "is there a track?" signal to read
+		// yet. Every consumer downstream degrades on a stream-less file (audio.rs
+		// returns Ok(None)), so this stays optimistic. NOT "recordings always carry
+		// audio" — a capture made with no mic and no system audio has no audio
+		// stream at all (issue #348). Swap to `Boolean(asset.audio)` the day the
+		// probe fills it in.
+		return [
+			{
+				screenPath: asset.originalPath,
+				webcamPath,
+				sourceStartSec: clip.sourceStartSec,
+				sourceEndSec: resolveClipSourceEndSec(clip, asset),
+				webcamOffsetSec,
+				hasAudio: true,
+				...(additionalCameras ? { additionalCameras } : {}),
+				// A held segment has an empty source window and exists only for the frames it
+				// holds; every other clip holds nothing.
+			},
+		];
+	});
 }
 
 /** A clip's screen source size in pixels: its recording × its crop (see `screenSourceSizeOf`). */
@@ -765,19 +878,132 @@ type Size = { width: number; height: number };
  * That ordering is the fix: the box used to depend on WHO was asking rather than on what
  * was recorded, so a 16:9 camera was framed 16:9 in the preview and 4:3 in the export.
  * The scene and the editor's drag box both read the same answer now.
+ *
+ * A valid `perspective` replaces the crop: the box then takes the corrected picture's own
+ * ratio (`perspective.aspect`), the target format the corners were drawn for.
  */
 export function webcamBoxSourceSize(
 	camera: { width?: number; height?: number } | null | undefined,
 	probed: Size | null,
 	crop: Size,
+	perspective?: CameraPerspective | null,
 ): Size {
 	const source =
 		camera?.width && camera?.height
 			? { width: camera.width, height: camera.height }
 			: (probed ?? { width: 960, height: 720 });
+	if (perspective && perspectiveMatrix(perspective)) {
+		return {
+			width: Math.max(1, Math.round(source.width)),
+			height: Math.max(1, Math.round(source.width / perspective.aspect)),
+		};
+	}
 	return {
 		width: Math.max(1, Math.round(source.width * crop.width)),
 		height: Math.max(1, Math.round(source.height * crop.height)),
+	};
+}
+
+/** Camera 1's stored perspective (`legacyEditor.cameraSettings[0]`), if any. */
+export function camera0PerspectiveOf(
+	document: Pick<AxcutDocument, "legacyEditor"> | null | undefined,
+): CameraPerspective | null {
+	const legacyRaw = document?.legacyEditor as Record<string, unknown> | null | undefined;
+	return normalizeCameraSettings(legacyRaw?.cameraSettings)[0]?.perspective ?? null;
+}
+
+/** Camera 1's PiP box in a clip's resolved layout, in output-frame fractions. */
+export interface ClipPipLayout {
+	webcamRect: NormalizedRect | null;
+	webcamShape: WebcamMaskShape;
+	/** Corner radius as a fraction of the box's short side; null without a box. */
+	webcamRadiusFrac: number | null;
+}
+
+/**
+ * Camera 1's box of a `computeCompositeLayout` result (in `frame` pixels) as frame fractions,
+ * with its shape and radius. The scene ships these per clip; the editor anchors its layout
+ * hitboxes on the same values.
+ */
+export function clipPipLayoutOf(
+	layout: Pick<WebcamCompositeLayout, "webcamRect"> | null | undefined,
+	frame: Size,
+	fallbackShape: WebcamMaskShape,
+): ClipPipLayout {
+	const box = layout?.webcamRect ?? null;
+	if (!box) return { webcamRect: null, webcamShape: fallbackShape, webcamRadiusFrac: null };
+	const shortSide = Math.min(box.width, box.height);
+	return {
+		webcamRect: {
+			x: box.x / frame.width,
+			y: box.y / frame.height,
+			width: box.width / frame.width,
+			height: box.height / frame.height,
+		},
+		webcamShape: box.maskShape ?? fallbackShape,
+		webcamRadiusFrac:
+			shortSide > 0 && box.borderRadius != null ? box.borderRadius / shortSide : null,
+	};
+}
+
+/**
+ * What `resolveCameraLayout` needs to place a layout section's cameras, from the asset the
+ * section is anchored to. The scene and the editor's drag hitboxes both build it here, so
+ * the boxes the editor offers are the ones the compositor draws.
+ */
+export function cameraLayoutContextOf(input: {
+	/** Output frame (only its proportions matter). */
+	frame: Size;
+	asset: AxcutAsset;
+	cameraSettings: readonly (CameraSettings | null | undefined)[];
+	/** Camera 1's crop (`settings.webcamCropRegion`). */
+	webcamCropRegion: Size;
+	/** Camera 1's probed size, for a document whose camera has no stored dimensions. */
+	probedCamera0Size: Size | null;
+	/** The clip's resolved camera-1 layout, if it has one. */
+	clipLayout: ClipPipLayout | null | undefined;
+	webcamMaskShape: WebcamMaskShape;
+	webcamRoundness: number;
+	/** The clip lays out as picture-in-picture (a block preset's camera box is no PiP). */
+	pipPreset: boolean;
+}): CameraLayoutContext {
+	const { asset, cameraSettings, clipLayout } = input;
+	// The size of the picture each camera's box shows: after its crop, like the
+	// camera-1 box `webcamSourceSizeOf` lays out (a perspective replaces the crop).
+	const croppedSize = (camera: number): Size => {
+		if (camera === 0) {
+			return webcamBoxSourceSize(
+				asset.cameraTrack,
+				input.probedCamera0Size,
+				input.webcamCropRegion,
+				cameraSettings[0]?.perspective,
+			);
+		}
+		const track = asset.additionalCameraTracks?.[camera - 1];
+		const size =
+			track?.width && track?.height
+				? { width: track.width, height: track.height }
+				: { width: 16, height: 9 };
+		const crop = cameraSettings[camera]?.crop;
+		return crop ? { width: size.width * crop.width, height: size.height * crop.height } : size;
+	};
+	const cameraAspect = (camera: number) => {
+		const perspective = cameraSettings[camera]?.perspective;
+		if (perspective && perspectiveMatrix(perspective)) return perspective.aspect;
+		const size = croppedSize(camera);
+		return size.width / size.height;
+	};
+	return {
+		frame: input.frame,
+		cameraAspect,
+		pipShape: clipLayout?.webcamShape ?? input.webcamMaskShape,
+		// A clip without a camera-1 box (no-webcam preset, no camera 1) still rounds its
+		// PiPs the way `computeCompositeLayout` would: the radius is a fraction
+		// of the short side (= roundness of half of it).
+		pipRadiusFrac: clipLayout?.webcamRadiusFrac ?? clamp01(input.webcamRoundness) / 2,
+		// The template PiPs start where the project puts camera 1's PiP — only in the
+		// picture-in-picture preset; a block preset's camera box is no PiP to anchor on.
+		defaultPipRect: input.pipPreset ? clipLayout?.webcamRect : null,
 	};
 }
 
@@ -789,61 +1015,85 @@ function deskLabelText(): string {
 	return text === `settings.${DESK_LABEL_KEY}` ? "" : text;
 }
 
+/** A projected piece of a section, carrying the section's own id. Times already in source ms. */
+interface DeskLabelPiece {
+	sectionId: string;
+	startMs: number;
+	endMs: number;
+	clipIndex?: number;
+	underTrim?: boolean;
+}
+
 /**
- * One caption-styled text region over every projected piece of a turned Full Camera section that
- * shows its label (times already in source ms). It spans the whole piece: the compositor draws
- * it at the camera cover's strength, so it is visible exactly while the cover is. Boxes are in
- * percent of the frame, like the caption box.
+ * The desk-view label over one projected piece: caption-styled text spanning the whole piece,
+ * boxed in percent of the frame like the caption box.
  * Ids come from the section's own id (`sectionId`) and the piece's clip — never from the
  * piece's id, which the projection draws at random after the first piece — so a rebuild reuses
  * them and the native text cache (keyed by id) does not grow.
  */
-function deskLabelTextRegions(
-	pieces: (CameraFullscreenRegion & {
-		sectionId: string;
-		clipIndex?: number;
-		underTrim?: boolean;
-	})[],
-) {
+function deskLabelRegion(piece: DeskLabelPiece, label: string, animation: string) {
+	return {
+		space: "frame" as const,
+		verticalAlign: "center" as const,
+		id: `desk-${piece.sectionId}-${piece.clipIndex ?? "all"}`,
+		clipIndex: piece.clipIndex,
+		...(piece.underTrim ? { underTrim: true as const } : {}),
+		startMs: piece.startMs,
+		endMs: piece.endMs,
+		type: "text" as const,
+		content: label,
+		position: { x: 10, y: 40 },
+		size: { width: 80, height: 20 },
+		style: {
+			color: DEFAULT_CAPTION_SETTINGS.color,
+			backgroundColor: captionBackgroundCss(DEFAULT_CAPTION_SETTINGS),
+			fontSize: DEFAULT_CAPTION_SETTINGS.fontSize,
+			fontFamily: DEFAULT_CAPTION_SETTINGS.fontFamily,
+			fontWeight: DEFAULT_CAPTION_SETTINGS.fontWeight,
+			fontStyle: "normal" as const,
+			textDecoration: "none" as const,
+			textAlign: "center" as const,
+			textAnimation: animation,
+		},
+		zIndex: DESK_LABEL_Z_INDEX,
+	};
+}
+
+/**
+ * The label over every projected piece of a turned Full Camera section that shows it. The
+ * compositor draws it at the camera cover's strength, so it is visible exactly while the cover is.
+ */
+function deskLabelTextRegions(pieces: (CameraFullscreenRegion & DeskLabelPiece)[]) {
 	const label = deskLabelText();
 	if (!label) return [];
-	return pieces.flatMap((region) => {
-		if (normalizeCameraRotation(region.rotation) !== 180 || !showsDeskLabel(region)) return [];
-		return [
-			{
-				space: "frame" as const,
-				verticalAlign: "center" as const,
-				id: `desk-${region.sectionId}-${region.clipIndex ?? "all"}`,
-				clipIndex: region.clipIndex,
-				...(region.underTrim ? { underTrim: true as const } : {}),
-				startMs: region.startMs,
-				endMs: region.endMs,
-				type: "text" as const,
-				content: label,
-				position: { x: 10, y: 40 },
-				size: { width: 80, height: 20 },
-				style: {
-					color: DEFAULT_CAPTION_SETTINGS.color,
-					backgroundColor: captionBackgroundCss(DEFAULT_CAPTION_SETTINGS),
-					fontSize: DEFAULT_CAPTION_SETTINGS.fontSize,
-					fontFamily: DEFAULT_CAPTION_SETTINGS.fontFamily,
-					fontWeight: DEFAULT_CAPTION_SETTINGS.fontWeight,
-					fontStyle: "normal" as const,
-					textDecoration: "none" as const,
-					textAlign: "center" as const,
-					textAnimation: DESK_COVER_ANIMATION,
-				},
-				zIndex: DESK_LABEL_Z_INDEX,
-			},
-		];
-	});
+	return pieces.flatMap((region) =>
+		normalizeCameraRotation(region.rotation) === 180 && showsDeskLabel(region)
+			? [deskLabelRegion(region, label, DESK_COVER_ANIMATION)]
+			: [],
+	);
+}
+
+/**
+ * The label over every projected piece of a desk section that shows it. A desk section has no
+ * turning cover whose strength the label could follow, so it fades in and out on its own.
+ */
+function deskSectionLabelRegions(pieces: DeskLabelPiece[], labelledSections: ReadonlySet<string>) {
+	const label = deskLabelText();
+	if (!label) return [];
+	return pieces
+		.filter((piece) => labelledSections.has(piece.sectionId))
+		.map((piece) => deskLabelRegion(piece, label, "fade"));
 }
 
 /** Serialize a document into a {@link SceneDescription}. Pure — no per-frame math. */
 export function buildSceneDescription(
-	document: AxcutDocument,
+	source: AxcutDocument,
 	webcamSourceSize: { width: number; height: number } | null = null,
 ): SceneDescription {
+	// The scene draws the main camera in camera 1's place: every camera read below (clip
+	// cameras, preset sizes, layout slots, the desk camera) sees the swapped document. Clip and
+	// asset ids are unchanged, so anchored regions still resolve. Never persist this copy.
+	const document = withMainCamera(source);
 	const settings = getEditorSettings(document);
 
 	const assetById = new Map(document.assets.map((a) => [a.id, a]));
@@ -1004,30 +1254,9 @@ export function buildSceneDescription(
 		return entries;
 	});
 	const visibleClips = resolveVisibleClips(document);
-	const clips: CompositorClipInput[] = visibleClips.flatMap((clip) => {
-		const asset = assetById.get(clip.assetId);
-		if (!asset?.originalPath) return [];
-		const camera = assetCameraSource(asset);
-		// ponytail: `asset.audio` exists in the schema but the probe pipeline never
-		// populates it, so there is no per-asset "is there a track?" signal to read
-		// yet. Every consumer downstream degrades on a stream-less file (audio.rs
-		// returns Ok(None)), so this stays optimistic. NOT "recordings always carry
-		// audio" — a capture made with no mic and no system audio has no audio
-		// stream at all (issue #348). Swap to `Boolean(asset.audio)` the day the
-		// probe fills it in.
-		return [
-			{
-				screenPath: asset.originalPath,
-				webcamPath: camera.path,
-				sourceStartSec: clip.sourceStartSec,
-				sourceEndSec: resolveClipSourceEndSec(clip, asset),
-				webcamOffsetSec: camera.offsetSec,
-				hasAudio: true,
-				// A held segment has an empty source window and exists only for the frames it
-				// holds; every other clip holds nothing.
-			},
-		];
-	});
+	// `document` is already the scene's copy; the list swaps nothing twice (`withMainCamera`
+	// returns that copy unchanged).
+	const clips = buildCompositorClipList(document);
 	const cropByClip = visibleClips.map(
 		(clip): { x: number; y: number; width: number; height: number } | null => {
 			const cropRegion = clip.cropRegion;
@@ -1099,15 +1328,70 @@ export function buildSceneDescription(
 		captionSettings,
 		captionAspect,
 	);
+	const legacyRaw = document.legacyEditor as Record<string, unknown> | null;
+	const cameraSettings = normalizeCameraSettings(legacyRaw?.cameraSettings);
+	const storedLayoutRegions = normalizeCameraLayoutRegions(legacyRaw?.cameraLayoutRegions);
+	// Two disjoint lists: camera 1's Full Camera sections live in `cameraFullscreenRegions`
+	// (they keep the desk view and its label), every other layout in `cameraLayoutRegions`.
+	// Both are clip-anchored, so `projectRegionsToSource` takes its anchored branch for both.
+	const fullscreenRegions =
+		(legacyRaw?.cameraFullscreenRegions as CameraFullscreenRegion[] | undefined) ?? [];
+	// A hand-written layout list may still carry a camera-1 camera-full row. It becomes a Full
+	// Camera region unless one already covers its span, so the same section is never emitted
+	// twice (two covers, two desk labels).
+	const handWrittenFullCamera = fullCameraRowsOfLayoutList(legacyRaw?.cameraLayoutRegions)
+		.filter(
+			(row) =>
+				!fullscreenRegions.some(
+					(region) => region.startMs <= row.startMs && region.endMs >= row.endMs,
+				),
+		)
+		.map(({ template: _template, slots: _slots, ...region }): CameraFullscreenRegion => region);
+	// Desk sections become rows of the two lists above: a camera-full layout of the desk camera,
+	// or a Full Camera row when the desk camera is camera 1. The desk camera is resolved exactly
+	// as the editor resolves it, so the picture and the timeline never name different cameras.
+	// The lane never holds overlapping sections; a hand-edited project still might, and then the
+	// existing camera section wins and the desk section (with its label) is dropped.
+	const existingCameraSections = [
+		...fullscreenRegions,
+		...handWrittenFullCamera,
+		...storedLayoutRegions,
+	];
+	const deskRegions = normalizeDeskRegions(legacyRaw?.deskRegions).filter(
+		(region) =>
+			cameraSectionsOverlapping(existingCameraSections, region.startMs, region.endMs).length === 0,
+	);
+	// `document` is the swapped copy: the main camera sits at index 0 and a main camera other
+	// than camera 1 already settled the desk camera (`withMainCamera`), so 0 is the main camera
+	// here either way.
+	const deskCamera = resolveDeskCamera({
+		deskCamera: legacyRaw?.deskCamera,
+		cameraCount: projectCameraCount(document.assets),
+		cameraSettings: cameraSettings.map((s) => s ?? {}),
+		available: (index) => projectCameraAvailable(document.assets, index),
+		mainCamera: 0,
+	});
+	const desk = deskRowsForScene(deskRegions, deskCamera);
+	const labelledDeskSections = new Set(
+		deskRegions.filter((region) => showsDeskLabel(region)).map((region) => region.id),
+	);
+	const layoutRegions = [...storedLayoutRegions, ...desk.layout].sort(
+		(a, b) => a.startMs - b.startMs,
+	);
 	const projectedCameraFullscreenRegions = projectRegionsToSource(
-		(
-			((document.legacyEditor as Record<string, unknown> | null)?.cameraFullscreenRegions as
-				| CameraFullscreenRegion[]
-				| undefined) ?? []
-		).map((region) => ({ ...region, sectionId: region.id })),
+		[...fullscreenRegions, ...handWrittenFullCamera, ...desk.full].map((region) => ({
+			...region,
+			sectionId: region.id,
+		})),
 		visibleClips,
 		document.timeline.clips,
 		() => createId("camfull"),
+	);
+	const projectedLayoutRegions = projectRegionsToSource(
+		layoutRegions.map((region) => ({ ...region, sectionId: region.id })),
+		visibleClips,
+		document.timeline.clips,
+		() => createId("camlay"),
 	);
 	const projectedAnnotations = projectRegionsToSource(
 		[
@@ -1127,6 +1411,25 @@ export function buildSceneDescription(
 			projectedCameraFullscreenRegions,
 		) as unknown as typeof projectedAnnotations),
 	);
+	// The desk sections' label, found again among the projected pieces of both lists by their
+	// section id. A desk section of camera 1 is an unturned Full Camera row, so the turned-only
+	// label above never doubles it.
+	if (labelledDeskSections.size > 0) {
+		// A piece on a take that does not draw the desk camera shows the plain screen: no label
+		// there (the layer filter below drops that piece's layout for the same reason).
+		const drawsDeskCamera = (piece: DeskLabelPiece) => {
+			if (deskCamera === null || piece.clipIndex === undefined) return false;
+			const asset = assetById.get(visibleClips[piece.clipIndex]?.assetId ?? "");
+			const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
+			return (sources[deskCamera]?.path ?? "") !== "";
+		};
+		projectedAnnotations.push(
+			...(deskSectionLabelRegions(
+				[...projectedLayoutRegions, ...projectedCameraFullscreenRegions].filter(drawsDeskCamera),
+				labelledDeskSections,
+			) as unknown as typeof projectedAnnotations),
+		);
+	}
 	// Speed regions carry an extra `speed` field the standard `rangeSchema` does not, so we
 	// can't read from `document.timeline.speedRanges` today (see SceneDescription.speedRegions
 	// comment). The legacy web exporter reads from `legacyEditor.speedRegions`; we mirror it.
@@ -1210,6 +1513,7 @@ export function buildSceneDescription(
 			assetById.get(clip.assetId)?.cameraTrack,
 			webcamSourceSize,
 			settings.webcamCropRegion,
+			cameraSettings[0]?.perspective,
 		);
 	const layoutForClip = (
 		screenSize: { width: number; height: number },
@@ -1245,17 +1549,18 @@ export function buildSceneDescription(
 		const shortSide = box ? Math.min(box.width, box.height) : 0;
 		return box && shortSide > 0 && radius != null ? radius / shortSide : null;
 	};
-	const resolvedLayoutOf = (layout: ReturnType<typeof layoutForClip>) =>
-		layout
-			? {
-					screenRect: toFrameFractions(layout.screenRect),
-					webcamRect: layout.webcamRect ? toFrameFractions(layout.webcamRect) : null,
-					screenRadiusFrac: radiusFractionOf(layout.screenRect, layout.screenBorderRadius),
-					webcamRadiusFrac: radiusFractionOf(layout.webcamRect, layout.webcamRect?.borderRadius),
-					webcamShape: layout.webcamRect?.maskShape ?? settings.webcamMaskShape,
-					screenCover: formatFill || (layout.screenCover ?? false),
-				}
-			: null;
+	const resolvedLayoutOf = (layout: ReturnType<typeof layoutForClip>) => {
+		if (!layout) return null;
+		const pip = clipPipLayoutOf(layout, outputDims, settings.webcamMaskShape);
+		return {
+			screenRect: toFrameFractions(layout.screenRect),
+			webcamRect: pip.webcamRect,
+			screenRadiusFrac: radiusFractionOf(layout.screenRect, layout.screenBorderRadius),
+			webcamRadiusFrac: pip.webcamRadiusFrac,
+			webcamShape: pip.webcamShape,
+			screenCover: formatFill || (layout.screenCover ?? false),
+		};
+	};
 	// One resolved layout per visible clip, index-aligned with `clips` / `cropByClip`.
 	// `for_clip_window` (Rust) selects the entry for the clip being composed, so the
 	// draw path keeps reading a single `layout` and needs no per-clip branch of its own.
@@ -1286,6 +1591,61 @@ export function buildSceneDescription(
 		),
 	);
 
+	// Camera layout regions: each projected piece gets its layers resolved against its own clip's
+	// asset, since which cameras exist (and how big they are) is per asset.
+	const sceneCameraLayoutRegions = projectedLayoutRegions.flatMap(
+		(region): SceneCameraLayoutRegion[] => {
+			if (region.clipIndex === undefined) return [];
+			const asset = assetById.get(visibleClips[region.clipIndex]?.assetId ?? "");
+			if (!asset) return [];
+			const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
+			const clip = visibleClips[region.clipIndex];
+			const pipPreset =
+				clip !== undefined &&
+				resolveWebcamLayoutPreset(settings.webcamLayoutPreset, clipHasCamera(clip)) ===
+					"picture-in-picture";
+			const ctx = cameraLayoutContextOf({
+				frame: outputDims,
+				asset,
+				cameraSettings,
+				webcamCropRegion: settings.webcamCropRegion,
+				probedCamera0Size: webcamSourceSize,
+				clipLayout: layoutByClip[region.clipIndex],
+				webcamMaskShape: settings.webcamMaskShape,
+				webcamRoundness: settings.webcamRoundness,
+				pipPreset,
+			});
+			const layers = resolveCameraLayout(region, ctx).filter(
+				(layer) => (sources[layer.camera]?.path ?? "") !== "",
+			);
+			if (layers.length === 0) return [];
+			return [
+				{
+					startSec: region.startMs / 1000,
+					endSec: region.endMs / 1000,
+					clipIndex: region.clipIndex,
+					...(region.underTrim ? { underTrim: true } : {}),
+					layers,
+				},
+			];
+		},
+	);
+	const sceneCameras = cameraSettings.flatMap((camera, index): SceneCamera[] => {
+		if (!camera) return [];
+		const homography = camera.perspective ? perspectiveMatrix(camera.perspective) : null;
+		if (homography && camera.perspective) {
+			// A perspective already defines the upright, unmirrored picture and replaces the crop.
+			return [{ index, homography, aspect: camera.perspective.aspect }];
+		}
+		return [
+			{
+				index,
+				...(camera.rotation === 180 ? { rotation: 180 as const } : {}),
+				...(camera.mirror !== undefined ? { mirror: camera.mirror } : {}),
+				...(camera.crop ? { crop: { ...camera.crop } } : {}),
+			},
+		];
+	});
 	return {
 		clips,
 		layout: {
@@ -1523,6 +1883,10 @@ export function buildSceneDescription(
 		// shipped inert — `speed_at` (regions.rs) matches on clipIndex + time with no window
 		// to bound it, and the export's frame count is derived from these spans. Nothing to
 		// gain, an arithmetic to put at risk.
+		...(sceneCameraLayoutRegions.length > 0
+			? { cameraLayoutRegions: sceneCameraLayoutRegions }
+			: {}),
+		...(sceneCameras.length > 0 ? { cameras: sceneCameras } : {}),
 		speedRegions: projectedSpeedRegions
 			.filter((region) => !region.underTrim)
 			.map((region) => ({

@@ -39,6 +39,11 @@ export type NativeWindowsRecordingRequest = {
 	 * is enabled; the main process drops duplicates of camera 1 and caps the list.
 	 */
 	additionalWebcams?: Array<{ deviceId?: string; deviceName: string }>;
+	/**
+	 * The desk camera, as an index into this request's cameras: 0 is camera 1, k the k-th entry of
+	 * `additionalWebcams`. Omitted when the chosen desk camera is not part of the take.
+	 */
+	deskCamera?: number;
 	cursor: {
 		mode: import("./recordingSession").CursorCaptureMode;
 	};

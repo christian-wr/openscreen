@@ -281,6 +281,8 @@
 		"mute": "静音"
 	},
 	"layout": {
+		"mainCamera": "主摄像头",
+		"mainCameraUnavailable": "不可用 — 正在使用 {{camera}}",
 		"help": "摄像头与屏幕的合成方式：画中画、垂直堆叠、双画面、形状、圆角、大小、位置和镜像。",
 		"mirrorWebcam": "镜像摄像头",
 		"webcamFraming": "摄像头构图",
@@ -462,5 +464,41 @@
 		"dark": "深色",
 		"light": "浅色",
 		"custom": "自定义"
+	},
+	"cameraLayout": {
+		"template": "布局",
+		"placeLarge": "位置 {{n}} · 大",
+		"placeSmall": "位置 {{n}} · 小",
+		"placeLeft": "位置 {{n}} · 左",
+		"placeRight": "位置 {{n}} · 右",
+		"cameraUnavailable": "{{name}}（不可用）",
+		"resetWindows": "重置窗口"
+	},
+	"layoutSection": {
+		"minOneCamera": "至少需要一个摄像头",
+		"maxThreeWindows": "最多三个窗口"
+	},
+	"cameras": {
+		"cameraN": "摄像头 {{n}}",
+		"cameraNamed": "摄像头 {{n}} · {{label}}",
+		"title": "摄像头",
+		"unavailable": "不可用",
+		"camera1Hint": "主摄像头的旋转、镜像和裁剪在上方的控件中设置。",
+		"rotation": "旋转",
+		"mirror": "镜像",
+		"crop": "裁剪…",
+		"perspective": "校正透视…",
+		"reset": "重置",
+		"cropOffWithPerspective": "设置了透视校正时，裁剪不起作用。",
+		"deskCamera": "书桌摄像头",
+		"deskCameraAuto": "（自动）"
+	},
+	"desk": {
+		"title": "书桌",
+		"camera": "书桌摄像头",
+		"change": "更改",
+		"showLabel": "显示标签",
+		"unavailable": "不可用",
+		"unavailableUsing": "不可用 — 正在使用 {{camera}}"
 	}
 }

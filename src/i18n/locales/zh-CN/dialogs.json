@@ -88,5 +88,46 @@
 		"audioFiles": "音频文件",
 		"openscreenProject": "OpenScreen 项目",
 		"allFiles": "所有文件"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "校正透视 – {{camera}}",
+		"titleCrop": "裁剪 – {{camera}}",
+		"loading": "正在加载摄像头画面…",
+		"loadFailed": "无法加载摄像头画面。",
+		"perspectiveHelp": "将四个角拖到纸张或桌面的角上。方向键可将所选角移动 1 像素，按住 Shift 移动 10 像素。",
+		"cropIgnored": "此摄像头设置了裁剪；设置透视校正时将忽略裁剪。",
+		"cropHelp": "将边框或其控制点拖到要保留的画面部分。方向键移动边框，Shift + 方向键调整大小。",
+		"corners": {
+			"topLeft": "左上角",
+			"topRight": "右上角",
+			"bottomRight": "右下角",
+			"bottomLeft": "左下角"
+		},
+		"format": "目标格式",
+		"formats": {
+			"a4Portrait": "A4 纵向",
+			"a4Landscape": "A4 横向",
+			"free": "自由"
+		},
+		"freeRatio": "比例（宽 ÷ 高）",
+		"margin": "边距",
+		"preview": "预览",
+		"loupe": "放大镜",
+		"cropArea": "裁剪区域",
+		"invalidQuad": "这些角相互交叉、位于同一直线上，或构成内凹（非凸）的形状。请将它们摆成凸四边形后再应用。",
+		"reset": "重置",
+		"apply": "应用",
+		"invalidRatio": "请输入 {{min}} 到 {{max}} 之间的比例。",
+		"detectMarkers": "检测标记",
+		"printMarkerSheet": "打印标记纸",
+		"planeFound": "已找到全部四个标记，桌面已校正。请在其上放置裁剪区域。",
+		"planeHelp": "在校正后的桌面上拖动裁剪区域。拖动角上的手柄（“自由”模式下也可拖动边缘）或按 Shift + 方向键可调整大小。",
+		"handMode": "手动设置四个角",
+		"planeMode": "在校正后的桌面上裁剪",
+		"noPlane": "已找到全部四个标记，但无法确定桌面平面；角点已放到标记上。",
+		"cropSize": "裁剪区域：约 {{width}} × {{height}} 厘米",
+		"cropOutside": "裁剪区域超出了摄像头画面；超出部分将显示为黑色。",
+		"markersNotFound": "未找到全部四个标记（0–3）。请确保它们完整地位于画面中、平整且光照均匀。角点保持不变。",
+		"markerSheetInstruction": "沿虚线剪下，将每个标记的内侧角对准其标注的角。"
 	}
 }

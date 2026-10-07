@@ -335,6 +335,72 @@ export interface CameraFullscreenRegion {
 	deskLabel?: false;
 }
 
+/**
+ * A desk section: the project's desk camera fills the frame. Only `false` is stored for
+ * `deskLabel`, which hides the "Desk mode" label of the section.
+ */
+export interface DeskRegion {
+	id: string;
+	startMs: number;
+	endMs: number;
+	deskLabel?: false;
+}
+
+export type CameraLayoutTemplate =
+	| "screen-pip"
+	| "camera-full"
+	| "camera-full-pip"
+	| "side-by-side";
+
+/** A rectangle in fractions (0..1) of the output frame. */
+export interface NormalizedRect {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/** One camera placed in a layout; `rect` overrides the template's own position. */
+export interface CameraLayoutSlot {
+	/** 0 = camera 1, k >= 1 = additional camera k. */
+	camera: number;
+	rect?: NormalizedRect;
+}
+
+/** A span of the timeline that lays several cameras out with a template. */
+export interface CameraLayoutRegion {
+	id: string;
+	startMs: number;
+	endMs: number;
+	template: CameraLayoutTemplate;
+	slots: CameraLayoutSlot[];
+	/** Desk view: `camera-full` only. */
+	rotation?: CameraRotation;
+	mirror?: CameraMirrorMode;
+	deskLabel?: false;
+}
+
+/** A point in fractions (0..1) of the camera image. */
+export interface CameraPoint {
+	x: number;
+	y: number;
+}
+
+/** Four corners (top-left, top-right, bottom-right, bottom-left) of a flat subject in the image. */
+export interface CameraPerspective {
+	corners: [CameraPoint, CameraPoint, CameraPoint, CameraPoint];
+	/** Width/height of the corrected picture. */
+	aspect: number;
+	margin?: number;
+}
+
+export interface CameraSettings {
+	rotation?: CameraRotation;
+	mirror?: boolean;
+	crop?: CropRegion;
+	perspective?: CameraPerspective;
+}
+
 export type AnnotationType = "text" | "image" | "figure" | "blur";
 
 export type ArrowDirection =

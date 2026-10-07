@@ -281,6 +281,8 @@
 		"mute": "Sessiz"
 	},
 	"layout": {
+		"mainCamera": "Ana kamera",
+		"mainCameraUnavailable": "Kullanılamıyor — {{camera}} kullanılıyor",
 		"help": "Web kamerasının ekranla birleştirilme biçimi: resim içinde resim, dikey yığın, çift çerçeve, şekil, yuvarlaklık, boyut, konum ve aynalama.",
 		"mirrorWebcam": "Web kamerasını aynala",
 		"webcamFraming": "Webcam kadrajı",
@@ -462,5 +464,41 @@
 		"dark": "Koyu",
 		"light": "Açık",
 		"custom": "Özel"
+	},
+	"cameraLayout": {
+		"template": "Düzen",
+		"placeLarge": "Yer {{n}} · büyük",
+		"placeSmall": "Yer {{n}} · küçük",
+		"placeLeft": "Yer {{n}} · sol",
+		"placeRight": "Yer {{n}} · sağ",
+		"cameraUnavailable": "{{name}} (kullanılamıyor)",
+		"resetWindows": "Pencereleri sıfırla"
+	},
+	"layoutSection": {
+		"minOneCamera": "En az bir kamera",
+		"maxThreeWindows": "En fazla üç pencere"
+	},
+	"cameras": {
+		"cameraN": "Kamera {{n}}",
+		"cameraNamed": "Kamera {{n}} · {{label}}",
+		"title": "Kameralar",
+		"unavailable": "Kullanılamıyor",
+		"camera1Hint": "Ana kameranın döndürme, yansıtma ve kırpma ayarları yukarıdaki denetimlerdedir.",
+		"rotation": "Döndürme",
+		"mirror": "Yansıt",
+		"crop": "Kırp…",
+		"perspective": "Perspektifi düzelt…",
+		"reset": "Sıfırla",
+		"cropOffWithPerspective": "Perspektif ayarlıyken kırpmanın etkisi yoktur.",
+		"deskCamera": "Masa kamerası",
+		"deskCameraAuto": "(otomatik)"
+	},
+	"desk": {
+		"title": "Masa",
+		"camera": "Masa kamerası",
+		"change": "Değiştir",
+		"showLabel": "Etiketi göster",
+		"unavailable": "Kullanılamıyor",
+		"unavailableUsing": "Kullanılamıyor — {{camera}} kullanılıyor"
 	}
 }

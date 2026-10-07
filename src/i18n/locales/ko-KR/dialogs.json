@@ -88,5 +88,46 @@
 		"audioFiles": "오디오 파일",
 		"openscreenProject": "OpenScreen 프로젝트",
 		"allFiles": "모든 파일"
+	},
+	"cameraCalibration": {
+		"titlePerspective": "원근 보정 – {{camera}}",
+		"titleCrop": "자르기 – {{camera}}",
+		"loading": "카메라 이미지를 불러오는 중…",
+		"loadFailed": "카메라 이미지를 불러올 수 없습니다.",
+		"perspectiveHelp": "네 모서리를 종이나 책상의 모서리로 끌어 놓으세요. 화살표 키는 선택한 모서리를 1픽셀, Shift를 누르면 10픽셀 이동합니다.",
+		"cropIgnored": "이 카메라에는 자르기가 있습니다. 원근 보정이 설정되어 있는 동안에는 자르기가 무시됩니다.",
+		"cropHelp": "프레임이나 핸들을 남길 부분으로 끌어 놓으세요. 화살표 키로 이동하고, Shift + 화살표 키로 크기를 조절합니다.",
+		"corners": {
+			"topLeft": "왼쪽 위 모서리",
+			"topRight": "오른쪽 위 모서리",
+			"bottomRight": "오른쪽 아래 모서리",
+			"bottomLeft": "왼쪽 아래 모서리"
+		},
+		"format": "대상 형식",
+		"formats": {
+			"a4Portrait": "A4 세로",
+			"a4Landscape": "A4 가로",
+			"free": "자유"
+		},
+		"freeRatio": "비율 (너비 ÷ 높이)",
+		"margin": "여백",
+		"preview": "미리 보기",
+		"loupe": "돋보기",
+		"cropArea": "자르기 영역",
+		"invalidQuad": "모서리가 교차하거나 한 직선 위에 있거나 오목한(볼록하지 않은) 모양입니다. 적용하려면 볼록한 사각형이 되도록 배치하세요.",
+		"reset": "초기화",
+		"apply": "적용",
+		"invalidRatio": "{{min}}에서 {{max}} 사이의 비율을 입력하세요.",
+		"detectMarkers": "마커 감지",
+		"printMarkerSheet": "마커 시트 인쇄",
+		"planeFound": "네 개의 마커를 모두 찾아 책상을 보정했습니다. 그 위에 자르기 영역을 배치하세요.",
+		"planeHelp": "보정된 책상 위에서 자르기 영역을 끌어 놓으세요. 모서리 핸들(‘자유’에서는 가장자리도)이나 Shift + 화살표 키로 크기를 조절합니다.",
+		"handMode": "네 모서리 직접 지정",
+		"planeMode": "보정된 책상에서 자르기",
+		"noPlane": "네 개의 마커를 모두 찾았지만 책상 평면을 확인할 수 없어 모서리를 마커에 맞췄습니다.",
+		"cropSize": "자르기 영역: 약 {{width}} × {{height}} cm",
+		"cropOutside": "자르기 영역이 카메라 화면 밖으로 벗어납니다. 그 부분은 검게 표시됩니다.",
+		"markersNotFound": "네 개의 마커(0–3)를 모두 찾지 못했습니다. 마커가 화면에 완전히 들어오고, 평평하며, 고르게 조명되는지 확인하세요. 모서리는 그대로 유지되었습니다.",
+		"markerSheetInstruction": "점선을 따라 자르고, 각 마커의 안쪽 모서리를 표시된 모서리에 맞추세요."
 	}
 }
