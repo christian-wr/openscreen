@@ -867,6 +867,7 @@ export function LaunchWindow() {
 			camDeviceName?: string;
 			camQuality?: WebcamQualityId;
 			camAdditionalDevices?: AdditionalCameraChoice[];
+			camDeskDevice?: AdditionalCameraChoice | null;
 			micEnabled?: boolean;
 			micDeviceId?: string;
 			micDeviceName?: string;

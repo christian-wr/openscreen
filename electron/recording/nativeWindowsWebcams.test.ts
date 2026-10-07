@@ -4,9 +4,12 @@ import {
 	buildHelperWebcamConfig,
 	collectStoppedWebcams,
 	dedupeAdditionalWebcams,
+	deskWebcamPath,
 	isWebcamSidecarFile,
 	labelsOfUnavailableAdditionalWebcams,
 	labelsOfWebcamsStoppedEarly,
+	recordedDeskCamera,
+	remapDeskCamera,
 	stripWebcamSuffix,
 	webcamOutputPath,
 } from "./nativeWindowsWebcams";
@@ -261,5 +264,56 @@ describe("nativeWindowsWebcams", () => {
 		});
 		expect(config.webcamEnabled).toBe(false);
 		expect(config.webcams).toEqual([]);
+	});
+});
+
+describe("desk camera of a native take", () => {
+	const requested = [
+		{ deviceId: "b", deviceName: "B" },
+		{ deviceId: "a", deviceName: "A" },
+		{ deviceId: "c", deviceName: "C" },
+	];
+	// "a" is camera 1 and is dropped by the dedupe: the files go to B and C.
+	const kept = [requested[0], requested[2]];
+	const keptPaths = ["/r-webcam-2.mp4", "/r-webcam-3.mp4"];
+
+	it("finds the file the desk camera records into", () => {
+		const input = { camera1Path: "/r-webcam.mp4", requested, kept, keptPaths };
+		expect(deskWebcamPath({ ...input, deskCamera: 0 })).toBe("/r-webcam.mp4");
+		expect(deskWebcamPath({ ...input, deskCamera: 1 })).toBe("/r-webcam-2.mp4");
+		expect(deskWebcamPath({ ...input, deskCamera: 3 })).toBe("/r-webcam-3.mp4");
+	});
+
+	it("has no file for a desk camera that is not recorded or not an index", () => {
+		const input = { camera1Path: "/r-webcam.mp4", requested, kept, keptPaths };
+		for (const deskCamera of [2, 4, -1, 0.5, "1", undefined]) {
+			expect(deskWebcamPath({ ...input, deskCamera })).toBeNull();
+		}
+		expect(deskWebcamPath({ ...input, camera1Path: null, deskCamera: 0 })).toBeNull();
+	});
+
+	it("indexes the desk camera in recorded order", () => {
+		const additional = [
+			{ path: "/r-webcam-2.mp4", label: "B" },
+			{ path: "/r-webcam-3.mp4", label: "C" },
+		];
+		expect(recordedDeskCamera("/r-webcam.mp4", "/r-webcam.mp4", additional)).toBe(0);
+		expect(recordedDeskCamera("/r-webcam-3.mp4", "/r-webcam.mp4", additional)).toBe(2);
+		// Camera 2 came out empty: camera 3 moves up to index 1.
+		expect(recordedDeskCamera("/r-webcam-3.mp4", "/r-webcam.mp4", [additional[1]])).toBe(1);
+	});
+
+	it("has no recorded index for a desk camera whose file was lost", () => {
+		expect(recordedDeskCamera("/r-webcam-2.mp4", "/r-webcam.mp4", [])).toBeUndefined();
+		expect(recordedDeskCamera("/r-webcam.mp4", undefined, [])).toBeUndefined();
+		expect(recordedDeskCamera(null, "/r-webcam.mp4", [])).toBeUndefined();
+	});
+
+	it("follows the desk camera when restored cameras are dropped", () => {
+		expect(remapDeskCamera(0, true, [0, 2])).toBe(0);
+		expect(remapDeskCamera(3, true, [0, 2])).toBe(2);
+		expect(remapDeskCamera(2, true, [0, 2])).toBeUndefined();
+		expect(remapDeskCamera(0, false, [0, 1])).toBeUndefined();
+		expect(remapDeskCamera(undefined, true, [0])).toBeUndefined();
 	});
 });

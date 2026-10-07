@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAdditionalWebcams } from "./additionalWebcams";
+import { deskCameraIndex, resolveAdditionalWebcams } from "./additionalWebcams";
 
 const present = [
 	{ deviceId: "a", label: "Cam A" },
@@ -56,5 +56,36 @@ describe("resolveAdditionalWebcams", () => {
 	it("caps at three", () => {
 		const picks = ["b", "c", "d", "e"].map((id) => ({ id, name: `Cam ${id.toUpperCase()}` }));
 		expect(resolveAdditionalWebcams(picks, present, "a")).toHaveLength(3);
+	});
+});
+
+describe("deskCameraIndex", () => {
+	const camera1 = { id: "a", name: "Cam A" };
+	const recorded = [
+		{ id: "b", name: "Cam B" },
+		{ id: "c", name: "Cam C" },
+	];
+
+	it("answers 0 for camera 1", () => {
+		expect(deskCameraIndex({ id: "a", name: "Cam A" }, camera1, recorded)).toBe(0);
+	});
+
+	it("answers k for the k-th additional camera recorded", () => {
+		expect(deskCameraIndex({ id: "b", name: "Cam B" }, camera1, recorded)).toBe(1);
+		expect(deskCameraIndex({ id: "c", name: "Cam C" }, camera1, recorded)).toBe(2);
+	});
+
+	it("matches by name when the pick has no id, and by id alone when it has one", () => {
+		expect(deskCameraIndex({ id: null, name: "Cam C" }, camera1, recorded)).toBe(2);
+		expect(deskCameraIndex({ id: "zz", name: "Cam C" }, camera1, recorded)).toBeUndefined();
+	});
+
+	it("answers undefined for a camera that is not recorded", () => {
+		expect(deskCameraIndex({ id: "d", name: "Cam D" }, camera1, recorded)).toBeUndefined();
+		expect(deskCameraIndex({ id: "a", name: "Cam A" }, null, recorded)).toBe(undefined);
+	});
+
+	it("answers undefined without a desk camera", () => {
+		expect(deskCameraIndex(null, camera1, recorded)).toBeUndefined();
 	});
 });

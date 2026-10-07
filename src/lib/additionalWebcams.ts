@@ -34,3 +34,23 @@ export function resolveAdditionalWebcams(
 	}
 	return resolved;
 }
+
+/** The same camera by the rule of the camera lists: by id when the pick has one, else by name. */
+function isSameCamera(pick: AdditionalCameraPick, camera: AdditionalCameraPick): boolean {
+	return pick.id !== null ? pick.id === camera.id : pick.name === camera.name;
+}
+
+/**
+ * Index of the desk camera among the cameras of a take, in recorded order: 0 for camera 1, k for
+ * the k-th additional camera. Undefined when there is no desk camera or it is not recorded.
+ */
+export function deskCameraIndex(
+	desk: AdditionalCameraPick | null,
+	camera1: AdditionalCameraPick | null,
+	recorded: AdditionalCameraPick[],
+): number | undefined {
+	if (!desk) return undefined;
+	if (camera1 && isSameCamera(desk, camera1)) return 0;
+	const index = recorded.findIndex((camera) => isSameCamera(desk, camera));
+	return index >= 0 ? index + 1 : undefined;
+}

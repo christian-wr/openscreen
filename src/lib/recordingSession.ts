@@ -28,6 +28,11 @@ export type CursorCaptureMode = "editable-overlay" | "system";
 
 export interface RecordingSession extends ProjectMedia {
 	createdAt: number;
+	/**
+	 * The camera filming the desk, as an index in recorded order: 0 is camera 1, k the k-th entry
+	 * of `additionalWebcams`. Absent when no desk camera was chosen or it was not recorded.
+	 */
+	deskCamera?: number;
 }
 
 export interface RecordedVideoAssetInput {
@@ -116,6 +121,18 @@ export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 	};
 }
 
+/** A desk camera index that names a camera of these media, else undefined. */
+function normalizeDeskCamera(value: unknown, media: ProjectMedia): number | undefined {
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+		return undefined;
+	}
+	// Every index is relative to camera 1, so without it there is nothing to name.
+	if (!media.webcamVideoPath) {
+		return undefined;
+	}
+	return value <= (media.additionalWebcams?.length ?? 0) ? value : undefined;
+}
+
 export function normalizeRecordingSession(candidate: unknown): RecordingSession | null {
 	if (!candidate || typeof candidate !== "object") {
 		return null;
@@ -127,12 +144,14 @@ export function normalizeRecordingSession(candidate: unknown): RecordingSession 
 		return null;
 	}
 
+	const deskCamera = normalizeDeskCamera(raw.deskCamera, media);
 	return {
 		...media,
 		createdAt:
 			typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
 				? raw.createdAt
 				: Date.now(),
+		...(deskCamera !== undefined ? { deskCamera } : {}),
 	};
 }
 
@@ -143,5 +162,32 @@ export interface FindRecordingCameraResult {
 	offsetMs?: number;
 	/** Cameras 2-4 of the same recording, already approved for reading. */
 	additionalWebcams?: AdditionalWebcam[];
+	/** See {@link RecordingSession.deskCamera}. */
+	deskCamera?: number;
 	error?: string;
+}
+
+/**
+ * The `find-recording-camera` answer for the cameras resolved for a screen video. Additional
+ * cameras and the desk camera only come with camera 1: extras are recorded only while camera 1
+ * is on, so extras without it mean camera 1's file came out empty.
+ */
+export function findRecordingCameraResult(resolution: {
+	webcamVideoPath?: string;
+	webcamOffsetMs?: number;
+	additionalWebcams?: AdditionalWebcam[];
+	deskCamera?: number;
+}): FindRecordingCameraResult {
+	if (!resolution.webcamVideoPath) {
+		return { success: false, error: "No camera attached to this recording" };
+	}
+	return {
+		success: true,
+		webcamVideoPath: resolution.webcamVideoPath,
+		offsetMs: resolution.webcamOffsetMs ?? 0,
+		...(resolution.additionalWebcams?.length
+			? { additionalWebcams: resolution.additionalWebcams }
+			: {}),
+		...(resolution.deskCamera !== undefined ? { deskCamera: resolution.deskCamera } : {}),
+	};
 }

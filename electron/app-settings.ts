@@ -17,6 +17,8 @@ export interface RecordingPreferences {
 	camDeviceName: string | null;
 	/** Cameras 2-4 of a native Windows recording, in the order they were picked. At most three. */
 	camAdditionalDevices: Array<{ id: string | null; name: string }>;
+	/** The camera filming the desk, matched like the additional cameras (id, else name). */
+	camDeskDevice: { id: string | null; name: string } | null;
 	/** Capture resolution for the camera. See WEBCAM_QUALITY_PRESETS. */
 	camQuality: WebcamQualityId;
 	systemAudioEnabled: boolean;
@@ -41,6 +43,7 @@ export const DEFAULT_RECORDING_PREFERENCES: RecordingPreferences = {
 	camDeviceId: null,
 	camDeviceName: null,
 	camAdditionalDevices: [],
+	camDeskDevice: null,
 	camQuality: DEFAULT_WEBCAM_QUALITY,
 	systemAudioEnabled: false,
 	cursorCaptureMode: "editable-overlay",
@@ -120,6 +123,14 @@ function additionalCameras(value: unknown): RecordingPreferences["camAdditionalD
 	return kept;
 }
 
+/** A camera with a name, or none: anything else is junk. */
+function deskCamera(value: unknown): RecordingPreferences["camDeskDevice"] {
+	if (!value || typeof value !== "object") return null;
+	const { id, name } = value as Record<string, unknown>;
+	if (typeof name !== "string" || name.length === 0) return null;
+	return { id: typeof id === "string" ? id : null, name };
+}
+
 function parseRecording(raw: RawSettings): RecordingPreferences {
 	return {
 		micEnabled: bool(raw.micEnabled, DEFAULT_RECORDING_PREFERENCES.micEnabled),
@@ -129,6 +140,7 @@ function parseRecording(raw: RawSettings): RecordingPreferences {
 		camDeviceId: nullableString(raw.camDeviceId, DEFAULT_RECORDING_PREFERENCES.camDeviceId),
 		camDeviceName: nullableString(raw.camDeviceName, DEFAULT_RECORDING_PREFERENCES.camDeviceName),
 		camAdditionalDevices: additionalCameras(raw.camAdditionalDevices),
+		camDeskDevice: deskCamera(raw.camDeskDevice),
 		// Unset in every settings file written before the camera had a quality
 		// setting, and `webcamQualityFrom` answers those with the default.
 		camQuality: webcamQualityFrom(raw.camQuality),
@@ -193,6 +205,12 @@ function validateRecordingPatch(patch: Partial<RecordingPreferences>): void {
 			if (!Array.isArray(value)) throw new TypeError("camAdditionalDevices must be a list");
 			continue;
 		}
+		if (key === "camDeskDevice") {
+			if (value !== null && deskCamera(value) === null) {
+				throw new TypeError("camDeskDevice must be a camera or null");
+			}
+			continue;
+		}
 		if (
 			(key.endsWith("DeviceId") || key.endsWith("DeviceName")) &&
 			value !== null &&
@@ -233,6 +251,9 @@ export class AppSettingsStore {
 		) as Partial<RecordingPreferences>;
 		if (next.camAdditionalDevices) {
 			next.camAdditionalDevices = additionalCameras(next.camAdditionalDevices);
+		}
+		if (next.camDeskDevice) {
+			next.camDeskDevice = deskCamera(next.camDeskDevice);
 		}
 		atomicWrite(this.userData, { ...raw, ...current, ...next });
 		return this.getSnapshot();
