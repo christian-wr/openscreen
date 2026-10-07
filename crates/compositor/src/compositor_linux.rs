@@ -5261,6 +5261,101 @@ mod tests {
         assert!(b.iter().max() < r.iter().min(), "flipped: the left half of the layer is blue");
     }
 
+    /// The homography `cam.x = 2 u - 0.5`: the outer quarters of the layer (u < 0.25, u > 0.75)
+    /// find no camera point, the middle half shows the whole camera stretched.
+    const PAST_THE_PICTURE: [f32; 9] = [2.0, 0.0, -0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+
+    fn corrected(index: usize, homography: [f32; 9]) -> crate::scene::SceneCamera {
+        crate::scene::SceneCamera {
+            index,
+            rotation: 0,
+            mirror: None,
+            crop: None,
+            homography: Some(homography),
+            aspect: None,
+        }
+    }
+
+    fn is_opaque_black(px: [u8; 4]) -> bool {
+        px[..3].iter().all(|&c| c < 20) && px[3] == 255
+    }
+
+    /// Camera 0 corrected past its picture (spec: "der Rand wird schwarz"): where the
+    /// homography finds no camera point the PiP is opaque black, not the blue background
+    /// behind it. The PiP rect comes from the uncorrected control.
+    #[test]
+    fn camera_0_corrected_past_its_picture_is_black_there() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| 126);
+        let green = solid_camera(&gpu, [0, 255, 0]);
+        let scene = Scene::from_json(&pip_scene_json(NO_EFFECT)).expect("scene json");
+
+        let plain = compose_pip_frames(&comp, scene.clone(), false, &screen, &green);
+        let pip: Vec<(usize, usize)> = plain
+            .chunks_exact(4)
+            .enumerate()
+            .filter(|(_, px)| is_green([px[0], px[1], px[2], px[3]]))
+            .map(|(i, _)| (i % 320, i / 320))
+            .collect();
+        assert!(pip.len() > 200, "control: {} camera pixels", pip.len());
+        let x0 = pip.iter().map(|p| p.0).min().unwrap();
+        let x1 = pip.iter().map(|p| p.0).max().unwrap();
+        let y0 = pip.iter().map(|p| p.1).min().unwrap();
+        let y1 = pip.iter().map(|p| p.1).max().unwrap();
+        let (w, y) = ((x1 - x0) as f32, (y0 + y1) / 2);
+        let at = |f: f32| x0 + (w * f).round() as usize;
+
+        let mut scene = scene;
+        scene.cameras.push(corrected(0, PAST_THE_PICTURE));
+        let rgba = compose_pip_frames(&comp, scene, false, &screen, &green);
+        for f in [0.1, 0.9] {
+            let px = pixel_at(&rgba, at(f), y);
+            assert!(is_opaque_black(px), "at {f} of the PiP, past the picture: {px:?}");
+        }
+        let mid = pixel_at(&rgba, at(0.5), y);
+        assert!(is_green(mid), "the middle of the PiP is not the camera: {mid:?}");
+    }
+
+    /// A frame-filling camera layer corrected past its picture: opaque black in the outer
+    /// quarters (the blue background no longer shows through), the camera in the middle.
+    /// Half-way into the lead-in the black is drawn at opacity 0.5 like the rest of the layer:
+    /// what is behind it shows at half strength.
+    #[test]
+    fn a_camera_layer_corrected_past_its_picture_is_black_there() {
+        let Some(gpu) = gpu() else { return };
+        let comp = Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let screen = FakeFrame::new(&gpu, 128, 128, |_, _| 126);
+        let white = FakeFrame::new(&gpu, 64, 64, |_, _| Y_WHITE);
+        let green = solid_camera(&gpu, [0, 255, 0]);
+        let region = layout_region(CAMERA_1_FULL);
+        let mut scene = Scene::from_json(&pip_scene_json(NO_EFFECT)).expect("scene json");
+        scene.cameras.push(corrected(1, PAST_THE_PICTURE));
+        let mut layered = scene.clone();
+        layered.camera_layout_regions.push(region.clone());
+
+        let hold = compose_layers(&comp, layered.clone(), 5.0, &screen, &white, &[green.as_ptr()]);
+        for x in [10, 300] {
+            let px = pixel_at(&hold, x, 90);
+            assert!(is_opaque_black(px), "x {x}, past the picture: {px:?}");
+        }
+        let mid = pixel_at(&hold, 160, 90);
+        assert!(is_green(mid), "the middle is not camera 1: {mid:?}");
+
+        let t = half_way_in(&region);
+        let under = compose_layers(&comp, scene, t, &screen, &white, &[green.as_ptr()]);
+        let half = compose_layers(&comp, layered, t, &screen, &white, &[green.as_ptr()]);
+        let (below, px) = (pixel_at(&under, 10, 90), pixel_at(&half, 10, 90));
+        assert!(below[..3].iter().any(|&c| c > 60), "control: nothing visible under the layer");
+        for (&got, &under) in px[..3].iter().zip(&below[..3]) {
+            let expected = under as i32 / 2;
+            assert!(
+                (got as i32 - expected).abs() <= 8,
+                "half-way in, past the picture: {px:?}, expected half of {below:?}"
+            );
+        }
+    }
+
     /// Le tour complet, celui qui a besoin d'ONNX Runtime : capture -> inference
     /// -> masque -> composite, entraine par `compose_frame` seul. Se saute
     /// proprement sans la bibliotheque, ce que fait la CI — cf.

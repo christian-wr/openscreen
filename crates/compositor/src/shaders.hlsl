@@ -481,7 +481,7 @@ float band_cov(float x, float half_w)
 // Camera homography (`persp`, read when `layer_fx.y` = 1): the camera point (0..1 of its valid
 // frame) seen at `local` (0..1 in the layer's dst quad), and in z whether there is one -- 0 when
 // the point is behind the projection (q.z <= 0) or outside the camera frame, where the layer is
-// transparent.
+// black.
 float3 persp_camera(float2 local)
 {
     float3 p = float3(local, 1.0);
@@ -4008,7 +4008,7 @@ float4 ps_layer(VSOut i)
     // 1 sauf en mode detourage, ou il porte le masque du sujet (cf. la branche fx.z ci-dessous).
     float alpha_mask = 1.0;
     // 0 where a camera homography finds no camera point (`persp_camera`), 1 everywhere else.
-    float persp_keep = 1.0;
+    float in_picture = 1.0;
     if (mode < 0.5)
     {
         // flou de mouvement par vélocité (§8) : pour CE pixel sortie, uv à la frame
@@ -4023,7 +4023,7 @@ float4 ps_layer(VSOut i)
             // (`src` is not used), scaled to the valid part of the decoder texture. The previous
             // frame's uv is the same map at the quad's previous place.
             float3 cam = persp_camera((i.pout - dst.xy) / dst.zw);
-            persp_keep = cam.z;
+            in_picture = cam.z;
             uv_now = cam.xy * fx.xy;
             float3 cam_prev = persp_camera(localp);
             uv_prev = (cam_prev.z > 0.5) ? cam_prev.xy * fx.xy : uv_now;
@@ -4083,13 +4083,22 @@ float4 ps_layer(VSOut i)
             float3 hidden = blur_webcam_radius(uv_now, cover.y, quad_px, i.local, fx.xy);
             rgb = lerp(rgb, hidden, cover.x) * (1.0 - cover.z * cover.x);
         }
+
+        // Past the camera picture the layer is black, as opaque as the rest of it (spec: a
+        // corrected crop that reaches past the camera image has a black edge, never the
+        // wallpaper). The mask and effects have no picture to act on there.
+        if (in_picture < 0.5)
+        {
+            rgb = float3(0.0, 0.0, 0.0);
+            alpha_mask = 1.0;
+        }
     }
     else
     {
         rgb = color.rgb;
     }
 
-    float alpha = color.a * alpha_mask * persp_keep;
+    float alpha = color.a * alpha_mask;
     if (radius_px > 0.0)
     {
         // `quad_px` est en px de SORTIE (le render target porte la géométrie de sortie) et

@@ -593,7 +593,7 @@ fn blur_webcam_bg(uv: vec2<f32>, intensity: f32, qpx: vec2<f32>, local_px: vec2<
 // Camera homography (`persp`, read when `layer_fx.y` = 1): the camera point (0..1 of its valid
 // frame) seen at `local` (0..1 in the layer's dst quad), and in z whether there is one -- 0 when
 // the point is behind the projection (q.z <= 0) or outside the camera frame, where the layer is
-// transparent. Mirror of the HLSL and MSL `persp_camera`.
+// black. Mirror of the HLSL and MSL `persp_camera`.
 fn persp_camera(local: vec2<f32>) -> vec3<f32> {
     let p = vec3<f32>(local, 1.0);
     let q = vec3<f32>(dot(layer.persp[0].xyz, p), dot(layer.persp[1].xyz, p), dot(layer.persp[2].xyz, p));
@@ -2286,7 +2286,7 @@ fn fs_layer(i: VsOut) -> vec4<f32> {
     // 1 sauf en detourage, ou il porte le masque du sujet. Cf. la branche fx.z plus bas.
     var alpha_mask = 1.0;
     // 0 where a camera homography finds no camera point (`persp_camera`), 1 everywhere else.
-    var persp_keep = 1.0;
+    var in_picture = 1.0;
 
     if layer.mode < 0.5 {
         // Mode 0 — vidéo NV12 + flou de mouvement par vélocité (§8), port 1:1 du
@@ -2301,7 +2301,7 @@ fn fs_layer(i: VsOut) -> vec4<f32> {
             // Camera homography: the texture uv comes from the fragment's place in the quad
             // (`src` is not used), scaled to the valid part of the decoder texture.
             let cam = persp_camera((i.pout - layer.dst.xy) / layer.dst.zw);
-            persp_keep = cam.z;
+            in_picture = cam.z;
             uv_now = cam.xy * layer.fx.xy;
         }
         // `taps` d'abord : un draw qui a oublié `dst_prev` le laisse à zéro, et
@@ -2357,6 +2357,14 @@ fn fs_layer(i: VsOut) -> vec4<f32> {
         if layer.cover.x > 0.001 {
             let hidden = blur_webcam_radius(uv_now, layer.cover.y, layer.quad_px, i.local, layer.fx.xy);
             rgb = mix(rgb, hidden, layer.cover.x) * (1.0 - layer.cover.z * layer.cover.x);
+        }
+
+        // Past the camera picture the layer is black, as opaque as the rest of it (spec: a
+        // corrected crop that reaches past the camera image has a black edge, never the
+        // wallpaper). The mask and effects have no picture to act on there.
+        if in_picture < 0.5 {
+            rgb = vec3<f32>(0.0);
+            alpha_mask = 1.0;
         }
     } else if layer.mode < 1.5 {
         // Mode 1 — couleur pleine.
@@ -2730,7 +2738,7 @@ fn fs_layer(i: VsOut) -> vec4<f32> {
     if layer.mode > 4.5 && layer.mode < 5.5 {
         base_alpha = 1.0;
     }
-    alpha = base_alpha * alpha_mask * persp_keep;
+    alpha = base_alpha * alpha_mask;
 
     if layer.radius_px > 0.0 {
         // Feather ~1.5 px sur le bord du quad — parité exacte avec le HLSL
