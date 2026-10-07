@@ -122,7 +122,7 @@ describe("FloatingInspector", () => {
 		setCameraSettings: vi.fn(),
 		setDeskCamera: vi.fn(),
 		setMainCamera: vi.fn(),
-		setLayoutSectionCameras: vi.fn(),
+		toggleLayoutSectionCamera: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
 		>["transcriptProps"],
@@ -741,7 +741,7 @@ describe("FloatingInspector desk pane", () => {
 		setCameraSettings: vi.fn(),
 		setDeskCamera: vi.fn(),
 		setMainCamera: vi.fn(),
-		setLayoutSectionCameras: vi.fn(),
+		toggleLayoutSectionCamera: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
 		>["transcriptProps"],

@@ -386,12 +386,13 @@ export function NewEditorShell() {
 		(index: number | null) => enqueueTimelineWrite(() => setTimelineMainCamera(index)),
 		[enqueueTimelineWrite, setTimelineMainCamera],
 	);
-	// A layout section's camera switches ride it too: one write per switch, in order.
-	const setTimelineLayoutSectionCameras = tl.setLayoutSectionCameras;
-	const setLayoutSectionCamerasQueued = useCallback(
-		(handle: { kind: "cameraLayout"; id: string }, cameras: number[]) =>
-			enqueueTimelineWrite(() => setTimelineLayoutSectionCameras(handle, cameras)),
-		[enqueueTimelineWrite, setTimelineLayoutSectionCameras],
+	// A layout section's camera switches ride it too: one write per switch, in order, each
+	// computed from the document the switch before it saved.
+	const toggleTimelineLayoutSectionCamera = tl.toggleLayoutSectionCamera;
+	const toggleLayoutSectionCameraQueued = useCallback(
+		(handle: { kind: "cameraLayout"; id: string }, camera: number, on: boolean) =>
+			enqueueTimelineWrite(() => toggleTimelineLayoutSectionCamera(handle, camera, on)),
+		[enqueueTimelineWrite, toggleTimelineLayoutSectionCamera],
 	);
 
 	const promptUnsaved = useCallback(
@@ -1718,7 +1719,7 @@ export function NewEditorShell() {
 								setCameraSettings={setCameraSettingsQueued}
 								setDeskCamera={setDeskCameraQueued}
 								setMainCamera={setMainCameraQueued}
-								setLayoutSectionCameras={setLayoutSectionCamerasQueued}
+								toggleLayoutSectionCamera={toggleLayoutSectionCameraQueued}
 							/>
 						</>
 					) : mode === "media" ? (

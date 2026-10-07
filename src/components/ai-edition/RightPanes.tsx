@@ -4028,6 +4028,7 @@ export function Toggle({
 	checked,
 	disabled,
 	ariaLabel,
+	describedBy,
 	tooltip,
 	onChange,
 }: {
@@ -4036,6 +4037,8 @@ export function Toggle({
 	/** The switch renders no text of its own, so a screen reader has nothing to announce
 	 *  unless a caller names it. Optional only because the existing call sites predate it. */
 	ariaLabel?: string;
+	/** Id of a hint that explains the switch's state, such as why it is locked. */
+	describedBy?: string;
 	/** What the switch does, for a label that is jargon ("Click impact"). The trigger is the
 	 *  switch itself, so a keyboard user reaches it too. A label that is clear gets none. */
 	tooltip?: string;
@@ -4047,6 +4050,8 @@ export function Toggle({
 			className={`${styles.toggle} ${checked ? styles.isOn : ""}`}
 			aria-pressed={checked}
 			aria-label={ariaLabel}
+			// Only when given: an explicit undefined would replace the tooltip's own description.
+			{...(describedBy ? { "aria-describedby": describedBy } : {})}
 			disabled={disabled}
 			onClick={() => onChange(!checked)}
 		/>

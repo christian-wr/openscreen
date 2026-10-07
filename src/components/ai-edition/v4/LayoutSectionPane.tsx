@@ -91,20 +91,22 @@ function placeLabel(
 }
 
 /**
- * "Screen + camera" as one switch per camera: on = the camera has a window. The set is
- * written whole, so the section keeps between one and three windows; the switches that
- * would break that are locked, with the reason below.
+ * "Screen + camera" as one switch per camera: on = the camera has a window. Each click is
+ * written as that one switch, so clicks faster than a save each build on the one before.
+ * The section keeps between one and three windows; the switches that would break that are
+ * locked, with the reason below, which they name as their description.
  */
 function SectionCameraSwitches({
 	region,
 	cameras,
-	onChange,
+	onToggle,
 }: {
 	region: CameraLayoutRegion;
 	cameras: ProjectCamera[];
-	onChange: (cameras: number[]) => void;
+	onToggle: (camera: number, on: boolean) => void;
 }) {
 	const ts = useScopedT("settings");
+	const hintId = useId();
 	const on = region.slots.map((slot) => slot.camera);
 	const { min, max } = TEMPLATE_SLOTS[region.template];
 	// A camera the section shows but the clip no longer has stays listed, so it can be switched off.
@@ -127,6 +129,8 @@ function SectionCameraSwitches({
 			{rows.map((camera) => {
 				const checked = on.includes(camera.index);
 				const locked = checked ? atMin : atMax || !camera.available;
+				// The hint explains the min/max lock; an unavailable camera says so in its label.
+				const lockedByHint = checked ? atMin : atMax;
 				return (
 					<div
 						key={camera.index}
@@ -146,15 +150,14 @@ function SectionCameraSwitches({
 							checked={checked}
 							disabled={locked}
 							ariaLabel={camera.label}
-							onChange={(next) =>
-								onChange(next ? [...on, camera.index] : on.filter((c) => c !== camera.index))
-							}
+							describedBy={lockedByHint ? hintId : undefined}
+							onChange={(next) => onToggle(camera.index, next)}
 						/>
 					</div>
 				);
 			})}
 			{atMin || atMax ? (
-				<span style={{ fontSize: 12, color: "var(--muted)" }}>
+				<span id={hintId} style={{ fontSize: 12, color: "var(--muted)" }}>
 					{atMin ? ts("layoutSection.minOneCamera") : ts("layoutSection.maxThreeWindows")}
 				</span>
 			) : null}
@@ -167,7 +170,7 @@ export function LayoutSectionPane({
 	region,
 	cameras,
 	blockPreset,
-	setSectionCameras,
+	toggleSectionCamera,
 	onClose,
 }: {
 	tl: Pick<
@@ -182,8 +185,8 @@ export function LayoutSectionPane({
 	/** The cameras of the clip the section sits on. */
 	cameras: ProjectCamera[];
 	blockPreset: boolean;
-	/** Writes the section's cameras as a set; the shell's queued writer. */
-	setSectionCameras: TimelineApi["setLayoutSectionCameras"];
+	/** Writes one camera switch of the section; the shell's queued writer. */
+	toggleSectionCamera: TimelineApi["toggleLayoutSectionCamera"];
 	onClose: () => void;
 }) {
 	const ts = useScopedT("settings");
@@ -218,7 +221,7 @@ export function LayoutSectionPane({
 					<SectionCameraSwitches
 						region={region}
 						cameras={cameras}
-						onChange={(next) => void setSectionCameras(handle, next)}
+						onToggle={(camera, on) => void toggleSectionCamera(handle, camera, on)}
 					/>
 				) : (
 					region.slots.map((slot, index) => {

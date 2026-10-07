@@ -40,18 +40,18 @@ function setup(region: Partial<CameraLayoutRegion>, cameras: ProjectCamera[], bl
 		slots: [{ camera: 0 }, { camera: 1 }],
 		...region,
 	};
-	const setSectionCameras = vi.fn(async () => "set" as const);
+	const toggleSectionCamera = vi.fn(async () => "set" as const);
 	render(
 		<LayoutSectionPane
 			tl={tl}
 			region={full}
 			cameras={cameras}
 			blockPreset={blockPreset}
-			setSectionCameras={setSectionCameras}
+			toggleSectionCamera={toggleSectionCamera}
 			onClose={vi.fn()}
 		/>,
 	);
-	return Object.assign(tl, { setSectionCameras });
+	return Object.assign(tl, { toggleSectionCamera });
 }
 
 describe("LayoutSectionPane", () => {
@@ -151,16 +151,24 @@ describe("LayoutSectionPane", () => {
 			);
 		});
 
-		it("switching a camera on writes the set with it added", () => {
+		it("switching a camera on writes that switch", () => {
 			const tl = setup(pip([2]), [camera(0), camera(1), camera(2)]);
 			fireEvent.click(screen.getByRole("button", { name: "Cam 1" }));
-			expect(tl.setSectionCameras).toHaveBeenCalledWith({ kind: "cameraLayout", id: "L1" }, [2, 0]);
+			expect(tl.toggleSectionCamera).toHaveBeenCalledWith(
+				{ kind: "cameraLayout", id: "L1" },
+				0,
+				true,
+			);
 		});
 
-		it("switching a camera off writes the set without it", () => {
+		it("switching a camera off writes that switch", () => {
 			const tl = setup(pip([0, 1]), [camera(0), camera(1)]);
 			fireEvent.click(screen.getByRole("button", { name: "Cam 1" }));
-			expect(tl.setSectionCameras).toHaveBeenCalledWith({ kind: "cameraLayout", id: "L1" }, [1]);
+			expect(tl.toggleSectionCamera).toHaveBeenCalledWith(
+				{ kind: "cameraLayout", id: "L1" },
+				0,
+				false,
+			);
 		});
 
 		it("the only camera on is locked, with the reason", () => {
@@ -168,6 +176,10 @@ describe("LayoutSectionPane", () => {
 			expect(screen.getByRole("button", { name: "Cam 2" })).toBeDisabled();
 			expect(screen.getByRole("button", { name: "Cam 1" })).toBeEnabled();
 			expect(screen.getByText("settings.layoutSection.minOneCamera")).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Cam 2" })).toHaveAccessibleDescription(
+				"settings.layoutSection.minOneCamera",
+			);
+			expect(screen.getByRole("button", { name: "Cam 1" })).not.toHaveAttribute("aria-describedby");
 		});
 
 		it("with three on, the others are locked, with the reason", () => {
@@ -176,6 +188,10 @@ describe("LayoutSectionPane", () => {
 			expect(screen.getByRole("button", { name: "Cam 1" })).toBeEnabled();
 			expect(screen.getByText("settings.layoutSection.maxThreeWindows")).toBeInTheDocument();
 			expect(screen.queryByText("settings.layoutSection.minOneCamera")).not.toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Cam 4" })).toHaveAccessibleDescription(
+				"settings.layoutSection.maxThreeWindows",
+			);
+			expect(screen.getByRole("button", { name: "Cam 1" })).not.toHaveAttribute("aria-describedby");
 		});
 
 		it("with three on and no camera left off, the cap is not mentioned", () => {
@@ -193,7 +209,11 @@ describe("LayoutSectionPane", () => {
 			const cam2 = screen.getByRole("button", { name: "Cam 2" });
 			expect(cam2).toBeEnabled();
 			fireEvent.click(cam2);
-			expect(tl.setSectionCameras).toHaveBeenCalledWith({ kind: "cameraLayout", id: "L1" }, [0]);
+			expect(tl.toggleSectionCamera).toHaveBeenCalledWith(
+				{ kind: "cameraLayout", id: "L1" },
+				1,
+				false,
+			);
 		});
 
 		it("side-by-side keeps the selects", () => {

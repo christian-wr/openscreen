@@ -135,6 +135,7 @@ function renderTimeline(
 		deskRegions: desk.regions ?? [],
 		deskCamera: desk.camera === undefined ? 1 : desk.camera,
 		deskCameraChosen: null,
+		mainCamera: 0,
 		addDeskSection: vi.fn(async () => "added"),
 		updateDeskSpan: vi.fn(async () => undefined),
 	};

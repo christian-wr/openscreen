@@ -144,7 +144,7 @@ interface FloatingInspectorProps {
 	/** Main camera writer; the shell's queued one as well. */
 	setMainCamera: MainCameraChoice["setMainCamera"];
 	/** A layout section's camera set; the shell's queued writer as well. */
-	setLayoutSectionCameras: TimelineApi["setLayoutSectionCameras"];
+	toggleLayoutSectionCamera: TimelineApi["toggleLayoutSectionCamera"];
 }
 
 export function FloatingInspector({
@@ -160,7 +160,7 @@ export function FloatingInspector({
 	setCameraSettings,
 	setDeskCamera,
 	setMainCamera,
-	setLayoutSectionCameras,
+	toggleLayoutSectionCamera,
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
 	const te = useScopedT("editor");
@@ -214,7 +214,7 @@ export function FloatingInspector({
 					{selection ? (
 						<SelectionPane
 							tl={tl}
-							setLayoutSectionCameras={setLayoutSectionCameras}
+							toggleLayoutSectionCamera={toggleLayoutSectionCamera}
 							onClose={() => tl.clearSelection()}
 							onShowCameras={() => {
 								revealCamerasRef.current = true;
@@ -719,12 +719,12 @@ export function AnnotationSizeField({
 
 function SelectionPane({
 	tl,
-	setLayoutSectionCameras,
+	toggleLayoutSectionCamera,
 	onClose,
 	onShowCameras,
 }: {
 	tl: TimelineApi;
-	setLayoutSectionCameras: TimelineApi["setLayoutSectionCameras"];
+	toggleLayoutSectionCamera: TimelineApi["toggleLayoutSectionCamera"];
 	onClose: () => void;
 	/** Leaves the selection for the layout facet, where the "Cameras" section picks the desk camera. */
 	onShowCameras: () => void;
@@ -1258,7 +1258,7 @@ function SelectionPane({
 				region={region}
 				cameras={camerasUnder(region)}
 				blockPreset={blockPreset}
-				setSectionCameras={setLayoutSectionCameras}
+				toggleSectionCamera={toggleLayoutSectionCamera}
 				onClose={onClose}
 			/>
 		);
