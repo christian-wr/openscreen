@@ -73,7 +73,7 @@ import {
 import { isWebcamBlockLayout } from "@/lib/compositeLayout";
 import { clampToBound } from "@/lib/projectDefaults";
 import { annotationFootageRect, zoomScaleLimit } from "@/native/sceneDescription";
-import type { CamerasSectionProps, DeskCameraChoice } from "../CamerasSection";
+import type { CamerasSectionProps, DeskCameraChoice, MainCameraChoice } from "../CamerasSection";
 import { ColorField } from "../ColorField";
 import shell from "../NewEditorShell.module.css";
 import {
@@ -141,6 +141,8 @@ interface FloatingInspectorProps {
 	setCameraSettings: CamerasSectionProps["setCameraSettings"];
 	/** Desk camera writer; the shell's queued one too, for the same reason. */
 	setDeskCamera: DeskCameraChoice["setDeskCamera"];
+	/** Main camera writer; the shell's queued one as well. */
+	setMainCamera: MainCameraChoice["setMainCamera"];
 	/** A layout section's camera set; the shell's queued writer as well. */
 	setLayoutSectionCameras: TimelineApi["setLayoutSectionCameras"];
 }
@@ -157,6 +159,7 @@ export function FloatingInspector({
 	onOpenCalibration,
 	setCameraSettings,
 	setDeskCamera,
+	setMainCamera,
 	setLayoutSectionCameras,
 }: FloatingInspectorProps) {
 	const ts = useScopedT("settings");
@@ -230,6 +233,7 @@ export function FloatingInspector({
 							onOpenCalibration={onOpenCalibration}
 							setCameraSettings={setCameraSettings}
 							setDeskCamera={setDeskCamera}
+							setMainCamera={setMainCamera}
 						/>
 					)}
 				</div>
@@ -1433,6 +1437,7 @@ function FacetBody({
 	onOpenCalibration,
 	setCameraSettings,
 	setDeskCamera,
+	setMainCamera,
 }: {
 	facet: Facet;
 	onCollapse: () => void;
@@ -1441,6 +1446,7 @@ function FacetBody({
 	onOpenCalibration?: CamerasSectionProps["onOpenCalibration"];
 	setCameraSettings: CamerasSectionProps["setCameraSettings"];
 	setDeskCamera: DeskCameraChoice["setDeskCamera"];
+	setMainCamera: MainCameraChoice["setMainCamera"];
 }) {
 	const te = useScopedT("editor");
 	// A small collapse affordance floated over the reused pane header.
@@ -1482,6 +1488,11 @@ function FacetBody({
 						camera: tl.deskCamera,
 						chosen: tl.deskCameraChosen,
 						setDeskCamera,
+					},
+					main: {
+						camera: tl.mainCamera,
+						chosen: tl.mainCameraChosen,
+						setMainCamera,
 					},
 				}}
 			/>,

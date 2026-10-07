@@ -226,13 +226,16 @@ export function normalizeCameraSettings(raw: unknown): (CameraSettings | null)[]
 /**
  * `legacyEditor.cameraSettings` after a change to one camera. `patch: null` resets the camera;
  * a key set to `undefined` removes it. Defaults (rotation 0, mirror off) are not stored, and
- * camera 1 (index 0) keeps only `perspective` -- its other settings live in the older fields.
+ * the main camera (`mainCamera`, camera 1 by default) keeps only `perspective` -- its other
+ * settings are the layout pane's older fields. Any other camera, camera 1 included while it is
+ * not the main one, keeps its own rotation, mirror and crop here.
  * Returns `undefined` when nothing is left to store (the key is then deleted).
  */
 export function patchCameraSettings(
 	raw: unknown,
 	index: number,
 	patch: Partial<CameraSettings> | null,
+	mainCamera = 0,
 ): (CameraSettings | null)[] | undefined {
 	if (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS) {
 		return normalizeCameraSettings(raw).length > 0 ? normalizeCameraSettings(raw) : undefined;
@@ -243,7 +246,7 @@ export function patchCameraSettings(
 	if (patch !== null) {
 		merged = { ...(list[index] ?? {}) };
 		for (const key of Object.keys(patch) as (keyof CameraSettings)[]) {
-			if (index === 0 && key !== "perspective") continue;
+			if (index === mainCamera && key !== "perspective") continue;
 			if (patch[key] === undefined) delete merged[key];
 			else Object.assign(merged, { [key]: patch[key] });
 		}

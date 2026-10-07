@@ -7,6 +7,7 @@ import type { AxcutAsset, AxcutClip } from "@/lib/ai-edition/schema";
 import { createEmptyDocument } from "@/lib/ai-edition/schema";
 import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import type { AnchoredCameraLayoutRegion } from "@/lib/cameraLayouts";
+import { clearWebcamNativeSizeCache, setWebcamNativeSize } from "@/native/webcamSizeCache";
 import { PreviewCanvas } from "./PreviewCanvas";
 
 vi.mock("@/native/client", () => ({ nativeBridgeClient: { aiEdition: {} } }));
@@ -67,11 +68,15 @@ const region = (
 
 type Props = ComponentProps<typeof PreviewCanvas>;
 
-function renderCanvas(over: Partial<Props>) {
+function renderCanvas(
+	over: Partial<Props>,
+	assets: AxcutAsset[] = [asset],
+	legacyEditor: Record<string, unknown> | null = null,
+) {
 	const document = createEmptyDocument({ projectId: "p", title: "t" });
 	useProjectStore.setState({
 		projectId: "p",
-		document: { ...document, assets: [asset] },
+		document: { ...document, assets, legacyEditor },
 	});
 	const props: Props = {
 		videoSources: [],
@@ -173,5 +178,44 @@ describe("PreviewCanvas layout places", () => {
 		fireEvent.pointerDown(place, { pointerId: 1, clientX: 500, clientY: 250 });
 		fireEvent.pointerUp(place, { pointerId: 1 });
 		expect(props.onLayoutSlotRectCommit).not.toHaveBeenCalled();
+	});
+});
+
+// With camera 2 as the main camera the scene lays it out in camera 1's place, sized from its
+// probed file; the hitbox must sit on that same window.
+describe("PreviewCanvas layout places with a main camera", () => {
+	afterEach(() => clearWebcamNativeSizeCache());
+
+	// Camera 2 has no stored size: only its probe says it is portrait, and only camera 1's
+	// role reads the probe.
+	const portraitUnsized = {
+		...asset,
+		additionalCameraTracks: [
+			{ sourcePath: "/c2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "" },
+		],
+	} as unknown as AxcutAsset;
+	const placeAspect = () => {
+		const style = screen.getByTestId("layout-place").style;
+		// Rect fractions of a 16:9 frame, back to pixels.
+		return (Number.parseFloat(style.width) / Number.parseFloat(style.height)) * (16 / 9);
+	};
+
+	it("sizes the main camera's place from its probed size", () => {
+		setWebcamNativeSize("/c2.mp4", { width: 1080, height: 1920 });
+		const regions = [region("screen-pip", [1])];
+		const rectangle = { webcamMaskShape: "rectangle" };
+		renderCanvas(
+			{ cameraLayoutRegions: regions, selectedLayoutRegionId: "l1" },
+			[portraitUnsized],
+			rectangle,
+		);
+		const asCameraTwo = placeAspect();
+		cleanup();
+		renderCanvas(
+			{ cameraLayoutRegions: regions, selectedLayoutRegionId: "l1" },
+			[portraitUnsized],
+			{ ...rectangle, mainCamera: 1 },
+		);
+		expect(placeAspect()).toBeLessThan(asCameraTwo / 2);
 	});
 });

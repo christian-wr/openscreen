@@ -281,6 +281,8 @@
 		"mute": "Muet"
 	},
 	"layout": {
+		"mainCamera": "Caméra principale",
+		"mainCameraUnavailable": "Indisponible — utilise {{camera}}",
 		"help": "Composition de la webcam avec l'écran : incrustation, empilement vertical, double cadre, forme, arrondi, taille, position et effet miroir.",
 		"mirrorWebcam": "Inverser la webcam",
 		"webcamFraming": "Cadrage de la webcam",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Caméra {{n}} · {{label}}",
 		"title": "Caméras",
 		"unavailable": "Indisponible",
-		"camera1Hint": "La rotation, le miroir et le recadrage de la caméra 1 sont dans les réglages ci-dessus.",
+		"camera1Hint": "La rotation, le miroir et le recadrage de la caméra principale sont dans les réglages ci-dessus.",
 		"rotation": "Rotation",
 		"mirror": "Miroir",
 		"crop": "Recadrage…",

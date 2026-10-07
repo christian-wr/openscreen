@@ -69,6 +69,7 @@ import {
 	type AxcutAsset,
 	type AxcutAudioTrack,
 	type AxcutClip,
+	type AxcutDocument,
 	type AxcutTranscript,
 	type AxcutTrimRange,
 	type AxcutWord,
@@ -98,6 +99,11 @@ import {
 	voiceoverPlacements,
 } from "@/lib/ai-edition/timeline/aggregated-transcript";
 import { assetCameraSource, hasAnyClipWithCamera } from "@/lib/ai-edition/timeline/camera";
+import {
+	projectCameraAvailable,
+	projectCameraCount,
+	projectCameraLabel,
+} from "@/lib/ai-edition/timeline/cameraList";
 import { breatheCut } from "@/lib/ai-edition/timeline/cut-breath";
 import { formatMs } from "@/lib/ai-edition/timeline/format";
 import { removedRawSpans } from "@/lib/ai-edition/timeline/programme-time";
@@ -118,6 +124,7 @@ import {
 	themePickerPreviewAssets,
 } from "@/lib/cursor/cursorThemes";
 import { gradientSeedColor, oneColorGradient } from "@/lib/gradientBuilder";
+import { withMainCamera } from "@/lib/mainCamera";
 import {
 	DEFAULT_WEBCAM_ROUNDNESS,
 	FRAME_THEMES,
@@ -149,7 +156,7 @@ import { ROUNDNESS_SLIDER_MAX_PX } from "@/native/paramUnits";
 import { wallpaperAcceptsMotion } from "@/native/sceneDescription";
 import { ASPECT_RATIO_PRESETS, type AspectRatio } from "@/utils/aspectRatioUtils";
 import { useCanSegmentCamera } from "../../native/hooks/useSegmentationSupport";
-import { CamerasSection, type CamerasSectionProps } from "./CamerasSection";
+import { CamerasSection, type CamerasSectionProps, type MainCameraChoice } from "./CamerasSection";
 import { CaptionsPane } from "./CaptionsPane";
 import { ColorField } from "./ColorField";
 import { insertionsEnabled } from "./insertionsEnabled";
@@ -2780,6 +2787,59 @@ const CAMERA_BACKGROUND_MODES: Array<{
 	},
 ];
 
+/**
+ * Which camera plays camera 1's role (the PiP, Full Camera, the controls above). Offered from
+ * two cameras on; a camera that draws nothing is not offered, and a chosen one that was lost
+ * says which camera stands in for it.
+ */
+function MainCameraPicker({
+	document,
+	main,
+	disabled,
+}: {
+	document: AxcutDocument | null;
+	main: MainCameraChoice;
+	disabled: boolean;
+}) {
+	const ts = useScopedT("settings");
+	const hintId = useId();
+	const assets = document?.assets;
+	const options = useMemo(() => {
+		if (!assets) return [];
+		const count = projectCameraCount(assets);
+		return Array.from({ length: count }, (_, index) => ({
+			value: index,
+			label: projectCameraLabel(assets, index, ts) ?? ts("cameras.cameraN", { n: index + 1 }),
+			disabled: !projectCameraAvailable(assets, index),
+		}));
+	}, [assets, ts]);
+	if (options.length < 2) return null;
+	const lost = main.chosen !== null && main.chosen !== main.camera;
+	return (
+		<>
+			<div className={styles.sectionLabel}>{ts("layout.mainCamera")}</div>
+			<div style={{ padding: "0 var(--sp-4) 12px" }}>
+				<ChoiceRow<number>
+					label={ts("layout.mainCamera")}
+					options={options}
+					columns={Math.min(options.length, 2)}
+					value={main.camera}
+					disabled={disabled}
+					describedBy={lost ? hintId : undefined}
+					onChange={(index) => void main.setMainCamera(index)}
+				/>
+				{lost ? (
+					<p id={hintId} className={styles.hint}>
+						{ts("layout.mainCameraUnavailable", {
+							camera: options[main.camera]?.label ?? ts("cameras.cameraN", { n: 1 }),
+						})}
+					</p>
+				) : null}
+			</div>
+		</>
+	);
+}
+
 export function LayoutPane({
 	cameras,
 }: {
@@ -2787,7 +2847,10 @@ export function LayoutPane({
 	cameras?: Pick<
 		CamerasSectionProps,
 		"cameraSettings" | "setCameraSettings" | "onOpenCalibration" | "desk"
-	>;
+	> & {
+		/** The main camera choice; absent where there is no timeline store to write it. */
+		main?: MainCameraChoice;
+	};
 } = {}) {
 	const canSegmentCamera = useCanSegmentCamera();
 	const ts = useScopedT("settings");
@@ -2835,11 +2898,13 @@ export function LayoutPane({
 	// apparently having been thrown away.
 	const helpText = hasDocument && !hasAnyCamera ? ts("layout.helpNoWebcam") : ts("layout.help");
 	// The first camera on the timeline, as a URL the thumbnail can load. `assetCameraSource`
-	// rather than the raw track, for the same reason every other camera consumer uses it.
+	// rather than the raw track, for the same reason every other camera consumer uses it. Read
+	// with the main camera in camera 1's place: the crop below is the main camera's.
 	const cameraSrc = useMemo(() => {
 		if (!document) return null;
+		const { assets } = withMainCamera(document);
 		for (const clip of document.timeline.clips) {
-			const { path } = assetCameraSource(document.assets.find((a) => a.id === clip.assetId));
+			const { path } = assetCameraSource(assets.find((a) => a.id === clip.assetId));
 			if (path) return /^(https?|blob|data):/.test(path) ? path : toFileUrl(path);
 		}
 		return null;
@@ -2899,6 +2964,13 @@ export function LayoutPane({
 					onChange={(preset) => void set({ webcamLayoutPreset: preset })}
 				/>
 			</div>
+			{cameras?.main ? (
+				<MainCameraPicker
+					document={document}
+					main={cameras.main}
+					disabled={layoutControlsDisabled}
+				/>
+			) : null}
 			<div className={styles.paneRow}>
 				<span className={styles.label}>{ts("layout.mirrorWebcam")}</span>
 				<Toggle
@@ -3123,7 +3195,16 @@ export function LayoutPane({
 				onFrameLive={setCropFrame}
 				onCommit={() => void commit()}
 			/>
-			{cameras ? <CamerasSection document={document} {...cameras} /> : null}
+			{cameras ? (
+				<CamerasSection
+					document={document}
+					cameraSettings={cameras.cameraSettings}
+					setCameraSettings={cameras.setCameraSettings}
+					onOpenCalibration={cameras.onOpenCalibration}
+					desk={cameras.desk}
+					mainCamera={cameras.main?.camera}
+				/>
+			) : null}
 		</Pane>
 	);
 }

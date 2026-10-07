@@ -7,6 +7,7 @@ import { useProjectStore } from "@/lib/ai-edition/store/projectStore";
 import { assetAdditionalCameraSources, assetCameraSource } from "@/lib/ai-edition/timeline/camera";
 import { findActiveSpeedRegion, type SpeedRegion } from "@/lib/ai-edition/timeline/speed";
 import { resolveNativePosition } from "@/lib/ai-edition/timeline/timelineMap";
+import { withMainCamera } from "@/lib/mainCamera";
 import {
 	pushAllNativeParams,
 	setActiveClip,
@@ -93,21 +94,25 @@ export function NativeCompositorOverlay() {
 	// `{screenPath,…}` = vraies sources de l'asset primaire.
 	const settings = useMemo(() => getEditorSettings(document), [document]);
 
+	// The assets as the scene sees them: with a main camera chosen, it sits in camera 1's place
+	// (`withMainCamera`), so every camera the view decodes or probes matches the scene's.
+	const sceneAssets = useMemo(() => (document ? withMainCamera(document).assets : []), [document]);
+
 	// The real camera path, independent of whether NATIVE is the one drawing it: the scene
 	// still needs it to look up the probed webcam size, which shapes the PiP box.
 	const cameraPath = useMemo(() => {
 		if (!document) return undefined;
 		const primary =
-			document.assets.find((a) => a.id === document.project.primaryAssetId) ?? document.assets[0];
+			sceneAssets.find((a) => a.id === document.project.primaryAssetId) ?? sceneAssets[0];
 		return primary ? assetCameraSource(primary).path || undefined : undefined;
-	}, [document]);
+	}, [document, sceneAssets]);
 
 	const sources = useMemo(() => {
 		if (!document) {
 			return null;
 		}
 		const primary =
-			document.assets.find((a) => a.id === document.project.primaryAssetId) ?? document.assets[0];
+			sceneAssets.find((a) => a.id === document.project.primaryAssetId) ?? sceneAssets[0];
 		if (!primary?.originalPath) {
 			return {};
 		}
@@ -122,7 +127,7 @@ export function NativeCompositorOverlay() {
 			// le natif ignore juste le curseur (CursorTrack::load échoue silencieusement).
 			cursorPath: `${primary.originalPath}.cursor.json`,
 		};
-	}, [document]);
+	}, [document, sceneAssets]);
 
 	const ready = sources !== null;
 	const { viewId, error } = useNativeCompositorView(canvasRef, {
@@ -236,7 +241,7 @@ export function NativeCompositorOverlay() {
 		if (!clipChanged && !nativeElsewhere) {
 			return;
 		}
-		const asset = document.assets.find((candidate) => candidate.id === activeClip.assetId);
+		const asset = sceneAssets.find((candidate) => candidate.id === activeClip.assetId);
 		if (!asset?.originalPath) {
 			return;
 		}
@@ -304,6 +309,7 @@ export function NativeCompositorOverlay() {
 	}, [
 		viewId,
 		document,
+		sceneAssets,
 		activeClipId,
 		activeClip,
 		activeClipIndex,
@@ -344,7 +350,7 @@ export function NativeCompositorOverlay() {
 		if (!resync) {
 			return;
 		}
-		const asset = document.assets.find((candidate) => candidate.id === activeClip.assetId);
+		const asset = sceneAssets.find((candidate) => candidate.id === activeClip.assetId);
 		if (!asset?.originalPath) {
 			return;
 		}
@@ -363,6 +369,7 @@ export function NativeCompositorOverlay() {
 	}, [
 		viewId,
 		document,
+		sceneAssets,
 		playing,
 		activeClip,
 		activeClipIndex,

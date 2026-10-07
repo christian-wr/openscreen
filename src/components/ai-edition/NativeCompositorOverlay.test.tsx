@@ -38,6 +38,12 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: () => (key: string) => key,
 }));
 
+const probe = vi.hoisted(() => ({ get: vi.fn((_path: string) => null) }));
+vi.mock("@/native/webcamSizeCache", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/native/webcamSizeCache")>()),
+	getWebcamNativeSize: probe.get,
+}));
+
 import { NativeCompositorOverlay } from "./NativeCompositorOverlay";
 
 /** One take cut in two: source 0-5 s, then 7-12 s after a 2 s cut. */
@@ -311,5 +317,50 @@ describe("NativeCompositorOverlay on a language change", () => {
 		rerender(<NativeCompositorOverlay />);
 
 		expect(native.setNativeScene).toHaveBeenCalledTimes(1);
+	});
+});
+
+// With another camera in camera 1's role, the view decodes that camera as its webcam and the
+// scene sizes the PiP from that camera's probed size, exactly as the scene draws it.
+describe("NativeCompositorOverlay with a main camera", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		const document = makeDocument();
+		document.assets[0] = {
+			...document.assets[0],
+			cameraTrack: { sourcePath: "/cam-1.mp4", startMs: 0, offsetMs: 0, visible: true },
+			additionalCameraTracks: [
+				{ sourcePath: "/cam-2.mp4", startMs: 500, offsetMs: 0, visible: true, label: "" },
+			],
+		};
+		useProjectStore.setState({
+			projectId: "proj_sync",
+			document: { ...document, legacyEditor: { mainCamera: 1 } },
+			revision: 1,
+			status: "ready",
+			error: null,
+			sourceDurationSec: 12,
+			currentTimeSec: 1,
+			playing: false,
+			dirty: false,
+			lastSavedAt: new Date(),
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		useProjectStore.getState().clear();
+	});
+
+	it("sends the main camera as the clip's webcam and probes its size", async () => {
+		render(<NativeCompositorOverlay />);
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(native.setActiveClip).toHaveBeenCalledWith(7, "/take.mp4", "/cam-2.mp4", 0.5, 0, 1, [
+			{ path: "/cam-1.mp4", offsetSec: 0 },
+		]);
+		expect(probe.get).toHaveBeenCalledWith("/cam-2.mp4");
+		expect(probe.get).not.toHaveBeenCalledWith("/cam-1.mp4");
 	});
 });

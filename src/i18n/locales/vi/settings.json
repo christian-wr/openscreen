@@ -281,6 +281,8 @@
 		"mute": "Tắt tiếng"
 	},
 	"layout": {
+		"mainCamera": "Camera chính",
+		"mainCameraUnavailable": "Không khả dụng — đang dùng {{camera}}",
 		"help": "Cách ghép webcam với màn hình: hình trong hình, xếp dọc, khung đôi, hình dạng, độ bo tròn, kích thước, vị trí và lật gương.",
 		"mirrorWebcam": "Lật webcam",
 		"webcamFraming": "Khung hình webcam",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Camera {{n}} · {{label}}",
 		"title": "Camera",
 		"unavailable": "Không khả dụng",
-		"camera1Hint": "Xoay, lật gương và cắt của camera 1 nằm ở các điều khiển phía trên.",
+		"camera1Hint": "Xoay, lật gương và cắt của camera chính nằm ở các điều khiển phía trên.",
 		"rotation": "Xoay",
 		"mirror": "Lật gương",
 		"crop": "Cắt…",

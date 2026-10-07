@@ -281,6 +281,8 @@
 		"mute": "Sessiz"
 	},
 	"layout": {
+		"mainCamera": "Ana kamera",
+		"mainCameraUnavailable": "Kullanılamıyor — {{camera}} kullanılıyor",
 		"help": "Web kamerasının ekranla birleştirilme biçimi: resim içinde resim, dikey yığın, çift çerçeve, şekil, yuvarlaklık, boyut, konum ve aynalama.",
 		"mirrorWebcam": "Web kamerasını aynala",
 		"webcamFraming": "Webcam kadrajı",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Kamera {{n}} · {{label}}",
 		"title": "Kameralar",
 		"unavailable": "Kullanılamıyor",
-		"camera1Hint": "Kamera 1'in döndürme, yansıtma ve kırpma ayarları yukarıdaki denetimlerdedir.",
+		"camera1Hint": "Ana kameranın döndürme, yansıtma ve kırpma ayarları yukarıdaki denetimlerdedir.",
 		"rotation": "Döndürme",
 		"mirror": "Yansıt",
 		"crop": "Kırp…",

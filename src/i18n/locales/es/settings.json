@@ -281,6 +281,8 @@
 		"mute": "Silenciar"
 	},
 	"layout": {
+		"mainCamera": "Cámara principal",
+		"mainCameraUnavailable": "No disponible: se usa {{camera}}",
 		"help": "Cómo se compone la webcam con la pantalla: imagen en imagen, pila vertical, marco doble, forma, redondez, tamaño, posición y efecto espejo.",
 		"mirrorWebcam": "Reflejar cámara",
 		"webcamFraming": "Encuadre de cámara",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Cámara {{n}} · {{label}}",
 		"title": "Cámaras",
 		"unavailable": "No disponible",
-		"camera1Hint": "El giro, el espejo y el recorte de la cámara 1 están en los controles de arriba.",
+		"camera1Hint": "El giro, el espejo y el recorte de la cámara principal están en los controles de arriba.",
 		"rotation": "Giro",
 		"mirror": "Espejo",
 		"crop": "Recorte…",

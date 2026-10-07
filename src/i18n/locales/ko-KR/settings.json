@@ -281,6 +281,8 @@
 		"mute": "음소거"
 	},
 	"layout": {
+		"mainCamera": "메인 카메라",
+		"mainCameraUnavailable": "사용할 수 없음 — {{camera}} 사용 중",
 		"help": "웹캠과 화면을 합성하는 방식: PIP, 세로 배치, 이중 프레임, 모양, 모서리 둥글기, 크기, 위치, 좌우 반전.",
 		"mirrorWebcam": "웹캠 미러링",
 		"webcamFraming": "웹캠 구도",
@@ -481,7 +483,7 @@
 		"cameraNamed": "카메라 {{n}} · {{label}}",
 		"title": "카메라",
 		"unavailable": "사용할 수 없음",
-		"camera1Hint": "카메라 1의 회전, 좌우 반전, 자르기는 위의 컨트롤에서 설정합니다.",
+		"camera1Hint": "메인 카메라의 회전, 좌우 반전, 자르기는 위의 컨트롤에서 설정합니다.",
 		"rotation": "회전",
 		"mirror": "좌우 반전",
 		"crop": "자르기…",

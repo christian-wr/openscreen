@@ -380,6 +380,12 @@ export function NewEditorShell() {
 		(index: number | null) => enqueueTimelineWrite(() => setTimelineDeskCamera(index)),
 		[enqueueTimelineWrite, setTimelineDeskCamera],
 	);
+	// The main camera choice too: it decides which camera the per-camera settings land on.
+	const setTimelineMainCamera = tl.setMainCamera;
+	const setMainCameraQueued = useCallback(
+		(index: number | null) => enqueueTimelineWrite(() => setTimelineMainCamera(index)),
+		[enqueueTimelineWrite, setTimelineMainCamera],
+	);
 	// A layout section's camera switches ride it too: one write per switch, in order.
 	const setTimelineLayoutSectionCameras = tl.setLayoutSectionCameras;
 	const setLayoutSectionCamerasQueued = useCallback(
@@ -1711,6 +1717,7 @@ export function NewEditorShell() {
 								onOpenCalibration={openCalibration}
 								setCameraSettings={setCameraSettingsQueued}
 								setDeskCamera={setDeskCameraQueued}
+								setMainCamera={setMainCameraQueued}
 								setLayoutSectionCameras={setLayoutSectionCamerasQueued}
 							/>
 						</>
@@ -1810,7 +1817,12 @@ export function NewEditorShell() {
 					camera={calibration.camera}
 					mode={calibration.mode}
 					initial={tl.cameraSettings[calibration.camera.index] ?? null}
-					hasCrop={cameraHasCrop(document, tl.cameraSettings, calibration.camera.index)}
+					hasCrop={cameraHasCrop(
+						document,
+						tl.cameraSettings,
+						calibration.camera.index,
+						tl.mainCamera,
+					)}
 					onApply={(patch) => void setCameraSettingsQueued(calibration.camera.index, patch)}
 					onClose={() => setCalibration(null)}
 				/>

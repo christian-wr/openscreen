@@ -133,6 +133,31 @@ describe("WebcamOverlay (per-clip camera resolution)", () => {
 		expect(video?.getAttribute("src")).toContain("cam-1.mp4");
 	});
 
+	// The element exists to probe the size of the camera the PiP shows: the main camera.
+	it("reads the main camera's file when another camera plays camera 1's role", () => {
+		const document = makeDocument();
+		document.assets[0] = {
+			...document.assets[0],
+			additionalCameraTracks: [
+				{ sourcePath: "/cam-2.mp4", startMs: 0, offsetMs: 0, visible: true, label: "" },
+			],
+		};
+		useProjectStore.setState({
+			projectId: "proj_test",
+			document: { ...document, legacyEditor: { mainCamera: 1 } },
+			revision: 1,
+			status: "ready",
+			error: null,
+			sourceDurationSec: 0,
+			currentTimeSec: 2,
+			dirty: false,
+			lastSavedAt: new Date(),
+		});
+
+		const { container } = render(<WebcamOverlay {...baseProps(2)} />);
+		expect(container.querySelector("video")?.getAttribute("src")).toContain("cam-2.mp4");
+	});
+
 	it("renders nothing while the playhead is on a clip whose asset has no camera", () => {
 		useProjectStore.setState({
 			projectId: "proj_test",

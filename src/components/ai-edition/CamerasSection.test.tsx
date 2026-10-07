@@ -184,6 +184,49 @@ describe("CamerasSection", () => {
 	});
 });
 
+describe("CamerasSection with a main camera", () => {
+	it("gives camera 1 its own controls and the main camera the note", () => {
+		const setCameraSettings = vi.fn();
+		const onOpenCalibration = vi.fn();
+		render(
+			<CamerasSection
+				document={makeDoc(2)}
+				playheadSec={2}
+				cameraSettings={[{ mirror: true }]}
+				setCameraSettings={setCameraSettings}
+				onOpenCalibration={onOpenCalibration}
+				mainCamera={2}
+			/>,
+		);
+		const first = screen.getByTestId("camera-row-0");
+		expect(first).not.toHaveTextContent("settings.cameras.camera1Hint");
+		fireEvent.click(
+			first.querySelector("button[aria-pressed]:not([aria-pressed='true'])") as Element,
+		);
+		expect(setCameraSettings).toHaveBeenCalledWith(0, { rotation: 180 });
+		fireEvent.click(within(first).getByRole("button", { name: "settings.cameras.mirror" }));
+		expect(setCameraSettings).toHaveBeenCalledWith(0, { mirror: false });
+		fireEvent.click(within(first).getByRole("button", { name: "settings.cameras.crop" }));
+		expect(onOpenCalibration).toHaveBeenCalledWith(0, "crop");
+		fireEvent.click(within(first).getByRole("button", { name: "settings.cameras.reset" }));
+		expect(setCameraSettings).toHaveBeenCalledWith(0, null);
+
+		const main = screen.getByTestId("camera-row-2");
+		expect(main).toHaveTextContent("settings.cameras.camera1Hint");
+		expect(main.querySelectorAll("button")).toHaveLength(1);
+		fireEvent.click(main.querySelector("button") as Element);
+		expect(onOpenCalibration).toHaveBeenCalledWith(2, "perspective");
+	});
+
+	it("reads the main camera's crop from the layout pane's field", () => {
+		const crop = { x: 0.1, y: 0.1, width: 0.5, height: 0.5 };
+		const withLegacyCrop = { legacyEditor: { webcamCropRegion: crop } } as unknown as AxcutDocument;
+		expect(cameraHasCrop(withLegacyCrop, [], 2, 2)).toBe(true);
+		expect(cameraHasCrop(withLegacyCrop, [], 0, 2)).toBe(false);
+		expect(cameraHasCrop(null, [{ crop }], 0, 2)).toBe(true);
+	});
+});
+
 describe("CamerasSection desk camera", () => {
 	const renderDesk = (
 		camera: number | null,

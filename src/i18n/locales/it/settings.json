@@ -281,6 +281,8 @@
 		"mute": "Muto"
 	},
 	"layout": {
+		"mainCamera": "Fotocamera principale",
+		"mainCameraUnavailable": "Non disponibile — in uso {{camera}}",
 		"help": "Come la webcam viene composta con lo schermo: picture-in-picture, pila verticale, doppio riquadro, forma, arrotondamento, dimensione, posizione e effetto specchio.",
 		"mirrorWebcam": "Specchia webcam",
 		"webcamFraming": "Inquadratura webcam",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Fotocamera {{n}} · {{label}}",
 		"title": "Fotocamere",
 		"unavailable": "Non disponibile",
-		"camera1Hint": "Rotazione, specchio e ritaglio della fotocamera 1 sono nei controlli qui sopra.",
+		"camera1Hint": "Rotazione, specchio e ritaglio della fotocamera principale sono nei controlli qui sopra.",
 		"rotation": "Rotazione",
 		"mirror": "Specchio",
 		"crop": "Ritaglio…",

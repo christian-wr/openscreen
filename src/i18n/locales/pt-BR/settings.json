@@ -281,6 +281,8 @@
 		"mute": "Silenciar"
 	},
 	"layout": {
+		"mainCamera": "Câmera principal",
+		"mainCameraUnavailable": "Indisponível — usando {{camera}}",
 		"help": "Como a webcam é composta com a tela: picture-in-picture, pilha vertical, quadro duplo, formato, arredondamento, tamanho, posição e espelhamento.",
 		"mirrorWebcam": "Espelhar Webcam",
 		"webcamFraming": "Enquadramento da webcam",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Câmera {{n}} · {{label}}",
 		"title": "Câmeras",
 		"unavailable": "Indisponível",
-		"camera1Hint": "Rotação, espelhamento e recorte da câmera 1 ficam nos controles acima.",
+		"camera1Hint": "Rotação, espelhamento e recorte da câmera principal ficam nos controles acima.",
 		"rotation": "Rotação",
 		"mirror": "Espelhar",
 		"crop": "Recorte…",

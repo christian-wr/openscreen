@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AxcutAsset, AxcutDocument } from "./ai-edition/schema";
-import { resolveMainCamera, withMainCamera } from "./mainCamera";
+import { mainCameraOf, resolveMainCamera, sceneCameraIndex, withMainCamera } from "./mainCamera";
 
 const track = (path: string, label = "") => ({
 	sourcePath: path,
@@ -59,6 +59,19 @@ describe("resolveMainCamera", () => {
 	});
 });
 
+describe("mainCameraOf / sceneCameraIndex", () => {
+	it("settles the document's main camera like the scene", () => {
+		expect(mainCameraOf(doc({ mainCamera: 2 }))).toBe(2);
+		expect(mainCameraOf(doc({ mainCamera: 5 }))).toBe(0);
+		expect(mainCameraOf(doc(null))).toBe(0);
+	});
+
+	it("trades camera 1 and the main camera, leaving the others", () => {
+		expect([0, 1, 2, 3].map((i) => sceneCameraIndex(i, 2))).toEqual([2, 1, 0, 3]);
+		expect([0, 1].map((i) => sceneCameraIndex(i, 0))).toEqual([0, 1]);
+	});
+});
+
 describe("withMainCamera", () => {
 	it("returns the same document without a main camera", () => {
 		const d = doc({ deskCamera: 1 });
@@ -73,6 +86,26 @@ describe("withMainCamera", () => {
 		});
 		const d = doc({ mainCamera: 2 }, [hidden]);
 		expect(withMainCamera(d)).toBe(d);
+	});
+
+	// Camera 1's own rotation, mirror and crop are stored while another camera is the main
+	// one; with camera 1 back in the main role the layout pane's fields drive it again.
+	it("keeps only camera 1's perspective while camera 1 is the main camera", () => {
+		const out = withMainCamera(
+			doc({ cameraSettings: [{ mirror: true, perspective: perspective(1) }, { rotation: 180 }] }),
+		);
+		expect(legacyOf(out).cameraSettings).toEqual([
+			{ perspective: perspective(1) },
+			{ rotation: 180 },
+		]);
+		const lost = asset({
+			additionalCameraTracks: [track("/c2.mp4"), { ...track("/c3.mp4"), visible: false }],
+		});
+		const fallback = withMainCamera(
+			doc({ mainCamera: 2, cameraSettings: [{ rotation: 180 }, { mirror: true }] }, [lost]),
+		);
+		expect(legacyOf(fallback).cameraSettings).toEqual([null, { mirror: true }]);
+		expect(legacyOf(fallback).mainCamera).toBe(2);
 	});
 
 	it("swaps the tracks of camera 1 and the main camera", () => {

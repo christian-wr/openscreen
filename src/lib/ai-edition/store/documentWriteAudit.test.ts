@@ -314,6 +314,8 @@ const DECLARED: WritePath[] = [
 	w("src/lib/ai-edition/store/useTimeline.ts", "setCameraSettings", "save", "gesture"),
 	// The project's desk camera: choose one or go back to automatic, one undo step each.
 	w("src/lib/ai-edition/store/useTimeline.ts", "setDeskCamera", "save", "gesture"),
+	// The project's main camera: choose one or go back to camera 1, one undo step each.
+	w("src/lib/ai-edition/store/useTimeline.ts", "setMainCamera", "save", "gesture"),
 	w(
 		"src/lib/ai-edition/store/useTimeline.ts",
 		"updateCameraFullscreenDeskLabel",

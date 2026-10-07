@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CameraPerspective } from "@/components/video-editor/types";
 import { I18nProvider } from "@/contexts/I18nContext";
+import { MAX_CAMERAS } from "@/lib/cameraLayouts";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
 import { type RegionKind, readSpeedRegions } from "../document/timeline";
 import type { AxcutDocument } from "../schema";
@@ -3428,6 +3429,89 @@ describe("useTimeline desk sections", () => {
 			await result.current.updateDeskLabel("desk_1", true);
 		});
 		expect(legacyNow().deskRegions?.[0]).not.toHaveProperty("deskLabel");
+	});
+
+	const mainNow = () => (legacyNow() as { mainCamera?: unknown }).mainCamera;
+
+	it("sets and clears the main camera, one undo step each; the resolved camera follows", async () => {
+		seed({ other: 1 });
+		const { result } = renderTimeline();
+		expect(result.current.mainCamera).toBe(0);
+		expect(result.current.mainCameraChosen).toBeNull();
+		await act(async () => {
+			await result.current.setMainCamera(2);
+		});
+		expect(mainNow()).toBe(2);
+		expect(result.current.mainCamera).toBe(2);
+		expect(result.current.mainCameraChosen).toBe(2);
+		expect(past).toHaveLength(1);
+		// Camera 1 is the default: choosing it removes the field, like `null`.
+		await act(async () => {
+			await result.current.setMainCamera(0);
+		});
+		expect(legacyNow()).toEqual({ other: 1 });
+		expect(result.current.mainCamera).toBe(0);
+		expect(result.current.mainCameraChosen).toBeNull();
+		expect(past).toHaveLength(2);
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(mainNow()).toBe(2);
+	});
+
+	it("writes nothing when the main camera choice does not change", async () => {
+		seed({ mainCamera: 1 });
+		bridgeMocks.save.mockClear();
+		const { result } = renderTimeline();
+		const before = useProjectStore.getState().document;
+		await act(async () => {
+			await result.current.setMainCamera(1);
+			await result.current.setMainCamera(MAX_CAMERAS);
+			await result.current.setMainCamera(-1);
+			await result.current.setMainCamera(1.5);
+		});
+		expect(useProjectStore.getState().document).toBe(before);
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		act(() => seed({ other: 1 }));
+		await act(async () => {
+			await result.current.setMainCamera(null);
+			await result.current.setMainCamera(0);
+		});
+		expect(past).toHaveLength(0);
+	});
+
+	// A chosen main camera that draws nothing stays stored, while camera 1 takes its role:
+	// the layout pane needs both to say "not available, using camera 1".
+	it("keeps a lost main camera choice while the resolved camera falls back", () => {
+		seed(
+			{ mainCamera: 1 },
+			{
+				...threeCamAsset,
+				additionalCameraTracks: [
+					{ ...extra("/tmp/cam2.webm"), visible: false },
+					extra("/tmp/cam3.webm"),
+				],
+			},
+		);
+		const { result } = renderTimeline();
+		expect(result.current.mainCameraChosen).toBe(1);
+		expect(result.current.mainCamera).toBe(0);
+	});
+
+	// Camera 1 has its own rotation, mirror and crop once another camera is the main one; the
+	// main camera's own are the layout pane's fields, so its entry keeps only the perspective.
+	it("stores camera 1's own settings while another camera is the main one", async () => {
+		seed({ mainCamera: 2 });
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setCameraSettings(0, { mirror: true, rotation: 180 });
+		});
+		await act(async () => {
+			await result.current.setCameraSettings(2, { mirror: true });
+		});
+		expect((legacyNow() as { cameraSettings?: unknown }).cameraSettings).toEqual([
+			{ mirror: true, rotation: 180 },
+		]);
 	});
 });
 

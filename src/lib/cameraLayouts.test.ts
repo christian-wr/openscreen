@@ -276,6 +276,18 @@ describe("patchCameraSettings", () => {
 		const raw = [null, { mirror: true }, { rotation: 180 }];
 		expect(patchCameraSettings(raw, 1, null)).toEqual([null, null, { rotation: 180 }]);
 	});
+
+	// The main camera's rotation, mirror and crop are the layout pane's fields; every other
+	// camera, camera 1 included once it is not the main one, keeps its own here.
+	it("keeps only the perspective of the main camera", () => {
+		expect(patchCameraSettings(undefined, 0, { mirror: true })).toBeUndefined();
+		expect(patchCameraSettings(undefined, 0, { mirror: true }, 2)).toEqual([{ mirror: true }]);
+		expect(patchCameraSettings(undefined, 2, { rotation: 180 }, 2)).toBeUndefined();
+		expect(patchCameraSettings(undefined, 1, { rotation: 180 }, 2)).toEqual([
+			null,
+			{ rotation: 180 },
+		]);
+	});
 });
 
 describe("cameraSectionsOverlapping", () => {

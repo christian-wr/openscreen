@@ -281,6 +281,8 @@
 		"mute": "静音"
 	},
 	"layout": {
+		"mainCamera": "主摄像头",
+		"mainCameraUnavailable": "不可用 — 正在使用 {{camera}}",
 		"help": "摄像头与屏幕的合成方式：画中画、垂直堆叠、双画面、形状、圆角、大小、位置和镜像。",
 		"mirrorWebcam": "镜像摄像头",
 		"webcamFraming": "摄像头构图",
@@ -481,7 +483,7 @@
 		"cameraNamed": "摄像头 {{n}} · {{label}}",
 		"title": "摄像头",
 		"unavailable": "不可用",
-		"camera1Hint": "摄像头 1 的旋转、镜像和裁剪在上方的控件中设置。",
+		"camera1Hint": "主摄像头的旋转、镜像和裁剪在上方的控件中设置。",
 		"rotation": "旋转",
 		"mirror": "镜像",
 		"crop": "裁剪…",

@@ -281,6 +281,8 @@
 		"mute": "Stumm"
 	},
 	"layout": {
+		"mainCamera": "Hauptkamera",
+		"mainCameraUnavailable": "Nicht verfügbar — verwendet wird {{camera}}",
 		"help": "Wie die Webcam mit dem Bildschirm komponiert wird: Bild in Bild, vertikal gestapelt, Doppelrahmen, Form, Rundung, Größe, Position und Spiegelung.",
 		"mirrorWebcam": "Webcam spiegeln",
 		"webcamFraming": "Webcam-Ausschnitt",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Kamera {{n}} · {{label}}",
 		"title": "Kameras",
 		"unavailable": "Nicht verfügbar",
-		"camera1Hint": "Drehung, Spiegelung und Zuschnitt von Kamera 1 stehen in den Reglern oben.",
+		"camera1Hint": "Drehung, Spiegelung und Zuschnitt der Hauptkamera stehen in den Reglern oben.",
 		"rotation": "Drehung",
 		"mirror": "Spiegeln",
 		"crop": "Zuschnitt…",

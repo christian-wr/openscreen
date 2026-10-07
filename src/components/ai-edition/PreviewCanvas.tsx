@@ -72,6 +72,7 @@ import {
 	resolveWebcamLayoutPreset,
 	type WebcamCompositeLayout,
 } from "@/lib/compositeLayout";
+import { mainCameraOf, sceneCameraIndex, withMainCamera } from "@/lib/mainCamera";
 import { webcamAnchorAt } from "@/lib/projectDefaults";
 import { wallpaperStyle } from "@/lib/wallpaper";
 import { getCssClipPath } from "@/lib/webcamMaskShapes";
@@ -158,7 +159,12 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 	// Captions are derived from the transcript, not passed down as regions — the
 	// preview reads them from the same façade the inspector writes to.
 	const document = useProjectStore((s) => s.document);
-	const assets = document?.assets ?? [];
+	// The document as the scene sees it: with a main camera chosen, that camera sits in camera
+	// 1's place. Everything that sizes or places a camera box reads this one, so the boxes match
+	// the windows the compositor draws.
+	const sceneDocument = useMemo(() => (document ? withMainCamera(document) : null), [document]);
+	const mainCamera = useMemo(() => (document ? mainCameraOf(document) : 0), [document]);
+	const assets = sceneDocument?.assets ?? [];
 	const frameRef = useRef<HTMLDivElement | null>(null);
 	const webcamSlotRef = useRef<HTMLDivElement | null>(null);
 	// Real dimensions of the active source, from the <video>'s own
@@ -271,7 +277,7 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 		() => 0,
 	);
 	// A perspective on camera 1 gives the box its corrected ratio, as in the scene.
-	const camera0Perspective = useMemo(() => camera0PerspectiveOf(document), [document]);
+	const camera0Perspective = useMemo(() => camera0PerspectiveOf(sceneDocument), [sceneDocument]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the revision re-reads the probed-size cache
 	const webcamSourceSize = useMemo(
 		() =>
@@ -402,7 +408,7 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 		const asset = assets.find((a) => a.id === (layoutRow.assetId ?? activeClip?.assetId));
 		if (!asset) return [];
 		const sources = [assetCameraSource(asset), ...assetAdditionalCameraSources(asset)];
-		const legacy = document?.legacyEditor as Record<string, unknown> | null | undefined;
+		const legacy = sceneDocument?.legacyEditor as Record<string, unknown> | null | undefined;
 		const camera0Path = asset.cameraTrack?.sourcePath;
 		const maskShape = settings.webcamMaskShape as WebcamMaskShape;
 		const ctx = cameraLayoutContextOf({
@@ -420,13 +426,25 @@ export function PreviewCanvas(props: PreviewCanvasProps) {
 					activeClipHasCamera,
 				) === "picture-in-picture",
 		});
-		return pipPlacesOf(layoutRow, ctx).filter((p) => (sources[p.camera]?.path ?? "") !== "");
+		// The row names devices; the context is the scene's, where the main camera is camera 1.
+		const sceneRow =
+			mainCamera === 0
+				? layoutRow
+				: {
+						...layoutRow,
+						slots: layoutRow.slots.map((slot) => ({
+							...slot,
+							camera: sceneCameraIndex(slot.camera, mainCamera),
+						})),
+					};
+		return pipPlacesOf(sceneRow, ctx).filter((p) => (sources[p.camera]?.path ?? "") !== "");
 	}, [
 		layoutRow,
 		frameSize,
 		assets,
 		activeClip,
-		document,
+		sceneDocument,
+		mainCamera,
 		layout,
 		activeClipHasCamera,
 		settings.webcamCropRegion,

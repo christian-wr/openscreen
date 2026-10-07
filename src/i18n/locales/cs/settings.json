@@ -281,6 +281,8 @@
 		"mute": "Ztlumit"
 	},
 	"layout": {
+		"mainCamera": "Hlavní kamera",
+		"mainCameraUnavailable": "Nedostupné — používá se {{camera}}",
 		"help": "Jak je webkamera složena s obrazovkou: obraz v obrazu, svislé skládání, dvojitý rám, tvar, zaoblení, velikost, poloha a zrcadlení.",
 		"mirrorWebcam": "Zrcadlit webkameru",
 		"webcamFraming": "Oříznutí kamery",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Kamera {{n}} · {{label}}",
 		"title": "Kamery",
 		"unavailable": "Nedostupné",
-		"camera1Hint": "Otočení, zrcadlení a ořez kamery 1 jsou v ovládacích prvcích výše.",
+		"camera1Hint": "Otočení, zrcadlení a ořez hlavní kamery jsou v ovládacích prvcích výše.",
 		"rotation": "Otočení",
 		"mirror": "Zrcadlit",
 		"crop": "Ořez…",

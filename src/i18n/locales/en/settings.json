@@ -281,6 +281,8 @@
 		"mute": "Mute"
 	},
 	"layout": {
+		"mainCamera": "Main camera",
+		"mainCameraUnavailable": "Not available — using {{camera}}",
 		"help": "How the webcam is composed with the screen: picture-in-picture, vertical stack, dual frame, shape, roundness, size, position, and mirroring.",
 		"mirrorWebcam": "Mirror webcam",
 		"webcamFraming": "Webcam crop",
@@ -481,7 +483,7 @@
 		"cameraNamed": "Camera {{n}} · {{label}}",
 		"title": "Cameras",
 		"unavailable": "Unavailable",
-		"camera1Hint": "Rotation, mirror and crop of camera 1 are the controls above.",
+		"camera1Hint": "Rotation, mirror and crop of the main camera are the controls above.",
 		"rotation": "Rotation",
 		"mirror": "Mirror",
 		"crop": "Crop…",

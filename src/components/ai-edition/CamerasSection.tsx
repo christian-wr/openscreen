@@ -1,6 +1,7 @@
 // The "Cameras" section of the layout pane: every camera of the clip under the playhead, with
-// a thumbnail and the per-camera settings. Camera 1 keeps its rotation, mirror and crop in
-// the controls above (older fields), so its row only offers the perspective correction.
+// a thumbnail and the per-camera settings. The main camera (camera 1 unless another is chosen)
+// keeps its rotation, mirror and crop in the controls above (older fields), so its row only
+// offers the perspective correction; every other camera has its own here.
 
 import { useEffect, useMemo, useState } from "react";
 import { toFileUrl } from "@/components/video-editor/projectPersistence";
@@ -35,6 +36,17 @@ export interface CamerasSectionProps {
 	onOpenCalibration?: (cameraIndex: number, mode: CalibrationMode) => void;
 	/** The desk camera choice; absent where there is no timeline store to write it. */
 	desk?: DeskCameraChoice;
+	/** The resolved main camera (0 = camera 1, the default). */
+	mainCamera?: number;
+}
+
+/** The project's main camera (0 = camera 1) as resolved and as stored, and its writer. */
+export interface MainCameraChoice {
+	/** The camera in the main role: the chosen one when available, otherwise camera 1. */
+	camera: number;
+	/** The stored choice, or `null` for camera 1. */
+	chosen: number | null;
+	setMainCamera: (index: number | null) => void | Promise<void>;
 }
 
 /** The project's desk camera (0 = camera 1) as resolved and as stored, and its writer. */
@@ -68,15 +80,16 @@ export function stillsAt(
 }
 
 /**
- * Whether a camera has a crop stored. Camera 1 keeps its crop in `webcamCropRegion` (a
- * full-frame rect means none); the others in `cameraSettings[k].crop`.
+ * Whether a camera has a crop stored. The main camera (camera 1 by default) keeps its crop in
+ * `webcamCropRegion` (a full-frame rect means none); the others in `cameraSettings[k].crop`.
  */
 export function cameraHasCrop(
 	document: AxcutDocument | null,
 	cameraSettings: (CameraSettings | null)[],
 	index: number,
+	mainCamera = 0,
 ): boolean {
-	if (index !== 0) return cameraSettings[index]?.crop != null;
+	if (index !== mainCamera) return cameraSettings[index]?.crop != null;
 	const legacy = document?.legacyEditor as Record<string, unknown> | null | undefined;
 	const crop = legacy?.webcamCropRegion as Partial<CropRegion> | undefined;
 	if (!crop) return false;
@@ -153,6 +166,7 @@ export function CamerasSection({
 	setCameraSettings,
 	onOpenCalibration,
 	desk,
+	mainCamera = 0,
 }: CamerasSectionProps) {
 	const ts = useScopedT("settings");
 	const storePlayheadSec = useProjectStore((s) => s.currentTimeSec);
@@ -179,7 +193,8 @@ export function CamerasSection({
 			>
 				{cameras.map((camera) => {
 					const settings = cameraSettings[camera.index] ?? null;
-					const isFirst = camera.index === 0;
+					// The main camera's rotation, mirror and crop are the controls above.
+					const isMain = camera.index === mainCamera;
 					// A perspective replaces the crop at render, so the crop is not offered then.
 					const hasPerspective = settings?.perspective != null;
 					return (
@@ -237,8 +252,8 @@ export function CamerasSection({
 									/>
 								</div>
 							) : null}
-							{isFirst ? <p className={styles.hint}>{ts("cameras.camera1Hint")}</p> : null}
-							{isFirst ? null : (
+							{isMain ? <p className={styles.hint}>{ts("cameras.camera1Hint")}</p> : null}
+							{isMain ? null : (
 								<>
 									<ChoiceRow<CameraRotation>
 										label={ts("cameras.rotation")}
@@ -260,7 +275,7 @@ export function CamerasSection({
 								</>
 							)}
 							<div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-								{isFirst ? null : (
+								{isMain ? null : (
 									<button
 										type="button"
 										className={BUTTON}
@@ -279,7 +294,7 @@ export function CamerasSection({
 								>
 									{ts("cameras.perspective")}
 								</button>
-								{!isFirst && settings ? (
+								{!isMain && settings ? (
 									<button
 										type="button"
 										className={BUTTON}
@@ -289,7 +304,7 @@ export function CamerasSection({
 									</button>
 								) : null}
 							</div>
-							{!isFirst && hasPerspective ? (
+							{!isMain && hasPerspective ? (
 								<p className={styles.hint}>{ts("cameras.cropOffWithPerspective")}</p>
 							) : null}
 						</div>

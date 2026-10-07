@@ -38,6 +38,7 @@ import {
 	normalizeDeskRegions,
 	resolveDeskCamera,
 } from "@/lib/deskSections";
+import { mainCameraOf } from "@/lib/mainCamera";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
 import { fitTextBox } from "../annotations/placement";
 import {
@@ -368,6 +369,12 @@ function deskCameraOf(doc: AxcutDocument): number | null {
 		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
 		available: (index) => projectCameraAvailable(doc.assets, index),
 	});
+}
+
+/** The main camera the user chose (`legacyEditor.mainCamera`), or `null` when none is stored. */
+function chosenMainCamera(legacy: Record<string, unknown>): number | null {
+	const value = legacy.mainCamera;
+	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 /**
@@ -1515,9 +1522,9 @@ export function useTimeline() {
 			const current = useProjectStore.getState().document ?? document;
 			if (!current) return;
 			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
-			const list = patchCameraSettings(legacy.cameraSettings, index, patch);
-			// Nothing changes (out-of-range index, camera-1 patch without a perspective, resetting a
-			// default camera): no save and no empty undo step.
+			const list = patchCameraSettings(legacy.cameraSettings, index, patch, mainCameraOf(current));
+			// Nothing changes (out-of-range index, main-camera patch without a perspective, resetting
+			// a default camera): no save and no empty undo step.
 			if (
 				JSON.stringify(list ?? []) ===
 				JSON.stringify(normalizeCameraSettings(legacy.cameraSettings))
@@ -1576,6 +1583,29 @@ export function useTimeline() {
 			const next: AxcutDocument = {
 				...current,
 				legacyEditor: index === null ? rest : { ...rest, deskCamera: index },
+			};
+			await saveDocument(next, { history: true });
+		},
+		[document, saveDocument],
+	);
+
+	// The main camera the user chose (`legacyEditor.mainCamera`, 0 = camera 1). Camera 1 is the
+	// default, so `0` removes the field like `null` does. One write, one undo step; a choice
+	// that changes nothing writes nothing. Read at write time, like `setCameraSettings`.
+	const setMainCamera = useCallback(
+		async (index: number | null) => {
+			const current = useProjectStore.getState().document ?? document;
+			if (!current) return;
+			if (index !== null && (!Number.isInteger(index) || index < 0 || index >= MAX_CAMERAS)) {
+				return;
+			}
+			const chosen = index === 0 ? null : index;
+			const legacy = (current.legacyEditor as Record<string, unknown>) ?? {};
+			if ((legacy.mainCamera ?? null) === chosen) return;
+			const { mainCamera: _prev, ...rest } = legacy;
+			const next: AxcutDocument = {
+				...current,
+				legacyEditor: chosen === null ? rest : { ...rest, mainCamera: chosen },
 			};
 			await saveDocument(next, { history: true });
 		},
@@ -2368,6 +2398,10 @@ export function useTimeline() {
 	const deskCameraChosen = chosenDeskCamera(
 		(document?.legacyEditor as Record<string, unknown> | null) ?? {},
 	);
+	const mainCamera = document ? mainCameraOf(document) : 0;
+	const mainCameraChosen = chosenMainCamera(
+		(document?.legacyEditor as Record<string, unknown> | null) ?? {},
+	);
 
 	return {
 		zoomRegions: document?.zoomRanges ?? [],
@@ -2382,6 +2416,8 @@ export function useTimeline() {
 		deskRegions,
 		deskCamera,
 		deskCameraChosen,
+		mainCamera,
+		mainCameraChosen,
 		clips: document?.timeline.clips ?? [],
 		assets: document?.assets ?? [],
 		// The timeline marks where the user has ADDED words — text with no audio behind it.
@@ -2445,6 +2481,7 @@ export function useTimeline() {
 		updateDeskSpan,
 		updateDeskLabel,
 		setDeskCamera,
+		setMainCamera,
 		setLayoutTemplate,
 		setLayoutSlotCamera,
 		setLayoutSectionCameras,

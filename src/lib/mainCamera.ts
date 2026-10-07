@@ -34,10 +34,25 @@ export function resolveMainCamera(input: {
 	return 0;
 }
 
-function swapIndex(index: unknown, main: number): unknown {
+/** The project's main camera as the scene settles it (0 = camera 1). */
+export function mainCameraOf(document: AxcutDocument): number {
+	const legacy = isRecord(document.legacyEditor) ? document.legacyEditor : {};
+	return resolveMainCamera({
+		mainCamera: legacy.mainCamera,
+		cameraCount: projectCameraCount(document.assets),
+		available: (index) => projectCameraAvailable(document.assets, index),
+	});
+}
+
+/** Where camera `index` (the device) sits once `main` takes camera 1's place in the scene. */
+export function sceneCameraIndex(index: number, main: number): number {
 	if (index === 0) return main;
 	if (index === main) return 0;
 	return index;
+}
+
+function swapIndex(index: unknown, main: number): unknown {
+	return typeof index === "number" ? sceneCameraIndex(index, main) : index;
 }
 
 function swapAssetTracks(asset: AxcutAsset, main: number): AxcutAsset {
@@ -82,20 +97,38 @@ function swapLayoutRegions(raw: unknown, main: number): unknown {
 }
 
 /**
+ * Camera 1 in the main role: the layout pane's fields drive it, so the rotation, mirror and
+ * crop it keeps for the times another camera is the main one are dropped, its perspective
+ * kept. Projects that never stored them get the same object back.
+ */
+function withCameraOneAsMain(
+	document: AxcutDocument,
+	legacy: Record<string, unknown>,
+): AxcutDocument {
+	const list = normalizeCameraSettings(legacy.cameraSettings);
+	const first = list[0];
+	if (!first || Object.keys(first).every((key) => key === "perspective")) return document;
+	list[0] = first.perspective ? { perspective: first.perspective } : null;
+	while (list.length > 0 && list[list.length - 1] === null) list.pop();
+	const { cameraSettings: _settings, ...rest } = legacy;
+	return {
+		...document,
+		legacyEditor: list.length > 0 ? { ...rest, cameraSettings: list } : rest,
+	};
+}
+
+/**
  * The document as the scene should see it: when a main camera other than camera 1 is set
  * (and resolves), cameras 0 and `main` trade places in the tracks, the per-camera settings,
  * the layout sections and the desk camera, and `mainCamera` is dropped. Without one the
- * same object is returned.
+ * same object is returned, unless camera 1 stored settings of its own (see
+ * `withCameraOneAsMain`).
  */
 export function withMainCamera(document: AxcutDocument): AxcutDocument {
 	const legacy = document.legacyEditor;
 	if (!isRecord(legacy)) return document;
-	const main = resolveMainCamera({
-		mainCamera: legacy.mainCamera,
-		cameraCount: projectCameraCount(document.assets),
-		available: (index) => projectCameraAvailable(document.assets, index),
-	});
-	if (main === 0) return document;
+	const main = mainCameraOf(document);
+	if (main === 0) return withCameraOneAsMain(document, legacy);
 
 	const { mainCamera: _mainCamera, ...nextLegacy } = legacy;
 	if ("cameraSettings" in legacy) {

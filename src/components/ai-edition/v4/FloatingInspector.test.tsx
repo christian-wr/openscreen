@@ -42,7 +42,11 @@ vi.mock("../RightPanes", async (importOriginal) => ({
 	LayoutPane: ({
 		cameras,
 	}: {
-		cameras?: { setCameraSettings?: unknown; desk?: { setDeskCamera?: unknown } };
+		cameras?: {
+			setCameraSettings?: unknown;
+			desk?: { setDeskCamera?: unknown };
+			main?: { setMainCamera?: unknown };
+		};
 	}) => (
 		<>
 			<button
@@ -58,6 +62,13 @@ vi.mock("../RightPanes", async (importOriginal) => ({
 				onClick={() => (cameras?.desk?.setDeskCamera as (i: number) => void)?.(2)}
 			>
 				Desk
+			</button>
+			<button
+				type="button"
+				data-testid="layout-pane-main"
+				onClick={() => (cameras?.main?.setMainCamera as (i: number) => void)?.(1)}
+			>
+				Main
 			</button>
 			{/* The real Cameras section carries the same marker. */}
 			<div data-testid="cameras-section" />
@@ -110,6 +121,7 @@ describe("FloatingInspector", () => {
 		onEditClip: vi.fn(),
 		setCameraSettings: vi.fn(),
 		setDeskCamera: vi.fn(),
+		setMainCamera: vi.fn(),
 		setLayoutSectionCameras: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
@@ -145,6 +157,18 @@ describe("FloatingInspector", () => {
 		fireEvent.click(screen.getByTestId("layout-pane-desk"));
 		expect(setDeskCamera).toHaveBeenCalledWith(2);
 		expect(tl.setDeskCamera).not.toHaveBeenCalled();
+	});
+
+	it("the layout pane writes the main camera through the writer it was given", () => {
+		const setMainCamera = vi.fn();
+		const tl = {
+			...defaultProps.tl,
+			setMainCamera: vi.fn(),
+		} as unknown as React.ComponentProps<typeof FloatingInspector>["tl"];
+		render(<FloatingInspector {...defaultProps} tl={tl} setMainCamera={setMainCamera} />);
+		fireEvent.click(screen.getByTestId("layout-pane-main"));
+		expect(setMainCamera).toHaveBeenCalledWith(1);
+		expect(tl.setMainCamera).not.toHaveBeenCalled();
 	});
 
 	it("renders layout facet button on rail with camera icon and settings.layout.title", () => {
@@ -716,6 +740,7 @@ describe("FloatingInspector desk pane", () => {
 		onEditClip: vi.fn(),
 		setCameraSettings: vi.fn(),
 		setDeskCamera: vi.fn(),
+		setMainCamera: vi.fn(),
 		setLayoutSectionCameras: vi.fn(),
 		transcriptProps: {} as unknown as React.ComponentProps<
 			typeof FloatingInspector
