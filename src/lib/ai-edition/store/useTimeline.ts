@@ -368,6 +368,7 @@ function deskCameraOf(doc: AxcutDocument): number | null {
 		cameraCount: projectCameraCount(doc.assets),
 		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
 		available: (index) => projectCameraAvailable(doc.assets, index),
+		mainCamera: mainCameraOf(doc),
 	});
 }
 

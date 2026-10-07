@@ -144,6 +144,86 @@ describe("resolveDeskCamera", () => {
 	});
 });
 
+describe("resolveDeskCamera with a main camera", () => {
+	const all = () => true;
+	const perspective = {
+		corners: [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 0 },
+			{ x: 1, y: 1 },
+			{ x: 0, y: 1 },
+		],
+		aspect: 1,
+	};
+
+	it("never picks the main camera automatically, and considers camera 1", () => {
+		expect(
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 2,
+				cameraSettings: [{}, {}],
+				mainCamera: 1,
+			}),
+		).toBe(0);
+		// The main camera's perspective does not make it the desk camera.
+		expect(
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 3,
+				cameraSettings: [{}, { perspective }, {}] as never,
+				mainCamera: 1,
+			}),
+		).toBe(0);
+	});
+
+	it("prefers a non-main camera with a perspective, camera 1 included", () => {
+		expect(
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 3,
+				cameraSettings: [{}, {}, { perspective }] as never,
+				mainCamera: 1,
+			}),
+		).toBe(2);
+		expect(
+			resolveDeskCamera({
+				available: all,
+				deskCamera: undefined,
+				cameraCount: 3,
+				cameraSettings: [{ perspective }, {}, { perspective }] as never,
+				mainCamera: 2,
+			}),
+		).toBe(0);
+	});
+
+	it("still takes an explicit choice of the main camera", () => {
+		expect(
+			resolveDeskCamera({
+				available: all,
+				deskCamera: 1,
+				cameraCount: 2,
+				cameraSettings: [{}, {}],
+				mainCamera: 1,
+			}),
+		).toBe(1);
+	});
+
+	it("skips an unavailable camera 1 like any other", () => {
+		expect(
+			resolveDeskCamera({
+				available: (index) => index !== 0,
+				deskCamera: undefined,
+				cameraCount: 2,
+				cameraSettings: [{}, {}],
+				mainCamera: 1,
+			}),
+		).toBeNull();
+	});
+});
+
 describe("deskRowsForScene", () => {
 	const rows = normalizeDeskRegions([
 		{

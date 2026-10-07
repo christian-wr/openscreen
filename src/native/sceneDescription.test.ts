@@ -3846,6 +3846,28 @@ describe("buildSceneDescription with a main camera", () => {
 		expect(scene.cameraLayoutRegions).toBeUndefined();
 	});
 
+	it("draws a camera-full layout of camera 1 full-frame while another camera is main", () => {
+		const scene = buildSceneDescription(
+			docWith({
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 4000, template: "camera-full", slots: [{ camera: 0 }] },
+				],
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		// Scene camera 1 holds the real camera 1 once the main camera took slot 0.
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+		expect(scene.clips[0].additionalCameras).toEqual([{ path: "/w-1.mp4", offsetSec: 0 }]);
+	});
+
+	it("never draws the automatic desk camera from the main camera", () => {
+		const scene = buildSceneDescription(docWith({ mainCamera: 1, deskRegions: [desk] }));
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+	});
+
 	it("draws a desk section of the main camera as a Full Camera row with one label", () => {
 		const scene = buildSceneDescription(
 			docWith({ mainCamera: 1, deskCamera: 1, deskRegions: [desk] }),

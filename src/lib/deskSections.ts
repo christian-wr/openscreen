@@ -61,17 +61,21 @@ export function normalizeDeskRegions(raw: unknown): AnchoredDeskRegion[] {
 
 /**
  * The desk camera (0 = camera 1): the chosen one while the project has it and it is available;
- * else the first available camera after camera 1 with a perspective; else the first available
- * camera after camera 1; else none. `available` says whether a camera's layer would be drawn
- * at all (visible, with a file) — a camera that would show nothing never shows a desk section.
+ * else the first available camera other than the main camera with a perspective; else the first
+ * available camera other than the main camera, in index order; else none. `mainCamera` is the
+ * resolved main camera (camera 1 by default), the face: an automatic pick never lands on it, and
+ * camera 1 is a candidate while another camera is the main one. `available` says whether a
+ * camera's layer would be drawn at all (visible, with a file) — a camera that would show nothing
+ * never shows a desk section.
  */
 export function resolveDeskCamera(input: {
 	deskCamera: unknown;
 	cameraCount: number;
 	cameraSettings: CameraSettings[];
 	available: (index: number) => boolean;
+	mainCamera?: number;
 }): number | null {
-	const { deskCamera, cameraCount, cameraSettings, available } = input;
+	const { deskCamera, cameraCount, cameraSettings, available, mainCamera = 0 } = input;
 	if (
 		typeof deskCamera === "number" &&
 		Number.isInteger(deskCamera) &&
@@ -81,11 +85,11 @@ export function resolveDeskCamera(input: {
 	) {
 		return deskCamera;
 	}
-	for (let i = 1; i < cameraCount; i++) {
-		if (cameraSettings[i]?.perspective && available(i)) return i;
+	for (let i = 0; i < cameraCount; i++) {
+		if (i !== mainCamera && cameraSettings[i]?.perspective && available(i)) return i;
 	}
-	for (let i = 1; i < cameraCount; i++) {
-		if (available(i)) return i;
+	for (let i = 0; i < cameraCount; i++) {
+		if (i !== mainCamera && available(i)) return i;
 	}
 	return null;
 }

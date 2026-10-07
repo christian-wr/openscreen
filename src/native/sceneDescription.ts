@@ -1361,11 +1361,15 @@ export function buildSceneDescription(
 		(region) =>
 			cameraSectionsOverlapping(existingCameraSections, region.startMs, region.endMs).length === 0,
 	);
+	// `document` is the swapped copy: the main camera sits at index 0 and a main camera other
+	// than camera 1 already settled the desk camera (`withMainCamera`), so 0 is the main camera
+	// here either way.
 	const deskCamera = resolveDeskCamera({
 		deskCamera: legacyRaw?.deskCamera,
 		cameraCount: projectCameraCount(document.assets),
 		cameraSettings: cameraSettings.map((s) => s ?? {}),
 		available: (index) => projectCameraAvailable(document.assets, index),
+		mainCamera: 0,
 	});
 	const desk = deskRowsForScene(deskRegions, deskCamera);
 	const labelledDeskSections = new Set(

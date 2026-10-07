@@ -183,9 +183,9 @@ describe("withMainCamera", () => {
 		expect(legacyOf(withMainCamera(doc({ mainCamera: 2, deskCamera: 1 }))).deskCamera).toBe(1);
 	});
 
-	it("settles an automatic desk camera on the unswapped cameras: desk = main", () => {
-		// Only device 2 has a perspective, so the editor's desk camera is device 2 -- the main
-		// camera, which sits at index 0 after the swap.
+	it("settles an automatic desk camera on the unswapped cameras, never on the main one", () => {
+		// Only device 2 has a perspective, but device 2 is the main camera: the automatic desk
+		// camera passes over it and takes device 0, which sits at index 2 after the swap.
 		const out = withMainCamera(
 			doc({
 				mainCamera: 2,
@@ -193,18 +193,21 @@ describe("withMainCamera", () => {
 				deskRegions: [{ id: "d1", startMs: 0, endMs: 1000 }],
 			}),
 		);
-		expect(legacyOf(out).deskCamera).toBe(0);
+		expect(legacyOf(out).deskCamera).toBe(2);
 		expect(legacyOf(out).deskRegions).toHaveLength(1);
+		// A non-main camera with a perspective wins over camera 1.
+		const withDesk = withMainCamera(
+			doc({ mainCamera: 2, cameraSettings: [null, { perspective: perspective(2) }] }),
+		);
+		expect(legacyOf(withDesk).deskCamera).toBe(1);
 	});
 
-	it("settles an automatic desk camera without a perspective on the same device", () => {
-		// The editor falls back to device 1; after the swap device 1 is still index 1, while a
-		// fallback run on the swapped document would also find it -- pin the value either way.
-		expect(legacyOf(withMainCamera(doc({ mainCamera: 2 }))).deskCamera).toBe(1);
-		// Two cameras, main = device 1: the editor's desk camera is device 1 (the main camera),
-		// not the real camera 1 that the swapped document holds at index 1.
+	it("settles an automatic desk camera without a perspective on camera 1", () => {
+		// The first non-main camera in index order is device 0, at the main camera's index after
+		// the swap.
+		expect(legacyOf(withMainCamera(doc({ mainCamera: 2 }))).deskCamera).toBe(2);
 		const two = asset({ additionalCameraTracks: [track("/c2.mp4")] });
-		expect(legacyOf(withMainCamera(doc({ mainCamera: 1 }, [two]))).deskCamera).toBe(0);
+		expect(legacyOf(withMainCamera(doc({ mainCamera: 1 }, [two]))).deskCamera).toBe(1);
 	});
 
 	it("drops the desk sections when no desk camera resolves", () => {

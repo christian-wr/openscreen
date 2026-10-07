@@ -140,13 +140,15 @@ export function withMainCamera(document: AxcutDocument): AxcutDocument {
 		nextLegacy.cameraLayoutRegions = swapLayoutRegions(legacy.cameraLayoutRegions, main);
 	}
 	// The desk camera is settled on the unswapped document, exactly as the editor settles it:
-	// its automatic fallback searches by index and perspective, so running it on the swapped
-	// cameras could pick another device. The scene then reads the settled value.
+	// its automatic fallback searches by index and perspective and passes over the main camera,
+	// so running it on the swapped cameras could pick another device. The scene then reads the
+	// settled value.
 	const deskCamera = resolveDeskCamera({
 		deskCamera: legacy.deskCamera,
 		cameraCount: projectCameraCount(document.assets),
 		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
 		available: (index) => projectCameraAvailable(document.assets, index),
+		mainCamera: main,
 	});
 	if (deskCamera === null) {
 		delete nextLegacy.deskCamera;
