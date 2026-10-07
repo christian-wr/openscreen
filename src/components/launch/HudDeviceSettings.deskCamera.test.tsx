@@ -90,25 +90,24 @@ describe("HudDeviceSettings desk camera", () => {
 	it("offers the recorded cameras below the additional cameras and reports the pick", () => {
 		const { onChangeDesk } = renderPanel({ selected: null });
 
-		const desk = within(screen.getByRole("group", { name: "Desk camera" }));
-		const items = desk.getAllByRole("menuitemradio").map((item) => item.textContent);
+		const desk = within(screen.getByRole("radiogroup", { name: "Desk camera" }));
+		const items = desk.getAllByRole("radio").map((item) => item.textContent);
 		expect(items).toEqual(["None", "Logitech BRIO", "C920"]);
-		expect(desk.getByRole("menuitemradio", { name: "None" })).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
+		expect(desk.getByRole("radio", { name: "None" })).toHaveAttribute("aria-checked", "true");
 
-		fireEvent.click(desk.getByRole("menuitemradio", { name: "C920" }));
+		fireEvent.click(desk.getByRole("radio", { name: "C920" }));
 		expect(onChangeDesk).toHaveBeenCalledWith({ id: "cam-2", name: "C920" });
 	});
 
 	it("is locked like the additional cameras", () => {
 		const { onChangeDesk } = renderPanel({ selected: null, disabled: true });
 
-		const desk = within(screen.getByRole("group", { name: "Desk camera" }));
-		const item = desk.getByRole("menuitemradio", { name: "C920" });
+		const desk = within(screen.getByRole("radiogroup", { name: "Desk camera" }));
+		const item = desk.getByRole("radio", { name: "C920" });
 		expect(item).toBeDisabled();
 		fireEvent.click(item);
 		expect(onChangeDesk).not.toHaveBeenCalled();
+		// One hint for both locked lists.
+		expect(screen.getAllByText("Native Windows only")).toHaveLength(1);
 	});
 });

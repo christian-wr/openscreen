@@ -62,9 +62,9 @@ try {
 	await sleep(4000);
 	await hud.getByRole("button", { name: "Device settings" }).first().click();
 	await sleep(1000);
-	const group = hud.getByRole("group", { name: "Desk camera" });
+	const group = hud.getByRole("radiogroup", { name: "Desk camera" });
 	note("the device settings show a desk camera list", (await group.count()) > 0);
-	const items = group.getByRole("menuitemradio");
+	const items = group.getByRole("radio");
 	const names = [];
 	for (let k = 0; k < (await items.count()); k++)
 		names.push((await items.nth(k).innerText()).trim());

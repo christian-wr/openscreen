@@ -44,7 +44,7 @@ export interface HudAdditionalCameras {
 	/** No native Windows recording: the list stays visible, with its hint, but cannot be used. */
 	disabled: boolean;
 	labels: AdditionalCamerasLabels;
-	/** The desk camera among the recorded ones; same lock and hint as the list above. */
+	/** The desk camera among the recorded ones; locked with the list above, whose hint covers both. */
 	desk: {
 		selected: AdditionalCameraChoice | null;
 		onChange: (next: AdditionalCameraChoice | null) => void;
@@ -264,7 +264,8 @@ export const HudDeviceSettings = memo(function HudDeviceSettings({
 					selected={additionalCameras.desk.selected}
 					onChange={additionalCameras.desk.onChange}
 					disabled={additionalCameras.disabled}
-					labels={{ ...additionalCameras.desk.labels, hint: additionalCameras.labels.hint }}
+					// Locked by the same rule as the list above, which already shows the hint.
+					labels={additionalCameras.desk.labels}
 				/>
 			) : null}
 			{hasCamera ? (

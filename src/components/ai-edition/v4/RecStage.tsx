@@ -524,7 +524,6 @@ export function RecStage({
 								labels={{
 									title: tLaunch("webcam.deskCamera"),
 									none: tLaunch("webcam.deskCameraNone"),
-									hint: tLaunch("webcam.additionalCamerasHint"),
 								}}
 								classes={{ ...extraCamClasses, group: styles.recDeskCams }}
 							/>

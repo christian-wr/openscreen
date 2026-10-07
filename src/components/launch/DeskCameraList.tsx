@@ -12,8 +12,11 @@ import styles from "./LaunchWindow.module.css";
 export interface DeskCameraLabels {
 	title: string;
 	none: string;
-	/** Shown while the list is disabled: why it cannot be used here. */
-	hint: string;
+	/**
+	 * Shown while the list is disabled: why it cannot be used here. Left out where the additional
+	 * cameras' list above is locked by the same rule and already says so.
+	 */
+	hint?: string;
 }
 
 /** The additional cameras' class names, plus one for the group that wraps the list. */
@@ -77,7 +80,7 @@ export function DeskCameraList({
 	];
 
 	return (
-		<div role="group" aria-label={labels.title} className={classes?.group}>
+		<div role="radiogroup" aria-label={labels.title} className={classes?.group}>
 			<div className={classes?.title ?? styles.hudMenuSectionLabel}>{labels.title}</div>
 			{entries.map(({ key, label, device }) => {
 				const isOn = device === chosen;
@@ -85,7 +88,7 @@ export function DeskCameraList({
 					<button
 						key={key}
 						type="button"
-						role="menuitemradio"
+						role="radio"
 						aria-checked={isOn}
 						disabled={disabled}
 						onClick={() => {
@@ -101,7 +104,9 @@ export function DeskCameraList({
 					</button>
 				);
 			})}
-			{disabled ? <div className={classes?.hint ?? styles.hudModalHint}>{labels.hint}</div> : null}
+			{disabled && labels.hint ? (
+				<div className={classes?.hint ?? styles.hudModalHint}>{labels.hint}</div>
+			) : null}
 		</div>
 	);
 }

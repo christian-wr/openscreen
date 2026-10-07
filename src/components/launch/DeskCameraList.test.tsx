@@ -40,7 +40,7 @@ describe("DeskCameraList", () => {
 		renderList();
 
 		expect(screen.getByText(labels.title)).toBeInTheDocument();
-		const items = screen.getAllByRole("menuitemradio");
+		const items = screen.getAllByRole("radio");
 		expect(items.map((item) => item.textContent)).toEqual([
 			"None",
 			"Camera A",
@@ -52,7 +52,7 @@ describe("DeskCameraList", () => {
 	it("leaves out cameras that are not recorded", () => {
 		renderList({ additional: [choice("C")] });
 
-		const items = screen.getAllByRole("menuitemradio");
+		const items = screen.getAllByRole("radio");
 		expect(items.map((item) => item.textContent)).toEqual(["None", "Camera A", "Camera C"]);
 	});
 
@@ -60,61 +60,65 @@ describe("DeskCameraList", () => {
 		renderList({ additional: [] });
 
 		expect(screen.queryByText(labels.title)).not.toBeInTheDocument();
-		expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+		expect(screen.queryAllByRole("radio")).toHaveLength(0);
 	});
 
 	it("stores the current id and name of the picked camera", () => {
 		const onChange = renderList();
 
-		fireEvent.click(screen.getByRole("menuitemradio", { name: "Camera C" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Camera C" }));
 		expect(onChange).toHaveBeenLastCalledWith({ id: "C", name: "Camera C" });
 
-		fireEvent.click(screen.getByRole("menuitemradio", { name: "Camera A" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Camera A" }));
 		expect(onChange).toHaveBeenLastCalledWith({ id: "A", name: "Camera A" });
 	});
 
 	it("clears the pick with None", () => {
 		const onChange = renderList({ selected: choice("C") });
 
-		fireEvent.click(screen.getByRole("menuitemradio", { name: "None" }));
+		fireEvent.click(screen.getByRole("radio", { name: "None" }));
 		expect(onChange).toHaveBeenLastCalledWith(null);
 	});
 
 	it("checks the stored pick", () => {
 		renderList({ selected: choice("B") });
 
-		expect(screen.getByRole("menuitemradio", { name: "Camera B" })).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
-		expect(screen.getByRole("menuitemradio", { name: "None" })).toHaveAttribute(
-			"aria-checked",
-			"false",
-		);
+		expect(screen.getByRole("radio", { name: "Camera B" })).toHaveAttribute("aria-checked", "true");
+		expect(screen.getByRole("radio", { name: "None" })).toHaveAttribute("aria-checked", "false");
 	});
 
 	it("checks None when the stored pick is not among the recorded cameras", () => {
 		// D is unplugged / not checked as an additional camera: it will not be recorded.
 		renderList({ selected: choice("D") });
 
-		expect(screen.getByRole("menuitemradio", { name: "None" })).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
+		expect(screen.getByRole("radio", { name: "None" })).toHaveAttribute("aria-checked", "true");
 		for (const name of ["Camera A", "Camera B", "Camera C"]) {
-			expect(screen.getByRole("menuitemradio", { name })).toHaveAttribute("aria-checked", "false");
+			expect(screen.getByRole("radio", { name })).toHaveAttribute("aria-checked", "false");
 		}
 	});
 
 	it("is disabled with a hint without native Windows recording", () => {
 		const onChange = renderList({ disabled: true });
 
-		const item = screen.getByRole("menuitemradio", { name: "Camera C" });
+		const item = screen.getByRole("radio", { name: "Camera C" });
 		expect(item).toBeDisabled();
-		expect(screen.getByRole("menuitemradio", { name: "None" })).toBeDisabled();
+		expect(screen.getByRole("radio", { name: "None" })).toBeDisabled();
 		expect(screen.getByText(labels.hint)).toBeInTheDocument();
 		fireEvent.click(item);
 		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("is a radio group named by its title", () => {
+		renderList();
+
+		expect(screen.getByRole("radiogroup", { name: labels.title })).toBeInTheDocument();
+	});
+
+	it("leaves the hint to the list above when it has none of its own", () => {
+		renderList({ disabled: true, labels: { title: labels.title, none: labels.none } });
+
+		expect(screen.getByRole("radio", { name: "Camera C" })).toBeDisabled();
+		expect(screen.queryByText(labels.hint)).not.toBeInTheDocument();
 	});
 
 	it("shows no hint while it is usable", () => {

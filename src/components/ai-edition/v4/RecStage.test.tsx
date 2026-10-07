@@ -427,25 +427,43 @@ describe("RecStage controls", () => {
 		});
 		renderRecStage();
 
-		const desk = within(await screen.findByRole("group", { name: "webcam.deskCamera" }));
-		expect(desk.getAllByRole("menuitemradio").map((item) => item.textContent)).toEqual([
+		const desk = within(await screen.findByRole("radiogroup", { name: "webcam.deskCamera" }));
+		expect(desk.getAllByRole("radio").map((item) => item.textContent)).toEqual([
 			"webcam.deskCameraNone",
 			"Brio",
 			"C920",
 		]);
-		await waitFor(() =>
-			expect(desk.getByRole("menuitemradio", { name: "C920" })).not.toBeDisabled(),
-		);
-		fireEvent.click(desk.getByRole("menuitemradio", { name: "C920" }));
+		await waitFor(() => expect(desk.getByRole("radio", { name: "C920" })).not.toBeDisabled());
+		fireEvent.click(desk.getByRole("radio", { name: "C920" }));
 		await waitFor(() =>
 			expect(setRecordingPrefs).toHaveBeenCalledWith({
 				camDeskDevice: { id: "cam-2", name: "C920" },
 			}),
 		);
-		expect(desk.getByRole("menuitemradio", { name: "C920" })).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
+		expect(desk.getByRole("radio", { name: "C920" })).toHaveAttribute("aria-checked", "true");
+	});
+
+	it("shows the lock hint once when both camera lists are locked", async () => {
+		cameraHook.devices = [
+			{ deviceId: "cam-1", label: "Brio", groupId: "g1" },
+			{ deviceId: "cam-2", label: "C920", groupId: "g2" },
+		];
+		stubRecordingPrefs({
+			camEnabled: true,
+			camDeviceId: "cam-1",
+			camDeviceName: "Brio",
+			camAdditionalDevices: [{ id: "cam-2", name: "C920" }],
+			camDeskDevice: null,
+		});
+		Object.assign(window.electronAPI as object, {
+			getPlatform: () => "win32",
+			isNativeWindowsCaptureAvailable: vi.fn(async () => ({ success: true, available: false })),
+		});
+		renderRecStage();
+
+		const desk = within(await screen.findByRole("radiogroup", { name: "webcam.deskCamera" }));
+		expect(desk.getByRole("radio", { name: "C920" })).toBeDisabled();
+		expect(screen.getAllByText("webcam.additionalCamerasHint")).toHaveLength(1);
 	});
 
 	it("offers Hide desktop icons where a helper honours it, and persists the toggle", async () => {
