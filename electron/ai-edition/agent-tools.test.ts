@@ -1301,6 +1301,71 @@ describe("full-camera regions and layout sections share one lane", () => {
 	});
 });
 
+describe("the shared camera lane while another camera is the main one", () => {
+	/** Camera 2 is the main camera; a camera-full section of `camera` covers 10–15 s of clip_1. */
+	function withCameraFullRow(document: AxcutDocument, camera: number): AxcutDocument {
+		return documentSchema.parse({
+			...document,
+			legacyEditor: {
+				...((document.legacyEditor as Record<string, unknown>) ?? {}),
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{
+						id: "camlayout_1",
+						startMs: 10_000,
+						endMs: 15_000,
+						clipId: "clip_1",
+						assetId: "asset_1",
+						sourceStartSec: 10,
+						sourceEndSec: 15,
+						template: "camera-full",
+						slots: [{ camera }],
+					},
+				],
+			},
+		});
+	}
+
+	it("refuses a full-camera region over camera 1's camera-full section", () => {
+		const document = withCameraFullRow(withCameraTrack(fixtureDocument()), 0);
+		const result = executeAgentTool(
+			document,
+			"addCameraFullscreen",
+			JSON.stringify({ startSec: 12, endSec: 18 }),
+		);
+		expect(result.ok).toBe(false);
+		expect(result.document).toBeUndefined();
+		expect(JSON.parse(result.resultJson).error).toMatch(/camlayout_1/);
+	});
+
+	it("refuses a full-camera region over a camera-full row stored before its camera became main", () => {
+		const document = withCameraFullRow(withCameraTrack(fixtureDocument()), 1);
+		const result = executeAgentTool(
+			document,
+			"addCameraFullscreen",
+			JSON.stringify({ startSec: 12, endSec: 18 }),
+		);
+		expect(result.ok).toBe(false);
+		expect(JSON.parse(result.resultJson).error).toMatch(/camlayout_1/);
+	});
+
+	it("lists every stored layout row, as the editor lane shows it", () => {
+		for (const camera of [0, 1]) {
+			const document = withCameraFullRow(withCameraTrack(fixtureDocument()), camera);
+			const snapshot = JSON.parse(executeAgentTool(document, "getCurrentDocument", "").resultJson);
+			expect(snapshot.cameraLayoutRegions).toEqual([
+				{
+					id: "camlayout_1",
+					startSec: 10,
+					endSec: 15,
+					template: "camera-full",
+					cameras: [camera + 1],
+				},
+			]);
+		}
+	});
+});
+
 // ── D-DESTRUCT ──────────────────────────────────────────────────────────────
 //
 // "Swap the two clips: put the demo first." There was no tool for it — while

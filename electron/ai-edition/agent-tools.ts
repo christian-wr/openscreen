@@ -57,10 +57,7 @@ import {
 	effectiveZoomScale,
 	ZOOM_DEPTH_LEGEND,
 } from "../../src/lib/ai-edition/timeline/zoom-scale";
-import {
-	cameraSectionsOverlapping,
-	normalizeCameraLayoutRegions,
-} from "../../src/lib/cameraLayouts";
+import { cameraSectionsOverlapping, storedCameraLayoutRows } from "../../src/lib/cameraLayouts";
 import { normalizeDeskRegions } from "../../src/lib/deskSections";
 import { SETTING_BOUNDS } from "../../src/lib/projectDefaults";
 
@@ -278,10 +275,14 @@ function noCameraUnderSpan(
 	);
 }
 
-/** The editor's file the agent reads layout sections from, coalesced to the pills the ruler draws. */
+/**
+ * The editor's file the agent reads layout sections from, coalesced to the pills the ruler draws.
+ * Every valid stored row, with no role filter: the editor lane shows exactly these, and a
+ * camera-full row of the main camera still occupies the lane, so the overlap check must see it.
+ */
 function cameraLayoutPillsForAgent(document: AxcutDocument) {
 	const legacy = document.legacyEditor as Record<string, unknown> | null;
-	return coalesceForAgent(normalizeCameraLayoutRegions(legacy?.cameraLayoutRegions));
+	return coalesceForAgent(storedCameraLayoutRows(legacy?.cameraLayoutRegions));
 }
 
 /** The editor's desk sections, coalesced to the pills the ruler draws. */
