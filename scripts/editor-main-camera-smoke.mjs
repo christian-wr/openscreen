@@ -225,8 +225,7 @@ try {
 	// A. A plain moment, before and after picking camera 2 as the main camera.
 	const plainAt = freeSpot(3);
 	await d.seekTo(plainAt);
-	const before = await d.frame("A-plain-camera-1");
-	shots.push(await d.shot("A-plain-camera-1"));
+	shots.push(await d.shot("A-plain-project-preset"));
 	await editor.getByRole("button", { name: "Camera layout", exact: true }).click();
 	await sleep(600);
 	// The source project may hide the camera outside sections ("no webcam"): show the PiP so the
