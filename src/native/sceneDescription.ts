@@ -90,6 +90,7 @@ import type { CursorKind } from "@/lib/cursor/cursorThemes";
 import { DESK_COVER_ANIMATION, DESK_LABEL_Z_INDEX } from "@/lib/deskCover";
 import { deskRowsForScene, normalizeDeskRegions, resolveDeskCamera } from "@/lib/deskSections";
 import { parseCssGradient, resolveLinearGradientAngle } from "@/lib/exporter/gradientParser";
+import { withMainCamera } from "@/lib/mainCamera";
 import type { FrameTheme, RecordingFrame, WebcamAnchor } from "@/lib/projectDefaults";
 import { resolveTextFontFamily } from "@/lib/textFonts";
 import { classifyWallpaper } from "@/lib/wallpaper";
@@ -1033,9 +1034,13 @@ function deskSectionLabelRegions(pieces: DeskLabelPiece[], labelledSections: Rea
 
 /** Serialize a document into a {@link SceneDescription}. Pure — no per-frame math. */
 export function buildSceneDescription(
-	document: AxcutDocument,
+	source: AxcutDocument,
 	webcamSourceSize: { width: number; height: number } | null = null,
 ): SceneDescription {
+	// The scene draws the main camera in camera 1's place: every camera read below (clip
+	// cameras, preset sizes, layout slots, the desk camera) sees the swapped document. Clip and
+	// asset ids are unchanged, so anchored regions still resolve. Never persist this copy.
+	const document = withMainCamera(source);
 	const settings = getEditorSettings(document);
 
 	const assetById = new Map(document.assets.map((a) => [a.id, a]));

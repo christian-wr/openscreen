@@ -3754,3 +3754,127 @@ describe("buildSceneDescription desk sections", () => {
 		expect(deskLabels(scene).map((a) => a.id)).toEqual(["desk-d1-0"]);
 	});
 });
+
+describe("buildSceneDescription with a main camera", () => {
+	const camera1 = {
+		sourcePath: "/w-1.mp4",
+		startMs: 0,
+		offsetMs: 0,
+		visible: true,
+		width: 1280,
+		height: 720,
+	};
+	const camera2 = {
+		sourcePath: "/w-2.mp4",
+		startMs: 0,
+		offsetMs: 250,
+		visible: true,
+		label: "Desk",
+		width: 720,
+		height: 1280,
+	};
+	const docWith = (
+		legacyEditor: Record<string, unknown> | null,
+		tracks: Pick<Partial<AxcutAsset>, "cameraTrack" | "additionalCameraTracks"> = {},
+	) => {
+		const asset = makeAsset({
+			id: "a",
+			originalPath: "/screen.mp4",
+			cameraTrack: tracks.cameraTrack ?? camera1,
+			additionalCameraTracks: tracks.additionalCameraTracks ?? [camera2],
+		});
+		const clip = makeClip({
+			id: "c1",
+			assetId: "a",
+			sourceStartSec: 0,
+			sourceEndSec: 10,
+			timelineStartSec: 0,
+			timelineEndSec: 10,
+		});
+		return makeDoc({ assets: [asset], clips: [clip], legacyEditor });
+	};
+	const desk = { id: "d1", startMs: 1000, endMs: 3000 };
+	const deskLabels = (scene: ReturnType<typeof buildSceneDescription>) =>
+		scene.annotations.filter((a) => a.id.startsWith("desk-"));
+
+	it("plays camera 2 in camera 1's place and camera 1 as the extra camera", () => {
+		const scene = buildSceneDescription(docWith({ mainCamera: 1 }));
+		expect(scene.clips[0].webcamPath).toBe("/w-2.mp4");
+		expect(scene.clips[0].webcamOffsetSec).toBe(0.25);
+		expect(scene.clips[0].additionalCameras).toEqual([{ path: "/w-1.mp4", offsetSec: 0 }]);
+	});
+
+	it("sizes the preset's camera box from the main camera", () => {
+		const { label: _label, ...camera2AsFirst } = camera2;
+		const scene = buildSceneDescription(docWith({ mainCamera: 1, webcamMaskShape: "rectangle" }));
+		const asIfCamera2WasFirst = buildSceneDescription(
+			docWith(
+				{ webcamMaskShape: "rectangle" },
+				{ cameraTrack: camera2AsFirst, additionalCameraTracks: [{ ...camera1, label: "" }] },
+			),
+		);
+		expect(scene.layout.webcamRect).toEqual(asIfCamera2WasFirst.layout.webcamRect);
+		const rect = scene.layout.webcamRect;
+		expect(rect).not.toBeNull();
+		const ratio = (rect!.width * scene.output.width) / (rect!.height * scene.output.height);
+		expect(ratio).toBeCloseTo(9 / 16, 1);
+	});
+
+	it("draws a layout slot of the main camera as camera slot 0", () => {
+		const scene = buildSceneDescription(
+			docWith({
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 4000, template: "screen-pip", slots: [{ camera: 1 }] },
+				],
+			}),
+		);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([0]);
+	});
+
+	it("turns a camera-full layout of the main camera into a Full Camera region", () => {
+		const scene = buildSceneDescription(
+			docWith({
+				mainCamera: 1,
+				cameraLayoutRegions: [
+					{ id: "l1", startMs: 1000, endMs: 4000, template: "camera-full", slots: [{ camera: 1 }] },
+				],
+			}),
+		);
+		expect(scene.cameraFullscreenRegions).toMatchObject([{ startSec: 1, endSec: 4 }]);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+	});
+
+	it("draws a desk section of the main camera as a Full Camera row with one label", () => {
+		const scene = buildSceneDescription(
+			docWith({ mainCamera: 1, deskCamera: 1, deskRegions: [desk] }),
+		);
+		expect(scene.cameraLayoutRegions).toBeUndefined();
+		expect(scene.cameraFullscreenRegions).toHaveLength(1);
+		expect(scene.cameraFullscreenRegions[0]).toMatchObject({ startSec: 1, endSec: 3 });
+		expect(deskLabels(scene)).toHaveLength(1);
+	});
+
+	it("draws a desk section of camera 1 as a camera-full layout of scene camera 1", () => {
+		const scene = buildSceneDescription(
+			docWith({ mainCamera: 1, deskCamera: 0, deskRegions: [desk] }),
+		);
+		expect(scene.cameraFullscreenRegions).toEqual([]);
+		expect(scene.cameraLayoutRegions).toHaveLength(1);
+		expect(scene.cameraLayoutRegions?.[0].layers.map((l) => l.camera)).toEqual([1]);
+		expect(deskLabels(scene)).toHaveLength(1);
+	});
+
+	it("ignores a main camera that is not available", () => {
+		const hidden = { additionalCameraTracks: [{ ...camera2, visible: false }] };
+		const legacy = {
+			deskRegions: [desk],
+			cameraLayoutRegions: [
+				{ id: "l1", startMs: 4000, endMs: 6000, template: "screen-pip", slots: [{ camera: 0 }] },
+			],
+		};
+		expect(buildSceneDescription(docWith({ ...legacy, mainCamera: 1 }, hidden))).toEqual(
+			buildSceneDescription(docWith(legacy, hidden)),
+		);
+	});
+});
