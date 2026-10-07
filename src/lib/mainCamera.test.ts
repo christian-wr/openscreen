@@ -150,6 +150,40 @@ describe("withMainCamera", () => {
 		expect(legacyOf(withMainCamera(doc({ mainCamera: 2, deskCamera: 1 }))).deskCamera).toBe(1);
 	});
 
+	it("settles an automatic desk camera on the unswapped cameras: desk = main", () => {
+		// Only device 2 has a perspective, so the editor's desk camera is device 2 -- the main
+		// camera, which sits at index 0 after the swap.
+		const out = withMainCamera(
+			doc({
+				mainCamera: 2,
+				cameraSettings: [null, null, { perspective: perspective(2) }],
+				deskRegions: [{ id: "d1", startMs: 0, endMs: 1000 }],
+			}),
+		);
+		expect(legacyOf(out).deskCamera).toBe(0);
+		expect(legacyOf(out).deskRegions).toHaveLength(1);
+	});
+
+	it("settles an automatic desk camera without a perspective on the same device", () => {
+		// The editor falls back to device 1; after the swap device 1 is still index 1, while a
+		// fallback run on the swapped document would also find it -- pin the value either way.
+		expect(legacyOf(withMainCamera(doc({ mainCamera: 2 }))).deskCamera).toBe(1);
+		// Two cameras, main = device 1: the editor's desk camera is device 1 (the main camera),
+		// not the real camera 1 that the swapped document holds at index 1.
+		const two = asset({ additionalCameraTracks: [track("/c2.mp4")] });
+		expect(legacyOf(withMainCamera(doc({ mainCamera: 1 }, [two]))).deskCamera).toBe(0);
+	});
+
+	it("drops the desk sections when no desk camera resolves", () => {
+		// With a main camera m >= 1 available, the fallback always finds a desk camera; null
+		// only comes from a document without a main camera, which is returned unchanged.
+		const single = asset({ additionalCameraTracks: [] });
+		const d = doc({ mainCamera: 2, deskRegions: [{ id: "d1", startMs: 0, endMs: 1000 }] }, [
+			single,
+		]);
+		expect(withMainCamera(d)).toBe(d);
+	});
+
 	it("does not mutate the input", () => {
 		const d = doc({ mainCamera: 2, deskCamera: 2, cameraSettings: [null, null, { rotation: 90 }] });
 		const before = structuredClone(d);

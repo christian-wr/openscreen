@@ -6,6 +6,7 @@ import type { CameraSettings } from "@/components/video-editor/types";
 import type { AxcutAsset, AxcutDocument } from "./ai-edition/schema";
 import { projectCameraAvailable, projectCameraCount } from "./ai-edition/timeline/cameraList";
 import { normalizeCameraSettings } from "./cameraLayouts";
+import { resolveDeskCamera } from "./deskSections";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,8 +106,20 @@ export function withMainCamera(document: AxcutDocument): AxcutDocument {
 	if ("cameraLayoutRegions" in legacy) {
 		nextLegacy.cameraLayoutRegions = swapLayoutRegions(legacy.cameraLayoutRegions, main);
 	}
-	if (typeof legacy.deskCamera === "number") {
-		nextLegacy.deskCamera = swapIndex(legacy.deskCamera, main);
+	// The desk camera is settled on the unswapped document, exactly as the editor settles it:
+	// its automatic fallback searches by index and perspective, so running it on the swapped
+	// cameras could pick another device. The scene then reads the settled value.
+	const deskCamera = resolveDeskCamera({
+		deskCamera: legacy.deskCamera,
+		cameraCount: projectCameraCount(document.assets),
+		cameraSettings: normalizeCameraSettings(legacy.cameraSettings).map((s) => s ?? {}),
+		available: (index) => projectCameraAvailable(document.assets, index),
+	});
+	if (deskCamera === null) {
+		delete nextLegacy.deskCamera;
+		delete nextLegacy.deskRegions;
+	} else {
+		nextLegacy.deskCamera = swapIndex(deskCamera, main);
 	}
 
 	return {
