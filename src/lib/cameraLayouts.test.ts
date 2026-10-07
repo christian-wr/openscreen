@@ -7,6 +7,7 @@ import {
 	normalizeCameraLayoutRegions,
 	normalizeCameraSettings,
 	patchCameraSettings,
+	storedCameraLayoutRows,
 } from "./cameraLayouts";
 
 const base = { id: "a", startMs: 0, endMs: 1000 };
@@ -181,6 +182,46 @@ describe("normalizeCameraLayoutRegions with a main camera", () => {
 			],
 			1,
 		);
+		expect(out.map((r) => r.id)).toEqual([base.id]);
+	});
+});
+
+describe("storedCameraLayoutRows", () => {
+	it("keeps every valid camera-full row, the main camera's included", () => {
+		const out = storedCameraLayoutRows([
+			{ ...base, template: "camera-full", slots: [{ camera: 0 }] },
+			{
+				...base,
+				id: "b",
+				startMs: 5000,
+				endMs: 6000,
+				template: "camera-full",
+				slots: [{ camera: 1 }],
+			},
+			{
+				...base,
+				id: "bad",
+				startMs: 7000,
+				endMs: 7000,
+				template: "camera-full",
+				slots: [{ camera: 2 }],
+			},
+		]);
+		expect(out.map((r) => r.id)).toEqual([base.id, "b"]);
+	});
+
+	it("drops a later row that overlaps an earlier one", () => {
+		const out = storedCameraLayoutRows([
+			{ ...base, template: "camera-full", slots: [{ camera: 0 }] },
+			{
+				...base,
+				id: "b",
+				startMs: 500,
+				endMs: 2000,
+				template: "screen-pip",
+				slots: [{ camera: 1 }],
+			},
+		]);
 		expect(out.map((r) => r.id)).toEqual([base.id]);
 	});
 });

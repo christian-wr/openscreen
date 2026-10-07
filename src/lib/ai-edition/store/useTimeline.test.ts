@@ -3779,6 +3779,92 @@ describe("useTimeline camera roles on the camera lane", () => {
 		expect(legacyNow().cameraLayoutRegions).toEqual([]);
 	});
 
+	// --- A stored camera-full row stays on the lane whatever the main camera ---
+	// The role rule decides storage at write time only. A row that becomes camera-full of the
+	// main camera later (the main camera changed) is still drawn by the scene, so the lane must
+	// still show it: selectable, editable, removable.
+
+	it("keeps a camera-full row of camera 2 on the lane after camera 2 becomes main", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "camera-full", [{ camera: 1 }])],
+		});
+		const { result } = renderTimeline();
+		expect(result.current.cameraLayoutRegions.map((r) => r.id)).toEqual(["camlayout_1"]);
+		await act(async () => {
+			await result.current.setMainCamera(1);
+		});
+		expect(result.current.mainCamera).toBe(1);
+		expect(result.current.cameraLayoutRegions.map((r) => r.id)).toEqual(["camlayout_1"]);
+		act(() => result.current.selectRegion("cameraLayout", "camlayout_1"));
+		expect(result.current.selection).toEqual({ kind: "cameraLayout", id: "camlayout_1" });
+		await act(async () => {
+			await result.current.removeRegion("cameraLayout", "camlayout_1");
+		});
+		expect(legacyNow().cameraLayoutRegions).toEqual([]);
+		expect(result.current.cameraLayoutRegions).toEqual([]);
+		expect(result.current.selection).toBeNull();
+	});
+
+	it("keeps a camera-full row of camera 1 on the lane after camera 1 becomes main again", async () => {
+		seed({ mainCamera: 1 });
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.addCameraLayout("camera-full", [0]);
+		});
+		const id = result.current.cameraLayoutRegions[0]?.id;
+		expect(id).toBeDefined();
+		await act(async () => {
+			await result.current.setMainCamera(0);
+		});
+		expect(result.current.mainCamera).toBe(0);
+		expect(result.current.cameraLayoutRegions.map((r) => r.id)).toEqual([id]);
+		expect(legacyNow().cameraFullscreenRegions ?? []).toEqual([]);
+	});
+
+	it("edits a camera-full row of the main camera from the inspector without duplicating it", async () => {
+		seed({
+			mainCamera: 1,
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "camera-full", [{ camera: 1 }])],
+		});
+		const { result } = renderTimeline();
+		const handle = { kind: "cameraLayout", id: "camlayout_1" } as const;
+		expect(result.current.cameraLayoutRegions.map((r) => r.id)).toEqual(["camlayout_1"]);
+		// Another camera in its place: it stays a layout row.
+		await act(async () => {
+			await result.current.setLayoutSlotCamera(handle, 0, 2);
+		});
+		expect(slotsNow()).toEqual([2]);
+		expect(legacyNow().cameraFullscreenRegions ?? []).toEqual([]);
+		// Back to the main camera: it becomes the Full Camera region, once.
+		let next: { kind: string; id: string } | undefined;
+		await act(async () => {
+			next = await result.current.setLayoutSlotCamera(handle, 0, 1);
+		});
+		expect(next?.kind).toBe("cameraFullscreen");
+		expect(legacyNow().cameraFullscreenRegions).toHaveLength(1);
+		expect(legacyNow().cameraLayoutRegions).toEqual([]);
+		expect(result.current.cameraLayoutRegions).toEqual([]);
+	});
+
+	it("re-picking camera-full on a main-camera row moves it to a Full Camera region, once", async () => {
+		seed({
+			mainCamera: 1,
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "camera-full", [{ camera: 1 }])],
+		});
+		const { result } = renderTimeline();
+		let next: { kind: string; id: string } | undefined;
+		await act(async () => {
+			next = await result.current.setLayoutTemplate(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				"camera-full",
+				[],
+			);
+		});
+		expect(next?.kind).toBe("cameraFullscreen");
+		expect(legacyNow().cameraFullscreenRegions).toHaveLength(1);
+		expect(legacyNow().cameraLayoutRegions).toEqual([]);
+	});
+
 	// --- Camera switches: computed from the freshest document ---
 
 	const renderWithQueue = () =>

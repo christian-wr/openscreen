@@ -22,9 +22,9 @@ import {
 	cameraSectionsOverlapping,
 	isFullCameraLayout,
 	MAX_CAMERAS,
-	normalizeCameraLayoutRegions,
 	normalizeCameraSettings,
 	patchCameraSettings,
+	storedCameraLayoutRows,
 	TEMPLATE_SLOTS,
 } from "@/lib/cameraLayouts";
 import {
@@ -2236,14 +2236,16 @@ export function useTimeline() {
 
 	// Read through the normaliser: unlike Full Camera rows, a layout row carries nested
 	// data (template, slots, rects) that a hand-edited project can get wrong. Memoised so
-	// the list keeps its identity between renders of the same document. The storage rule
-	// follows the main camera: its camera-full rows are Full Camera regions, never shown here.
+	// the list keeps its identity between renders of the same document. No role filter here:
+	// the storage rule applies when a writer stores a section, and a camera-full row that
+	// names the main camera only because the main camera changed afterwards is still drawn,
+	// so it must stay a pill the user can select, edit and delete.
 	const storedCameraLayouts = (document?.legacyEditor as Record<string, unknown> | null)
 		?.cameraLayoutRegions;
 	const mainCamera = document ? mainCameraOf(document) : 0;
 	const cameraLayoutRegions = useMemo(
-		() => (hasDoc ? normalizeCameraLayoutRegions(storedCameraLayouts, mainCamera) : []),
-		[hasDoc, storedCameraLayouts, mainCamera],
+		() => (hasDoc ? storedCameraLayoutRows(storedCameraLayouts) : []),
+		[hasDoc, storedCameraLayouts],
 	);
 
 	// --- Timeline audio tracks (issue #350) -------------------------------------

@@ -148,9 +148,23 @@ export function normalizeCameraLayoutRegions(
 	raw: unknown,
 	mainCamera = 0,
 ): AnchoredCameraLayoutRegion[] {
+	return withoutOverlaps(normalizeAll(raw).filter((r) => !isFullCameraLayout(r, mainCamera)));
+}
+
+/**
+ * Every valid stored layout row, read like `normalizeCameraLayoutRegions` but with no role
+ * filter: a `camera-full` row of the main camera is kept. The role rule decides where a writer
+ * stores a section; a row stored before the main camera changed stays in this list, and the
+ * scene still draws it, so the editor lane and every overlap check must still see it.
+ */
+export function storedCameraLayoutRows(raw: unknown): AnchoredCameraLayoutRegion[] {
+	return withoutOverlaps(normalizeAll(raw));
+}
+
+/** Drops each row that overlaps an earlier kept one; `rows` is sorted by start. */
+function withoutOverlaps(rows: AnchoredCameraLayoutRegion[]): AnchoredCameraLayoutRegion[] {
 	const kept: AnchoredCameraLayoutRegion[] = [];
-	for (const region of normalizeAll(raw)) {
-		if (isFullCameraLayout(region, mainCamera)) continue;
+	for (const region of rows) {
 		const last = kept[kept.length - 1];
 		if (last && region.startMs < last.endMs) continue;
 		kept.push(region);
