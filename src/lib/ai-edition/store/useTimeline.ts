@@ -1672,6 +1672,42 @@ export function useTimeline() {
 		[document, saveDocument],
 	);
 
+	// Set the cameras a layout section shows, as a set: deduplicated, ascending, each camera
+	// keeping its existing place (and that place's rect). One save, so one undo step, over all
+	// rows of the section. Refuses a count the template cannot hold, writing nothing.
+	const setLayoutSectionCameras = useCallback(
+		async (
+			handle: { kind: "cameraLayout"; id: string },
+			cameras: number[],
+		): Promise<"set" | "too-few" | "too-many" | "unchanged"> => {
+			if (!document) return "unchanged";
+			const lanes = cameraLanes(document);
+			const member = lanes.layout.find((r) => r.id === handle.id);
+			if (!member) return "unchanged";
+			const wanted = [...new Set(cameras)]
+				.filter((c) => Number.isInteger(c) && c >= 0 && c < MAX_CAMERAS)
+				.sort((a, b) => a - b);
+			const { min, max } = TEMPLATE_SLOTS[member.template];
+			if (wanted.length < min) return "too-few";
+			if (wanted.length > max) return "too-many";
+			const current = member.slots.map((s) => s.camera).sort((a, b) => a - b);
+			if (current.length === wanted.length && current.every((c, i) => c === wanted[i])) {
+				return "unchanged";
+			}
+			const slots: CameraLayoutSlot[] = wanted.map(
+				(camera) => member.slots.find((s) => s.camera === camera) ?? { camera },
+			);
+			const next = withCameraLanes(
+				document,
+				lanes,
+				lanes.full,
+				patchPillById(lanes.layout, handle.id, { slots }),
+			);
+			return (await saveDocument(next, { history: true })) ? "set" : "unchanged";
+		},
+		[document, saveDocument],
+	);
+
 	// Dragging a place in the preview: the same live/commit split as
 	// `updateAnnotationLive` / `commitAnnotationChange` — store-only writes while the
 	// pointer moves, one save (one undo step) on release.
@@ -2411,6 +2447,7 @@ export function useTimeline() {
 		setDeskCamera,
 		setLayoutTemplate,
 		setLayoutSlotCamera,
+		setLayoutSectionCameras,
 		updateLayoutSlotRectLive,
 		commitLayoutSlotRect,
 		resetLayoutSlotRects,

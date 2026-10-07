@@ -299,6 +299,7 @@ const DECLARED: WritePath[] = [
 	// layout section changing a place (possibly moving to the Full Camera list).
 	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSlotCamera", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSlotCamera", "save", "gesture"),
+	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutSectionCameras", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setLayoutTemplate", "save", "gesture"),
 	w("src/lib/ai-edition/store/useTimeline.ts", "setTrimEntries", "save", "gesture"),
 	// The live halves of the two drags.

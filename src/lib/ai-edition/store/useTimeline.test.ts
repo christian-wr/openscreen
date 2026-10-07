@@ -3022,6 +3022,99 @@ describe("useTimeline camera layouts", () => {
 		expect(bridgeMocks.save).not.toHaveBeenCalled();
 	});
 
+	it("setLayoutSectionCameras writes the set deduplicated and ascending", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
+		});
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.setLayoutSectionCameras(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				[2, 0, 2],
+			);
+		});
+		expect(outcome).toBe("set");
+		expect(legacyNow().cameraLayoutRegions?.[0].slots).toEqual([{ camera: 0 }, { camera: 2 }]);
+	});
+
+	it("setLayoutSectionCameras keeps the rect of a camera that stays", async () => {
+		const rect = { x: 0.1, y: 0.2, width: 0.3, height: 0.3 };
+		seed({
+			cameraLayoutRegions: [
+				layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }, { camera: 2, rect }]),
+			],
+		});
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setLayoutSectionCameras(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				[0, 1, 2],
+			);
+		});
+		expect(legacyNow().cameraLayoutRegions?.[0].slots).toEqual([
+			{ camera: 0 },
+			{ camera: 1 },
+			{ camera: 2, rect },
+		]);
+	});
+
+	it("setLayoutSectionCameras refuses too few and too many cameras", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
+		});
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		const outcomes: string[] = [];
+		await act(async () => {
+			const handle = { kind: "cameraLayout", id: "camlayout_1" } as const;
+			outcomes.push(await result.current.setLayoutSectionCameras(handle, []));
+			outcomes.push(await result.current.setLayoutSectionCameras(handle, [0, 1, 2, 3]));
+		});
+		expect(outcomes).toEqual(["too-few", "too-many"]);
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		expect(useProjectStore.getState().document).toBe(before);
+	});
+
+	it("setLayoutSectionCameras with the same list writes nothing", async () => {
+		seed({
+			cameraLayoutRegions: [
+				layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }, { camera: 1 }]),
+			],
+		});
+		const { result } = renderTimeline();
+		let outcome: string | undefined;
+		await act(async () => {
+			outcome = await result.current.setLayoutSectionCameras(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				[1, 0],
+			);
+		});
+		expect(outcome).toBe("unchanged");
+		expect(bridgeMocks.save).not.toHaveBeenCalled();
+		expect(past).toHaveLength(0);
+	});
+
+	it("setLayoutSectionCameras is one undo step", async () => {
+		seed({
+			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
+		});
+		const before = useProjectStore.getState().document;
+		const { result } = renderTimeline();
+		await act(async () => {
+			await result.current.setLayoutSectionCameras(
+				{ kind: "cameraLayout", id: "camlayout_1" },
+				[0, 1],
+			);
+		});
+		expect(bridgeMocks.save).toHaveBeenCalledTimes(1);
+		expect(past).toHaveLength(1);
+		act(() => {
+			expect(undo()).toBe(true);
+		});
+		expect(useProjectStore.getState().document).toEqual(before);
+	});
+
 	it("a slot rect drag is one undo step", async () => {
 		seed({
 			cameraLayoutRegions: [layoutRow("camlayout_1", 1000, 3000, "screen-pip", [{ camera: 0 }])],
