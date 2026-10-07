@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}}（不可用）",
 		"resetWindows": "重置窗口"
 	},
+	"layoutSection": {
+		"minOneCamera": "至少需要一个摄像头",
+		"maxThreeWindows": "最多三个窗口"
+	},
 	"cameras": {
 		"cameraN": "摄像头 {{n}}",
 		"cameraNamed": "摄像头 {{n}} · {{label}}",

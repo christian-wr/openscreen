@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}} (недоступна)",
 		"resetWindows": "Сбросить окна"
 	},
+	"layoutSection": {
+		"minOneCamera": "Нужна хотя бы одна камера",
+		"maxThreeWindows": "Не больше трёх окон"
+	},
 	"cameras": {
 		"cameraN": "Камера {{n}}",
 		"cameraNamed": "Камера {{n}} · {{label}}",

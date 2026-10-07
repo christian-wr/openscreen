@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}}（利用不可）",
 		"resetWindows": "ウィンドウをリセット"
 	},
+	"layoutSection": {
+		"minOneCamera": "カメラは1台以上必要です",
+		"maxThreeWindows": "ウィンドウは最大3つまでです"
+	},
 	"cameras": {
 		"cameraN": "カメラ {{n}}",
 		"cameraNamed": "カメラ {{n}} · {{label}}",

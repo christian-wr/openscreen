@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}} (không khả dụng)",
 		"resetWindows": "Đặt lại cửa sổ"
 	},
+	"layoutSection": {
+		"minOneCamera": "Cần ít nhất một camera",
+		"maxThreeWindows": "Tối đa ba cửa sổ"
+	},
 	"cameras": {
 		"cameraN": "Camera {{n}}",
 		"cameraNamed": "Camera {{n}} · {{label}}",

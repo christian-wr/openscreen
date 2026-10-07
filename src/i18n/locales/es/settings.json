@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}} (no disponible)",
 		"resetWindows": "Restablecer ventanas"
 	},
+	"layoutSection": {
+		"minOneCamera": "Al menos una cámara",
+		"maxThreeWindows": "Tres ventanas como máximo"
+	},
 	"cameras": {
 		"cameraN": "Cámara {{n}}",
 		"cameraNamed": "Cámara {{n}} · {{label}}",

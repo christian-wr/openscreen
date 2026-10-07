@@ -10,9 +10,10 @@ vi.mock("@/contexts/I18nContext", () => ({
 	useScopedT: (scope: string) => (key: string) => `${scope}.${key}`,
 }));
 
-vi.mock("../RightPanes", async (importOriginal) => ({
-	ChoiceRow: (await importOriginal<typeof import("../RightPanes")>()).ChoiceRow,
-}));
+vi.mock("../RightPanes", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../RightPanes")>();
+	return { ChoiceRow: actual.ChoiceRow, Toggle: actual.Toggle };
+});
 
 import { LayoutSectionPane } from "./LayoutSectionPane";
 
@@ -39,16 +40,18 @@ function setup(region: Partial<CameraLayoutRegion>, cameras: ProjectCamera[], bl
 		slots: [{ camera: 0 }, { camera: 1 }],
 		...region,
 	};
+	const setSectionCameras = vi.fn(async () => "set" as const);
 	render(
 		<LayoutSectionPane
 			tl={tl}
 			region={full}
 			cameras={cameras}
 			blockPreset={blockPreset}
+			setSectionCameras={setSectionCameras}
 			onClose={vi.fn()}
 		/>,
 	);
-	return tl;
+	return Object.assign(tl, { setSectionCameras });
 }
 
 describe("LayoutSectionPane", () => {
@@ -125,5 +128,78 @@ describe("LayoutSectionPane", () => {
 		expect(reset).toBeEnabled();
 		fireEvent.click(reset);
 		expect(tl.resetLayoutSlotRects).toHaveBeenCalledWith("L1");
+	});
+
+	describe("screen + camera", () => {
+		const pip = (cams: number[]) => ({
+			template: "screen-pip" as const,
+			slots: cams.map((c) => ({ camera: c })),
+		});
+
+		it("shows one switch per camera, named like the Cameras section, instead of the selects", () => {
+			setup(pip([0]), [camera(0), camera(1), camera(2)]);
+			expect(screen.queryAllByRole("combobox")).toHaveLength(0);
+			expect(screen.getByText("settings.cameras.title")).toBeInTheDocument();
+			expect(screen.getByRole("button", { name: "Cam 1" })).toHaveAttribute("aria-pressed", "true");
+			expect(screen.getByRole("button", { name: "Cam 2" })).toHaveAttribute(
+				"aria-pressed",
+				"false",
+			);
+			expect(screen.getByRole("button", { name: "Cam 3" })).toHaveAttribute(
+				"aria-pressed",
+				"false",
+			);
+		});
+
+		it("switching a camera on writes the set with it added", () => {
+			const tl = setup(pip([2]), [camera(0), camera(1), camera(2)]);
+			fireEvent.click(screen.getByRole("button", { name: "Cam 1" }));
+			expect(tl.setSectionCameras).toHaveBeenCalledWith({ kind: "cameraLayout", id: "L1" }, [2, 0]);
+		});
+
+		it("switching a camera off writes the set without it", () => {
+			const tl = setup(pip([0, 1]), [camera(0), camera(1)]);
+			fireEvent.click(screen.getByRole("button", { name: "Cam 1" }));
+			expect(tl.setSectionCameras).toHaveBeenCalledWith({ kind: "cameraLayout", id: "L1" }, [1]);
+		});
+
+		it("the only camera on is locked, with the reason", () => {
+			setup(pip([1]), [camera(0), camera(1)]);
+			expect(screen.getByRole("button", { name: "Cam 2" })).toBeDisabled();
+			expect(screen.getByRole("button", { name: "Cam 1" })).toBeEnabled();
+			expect(screen.getByText("settings.layoutSection.minOneCamera")).toBeInTheDocument();
+		});
+
+		it("with three on, the others are locked, with the reason", () => {
+			setup(pip([0, 1, 2]), [camera(0), camera(1), camera(2), camera(3)]);
+			expect(screen.getByRole("button", { name: "Cam 4" })).toBeDisabled();
+			expect(screen.getByRole("button", { name: "Cam 1" })).toBeEnabled();
+			expect(screen.getByText("settings.layoutSection.maxThreeWindows")).toBeInTheDocument();
+			expect(screen.queryByText("settings.layoutSection.minOneCamera")).not.toBeInTheDocument();
+		});
+
+		it("with three on and no camera left off, the cap is not mentioned", () => {
+			setup(pip([0, 1, 2]), [camera(0), camera(1), camera(2)]);
+			expect(screen.queryByText("settings.layoutSection.maxThreeWindows")).not.toBeInTheDocument();
+		});
+
+		it("an unavailable camera that is off is locked", () => {
+			setup(pip([0]), [camera(0), camera(1, false)]);
+			expect(screen.getByRole("button", { name: "Cam 2" })).toBeDisabled();
+		});
+
+		it("an unavailable camera that is on can still be switched off", () => {
+			const tl = setup(pip([0, 1]), [camera(0), camera(1, false)]);
+			const cam2 = screen.getByRole("button", { name: "Cam 2" });
+			expect(cam2).toBeEnabled();
+			fireEvent.click(cam2);
+			expect(tl.setSectionCameras).toHaveBeenCalledWith({ kind: "cameraLayout", id: "L1" }, [0]);
+		});
+
+		it("side-by-side keeps the selects", () => {
+			setup({}, [camera(0), camera(1), camera(2)]);
+			expect(screen.getAllByRole("combobox")).toHaveLength(2);
+			expect(screen.queryByRole("button", { name: "Cam 1" })).not.toBeInTheDocument();
+		});
 	});
 });

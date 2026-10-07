@@ -12,8 +12,9 @@ import {
 	type LayoutTemplateBlock,
 	layoutTemplateBlock,
 } from "@/lib/ai-edition/timeline/layoutMenu";
+import { TEMPLATE_SLOTS } from "@/lib/cameraLayouts";
 import shell from "../NewEditorShell.module.css";
-import { ChoiceRow } from "../RightPanes";
+import { ChoiceRow, Toggle } from "../RightPanes";
 import { layoutTemplateIcon, layoutTemplateLabel } from "./layoutTemplateUi";
 import { PANE_BODY_STYLE, PANE_BUTTON, paneHeader, paneStack } from "./paneParts";
 
@@ -89,11 +90,84 @@ function placeLabel(
 	return ts(large ? "cameraLayout.placeLarge" : "cameraLayout.placeSmall", { n });
 }
 
+/**
+ * "Screen + camera" as one switch per camera: on = the camera has a window. The set is
+ * written whole, so the section keeps between one and three windows; the switches that
+ * would break that are locked, with the reason below.
+ */
+function SectionCameraSwitches({
+	region,
+	cameras,
+	onChange,
+}: {
+	region: CameraLayoutRegion;
+	cameras: ProjectCamera[];
+	onChange: (cameras: number[]) => void;
+}) {
+	const ts = useScopedT("settings");
+	const on = region.slots.map((slot) => slot.camera);
+	const { min, max } = TEMPLATE_SLOTS[region.template];
+	// A camera the section shows but the clip no longer has stays listed, so it can be switched off.
+	const rows = [
+		...cameras,
+		...on
+			.filter((index) => !cameras.some((c) => c.index === index))
+			.map((index) => ({
+				index,
+				label: ts("cameras.cameraN", { n: index + 1 }),
+				available: false,
+			})),
+	];
+	const atMin = on.length <= min;
+	// The cap is only worth saying while a camera that is off is held back by it.
+	const atMax = on.length >= max && rows.some((c) => !on.includes(c.index));
+	return paneStack(
+		ts("cameras.title"),
+		<>
+			{rows.map((camera) => {
+				const checked = on.includes(camera.index);
+				const locked = checked ? atMin : atMax || !camera.available;
+				return (
+					<div
+						key={camera.index}
+						style={{
+							display: "flex",
+							justifyContent: "space-between",
+							alignItems: "center",
+							gap: 12,
+						}}
+					>
+						<span>
+							{camera.available
+								? camera.label
+								: ts("cameraLayout.cameraUnavailable", { name: camera.label })}
+						</span>
+						<Toggle
+							checked={checked}
+							disabled={locked}
+							ariaLabel={camera.label}
+							onChange={(next) =>
+								onChange(next ? [...on, camera.index] : on.filter((c) => c !== camera.index))
+							}
+						/>
+					</div>
+				);
+			})}
+			{atMin || atMax ? (
+				<span style={{ fontSize: 12, color: "var(--muted)" }}>
+					{atMin ? ts("layoutSection.minOneCamera") : ts("layoutSection.maxThreeWindows")}
+				</span>
+			) : null}
+		</>,
+	);
+}
+
 export function LayoutSectionPane({
 	tl,
 	region,
 	cameras,
 	blockPreset,
+	setSectionCameras,
 	onClose,
 }: {
 	tl: Pick<
@@ -108,6 +182,8 @@ export function LayoutSectionPane({
 	/** The cameras of the clip the section sits on. */
 	cameras: ProjectCamera[];
 	blockPreset: boolean;
+	/** Writes the section's cameras as a set; the shell's queued writer. */
+	setSectionCameras: TimelineApi["setLayoutSectionCameras"];
 	onClose: () => void;
 }) {
 	const ts = useScopedT("settings");
@@ -138,47 +214,55 @@ export function LayoutSectionPane({
 						void tl.setLayoutTemplate(handle, template, available).then(followHandle)
 					}
 				/>
-				{region.slots.map((slot, index) => {
-					const label = placeLabel(ts, region.template, index);
-					const known = cameras.some((c) => c.index === slot.camera);
-					return (
-						// A place has no id of its own; its position is its identity.
-						<div key={index}>
-							{paneStack(
-								label,
-								<select
-									className={shell.control}
-									aria-label={label}
-									value={slot.camera}
-									onChange={(e) =>
-										void tl
-											.setLayoutSlotCamera(handle, index, Number(e.target.value))
-											.then(followHandle)
-									}
-								>
-									{cameras.map((camera) => (
-										<option
-											key={camera.index}
-											value={camera.index}
-											disabled={!camera.available && camera.index !== slot.camera}
-										>
-											{camera.available
-												? camera.label
-												: ts("cameraLayout.cameraUnavailable", { name: camera.label })}
-										</option>
-									))}
-									{known ? null : (
-										<option value={slot.camera} disabled>
-											{ts("cameraLayout.cameraUnavailable", {
-												name: ts("cameras.cameraN", { n: slot.camera + 1 }),
-											})}
-										</option>
-									)}
-								</select>,
-							)}
-						</div>
-					);
-				})}
+				{region.template === "screen-pip" ? (
+					<SectionCameraSwitches
+						region={region}
+						cameras={cameras}
+						onChange={(next) => void setSectionCameras(handle, next)}
+					/>
+				) : (
+					region.slots.map((slot, index) => {
+						const label = placeLabel(ts, region.template, index);
+						const known = cameras.some((c) => c.index === slot.camera);
+						return (
+							// A place has no id of its own; its position is its identity.
+							<div key={index}>
+								{paneStack(
+									label,
+									<select
+										className={shell.control}
+										aria-label={label}
+										value={slot.camera}
+										onChange={(e) =>
+											void tl
+												.setLayoutSlotCamera(handle, index, Number(e.target.value))
+												.then(followHandle)
+										}
+									>
+										{cameras.map((camera) => (
+											<option
+												key={camera.index}
+												value={camera.index}
+												disabled={!camera.available && camera.index !== slot.camera}
+											>
+												{camera.available
+													? camera.label
+													: ts("cameraLayout.cameraUnavailable", { name: camera.label })}
+											</option>
+										))}
+										{known ? null : (
+											<option value={slot.camera} disabled>
+												{ts("cameraLayout.cameraUnavailable", {
+													name: ts("cameras.cameraN", { n: slot.camera + 1 }),
+												})}
+											</option>
+										)}
+									</select>,
+								)}
+							</div>
+						);
+					})
+				)}
 				<button
 					type="button"
 					className={PANE_BUTTON}

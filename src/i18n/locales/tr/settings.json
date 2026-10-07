@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}} (kullanılamıyor)",
 		"resetWindows": "Pencereleri sıfırla"
 	},
+	"layoutSection": {
+		"minOneCamera": "En az bir kamera",
+		"maxThreeWindows": "En fazla üç pencere"
+	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}",
 		"cameraNamed": "Kamera {{n}} · {{label}}",

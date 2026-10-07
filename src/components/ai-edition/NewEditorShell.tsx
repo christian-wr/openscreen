@@ -380,6 +380,13 @@ export function NewEditorShell() {
 		(index: number | null) => enqueueTimelineWrite(() => setTimelineDeskCamera(index)),
 		[enqueueTimelineWrite, setTimelineDeskCamera],
 	);
+	// A layout section's camera switches ride it too: one write per switch, in order.
+	const setTimelineLayoutSectionCameras = tl.setLayoutSectionCameras;
+	const setLayoutSectionCamerasQueued = useCallback(
+		(handle: { kind: "cameraLayout"; id: string }, cameras: number[]) =>
+			enqueueTimelineWrite(() => setTimelineLayoutSectionCameras(handle, cameras)),
+		[enqueueTimelineWrite, setTimelineLayoutSectionCameras],
+	);
 
 	const promptUnsaved = useCallback(
 		(action: "close" | "new" | "open" | "record"): Promise<UnsavedChoice> => {
@@ -1704,6 +1711,7 @@ export function NewEditorShell() {
 								onOpenCalibration={openCalibration}
 								setCameraSettings={setCameraSettingsQueued}
 								setDeskCamera={setDeskCameraQueued}
+								setLayoutSectionCameras={setLayoutSectionCamerasQueued}
 							/>
 						</>
 					) : mode === "media" ? (

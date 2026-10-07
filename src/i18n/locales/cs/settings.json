@@ -472,6 +472,10 @@
 		"cameraUnavailable": "{{name}} (nedostupná)",
 		"resetWindows": "Obnovit okna"
 	},
+	"layoutSection": {
+		"minOneCamera": "Alespoň jedna kamera",
+		"maxThreeWindows": "Nejvýše tři okna"
+	},
 	"cameras": {
 		"cameraN": "Kamera {{n}}",
 		"cameraNamed": "Kamera {{n}} · {{label}}",
