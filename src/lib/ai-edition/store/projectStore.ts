@@ -418,11 +418,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 					// The desk camera picked in the HUD for this take, in the take's camera order --
 					// which is this asset's, so it is the project's camera index as well. Only for a
 					// project that has no desk camera yet (a choice made in the editor wins) and only
-					// for a camera that was actually linked.
+					// for a camera that was actually linked, in a take with at least two cameras.
 					const legacy = (document.legacyEditor as Record<string, unknown> | null) ?? null;
 					const deskCamera = camera.deskCamera;
 					const takeDesk =
 						deskCamera !== undefined &&
+						extras.length > 0 &&
 						Number.isInteger(deskCamera) &&
 						deskCamera >= 0 &&
 						deskCamera <= extras.length &&

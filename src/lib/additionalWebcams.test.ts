@@ -107,6 +107,26 @@ describe("deskCameraIndex", () => {
 		).toBeUndefined();
 	});
 
+	it("does not take a stale pick for camera 1 by name while another camera shares it", () => {
+		const brioPresent = [
+			{ deviceId: "brio-1", label: "Brio" },
+			{ deviceId: "brio-2", label: "Brio" },
+		];
+		// brio-2 is plugged in but not recorded; camera 1 (no id) could be either Brio.
+		expect(
+			deskCameraIndex({ id: "brio-2", name: "Brio" }, { id: null, name: "Brio" }, [], brioPresent),
+		).toBeUndefined();
+		// With brio-2 recorded as an extra, camera 1 can only be brio-1.
+		expect(
+			deskCameraIndex(
+				{ id: "brio-1", name: "Brio" },
+				{ id: null, name: "Brio" },
+				[{ id: "brio-2", name: "Brio" }],
+				brioPresent,
+			),
+		).toBe(0);
+	});
+
 	it("matches camera 1 by name when the live identity carries no id", () => {
 		// The HUD stores camera 1 under its enumerated id; a recorder that could not read the id
 		// off the track must still find it.
@@ -148,6 +168,10 @@ describe("nativeRequestCameraFields", () => {
 				camera1,
 			),
 		).toEqual({ additionalWebcams: [{ deviceId: "b", deviceName: "Cam B" }], deskCamera: 0 });
+	});
+
+	it("leaves the desk camera out of a take with camera 1 alone", () => {
+		expect(nativeRequestCameraFields([], { id: "a", name: "Cam A" }, present, camera1)).toEqual({});
 	});
 
 	it("leaves both keys out when there is nothing to add", () => {

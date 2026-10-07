@@ -406,6 +406,12 @@ describe("useProjectStore", () => {
 			expect(legacy?.deskCamera).toBe(0);
 		});
 
+		it("ignores a desk camera of a take without additional cameras", async () => {
+			const legacy = await addRecording({ deskCamera: 0, extras: 0 });
+
+			expect(legacy?.deskCamera).toBeUndefined();
+		});
+
 		it("ignores an index past the linked cameras", async () => {
 			const legacy = await addRecording({ deskCamera: 2, extras: 1 });
 
