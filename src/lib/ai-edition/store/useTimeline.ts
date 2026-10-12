@@ -14,6 +14,7 @@ import type {
 import { useScopedT } from "@/contexts/I18nContext";
 import { DEFAULT_TEXT_PLATE } from "../annotations/background";
 import { fitTextBox } from "../annotations/placement";
+import type { ClipRotation } from "../clipRotation";
 import {
 	collapseTracksToPills,
 	patchAudioTrack,
@@ -1210,6 +1211,9 @@ export function useTimeline() {
 	// section was never touched (leave the stored value alone); `null` clears it back to
 	// "no crop" (full frame) rather than storing the identity region explicitly.
 	//
+	// Rotation follows the same rule: `undefined` leaves the stored value, `0` removes the
+	// field, `180` sets it.
+	//
 	// The document is read from the store, not off the render closure, so this composes
 	// with `useSequentialTimelineOps`: queued behind another timeline write, it still sees
 	// what that write committed. Same reason as `setTrimEntries` / `insertClipAt`.
@@ -1219,11 +1223,12 @@ export function useTimeline() {
 			sourceStartSec: number,
 			sourceEndSec: number,
 			cropRegion?: AxcutClipCropRegion | null,
+			rotation?: ClipRotation,
 		) => {
 			const doc = useProjectStore.getState().document;
 			if (!doc) return;
 			const ranged = setClipSourceRange(doc, clipId, sourceStartSec, sourceEndSec);
-			const next: AxcutDocument =
+			const cropped: AxcutDocument =
 				cropRegion === undefined
 					? ranged
 					: {
@@ -1233,6 +1238,20 @@ export function useTimeline() {
 								clips: ranged.timeline.clips.map((c) =>
 									c.id === clipId ? { ...c, cropRegion: cropRegion ?? undefined } : c,
 								),
+							},
+						};
+			const next: AxcutDocument =
+				rotation === undefined
+					? cropped
+					: {
+							...cropped,
+							timeline: {
+								...cropped.timeline,
+								clips: cropped.timeline.clips.map((c) => {
+									if (c.id !== clipId) return c;
+									const { rotation: _old, ...rest } = c;
+									return rotation === 180 ? { ...rest, rotation: 180 as const } : rest;
+								}),
 							},
 						};
 			await saveDocument(next, { history: true });
