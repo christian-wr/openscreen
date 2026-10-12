@@ -1264,6 +1264,22 @@ export function useTimeline() {
 											: z,
 									)
 								: cropped.zoomRanges,
+							// A footage-space privacy blur must stay on what it hides, so it moves with
+							// that content. Frame-space annotations, text and figures do not turn. Clamped
+							// at 0 like `turnCropRegion`: a box flush against the far edge would turn to -5e-15.
+							annotations: turning
+								? cropped.annotations.map((a) =>
+										a.clipId === clipId && a.type === "blur" && a.space !== "frame"
+											? {
+													...a,
+													position: {
+														x: Math.max(0, 100 - a.position.x - a.size.width),
+														y: Math.max(0, 100 - a.position.y - a.size.height),
+													},
+												}
+											: a,
+									)
+								: cropped.annotations,
 						};
 			await saveDocument(next, { history: true });
 		},
