@@ -864,13 +864,15 @@ fn oriented_cursor(track: CursorTrack, turned: bool) -> CursorTrack {
 }
 
 /// Rereads the active clip's cursor telemetry when its key changed (another file, or the same
-/// file turned the other way) and hands it to the compositor. Returns whether it reread.
+/// file turned the other way) and hands it to the compositor already smoothed, so a paused
+/// preview never shows one unsmoothed frame. Returns whether it reread.
 fn reload_cursor_if_changed(
     comp: &Compositor,
     raw_cursor: &mut Option<CursorTrack>,
     loaded_cursor_path: &mut String,
     screen_path: &str,
     turned: bool,
+    smoothing: f32,
 ) -> bool {
     let key = cursor_key(screen_path, turned);
     if key == *loaded_cursor_path {
@@ -897,7 +899,7 @@ fn reload_cursor_if_changed(
     // curseur (`Compositor::resized`), et le relisser parcourt tout
     // l'enregistrement à chaque bascule d'un scrub.
     match raw_cursor {
-        Some(track) => comp.set_cursor(track.smoothed(0.0)),
+        Some(track) => comp.set_cursor(track.smoothed(smoothing)),
         None => comp.clear_cursor(),
     }
     true
@@ -1776,8 +1778,9 @@ unsafe fn render_thread(
                         &mut loaded_cursor_path,
                         &active_screen_path,
                         turned,
+                        ip.cursor_smoothing,
                     ) {
-                        last_smoothing = -1.0;
+                        last_smoothing = ip.cursor_smoothing;
                     }
                     clip_changed = true;
                 }
@@ -1857,8 +1860,9 @@ unsafe fn render_thread(
                 &mut loaded_cursor_path,
                 &active_screen_path,
                 turned,
+                ip.cursor_smoothing,
             ) {
-                last_smoothing = -1.0;
+                last_smoothing = ip.cursor_smoothing;
             }
         }
         // Le temps programme dépend du clip actif ET de la scène entière (durées des clips
